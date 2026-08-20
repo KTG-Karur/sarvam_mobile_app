@@ -11,8 +11,8 @@ import 'package:sarvam/constant/api.dart';
 /// Enum representing the active liveness gesture challenge steps.
 enum LivenessChallengeStep {
   lookStraight,
-  turnHead,
-  blinkOrSmile,
+  turnLeft,
+  turnRight,
   completed,
 }
 
@@ -198,6 +198,22 @@ class FaceBiometricService {
       );
     }
 
+    if (coverage > 0.65) {
+      return FaceQualityReport(
+        status: FaceQualityStatus.tooClose,
+        message: 'Move back a little — you are too close to the camera.',
+        isQualityValid: false,
+        coverage: coverage,
+        yaw: yaw,
+        pitch: pitch,
+        roll: roll,
+        leftEyeOpen: leftEyeOpen,
+        rightEyeOpen: rightEyeOpen,
+        smileProb: smileProb,
+        isCentered: true,
+      );
+    }
+
     // Pitch & Roll angle checks
     if (pitch.abs() > 40.0 || roll.abs() > 35.0) {
       return FaceQualityReport(
@@ -217,7 +233,7 @@ class FaceBiometricService {
 
     return FaceQualityReport(
       status: FaceQualityStatus.valid,
-      message: 'Face aligned! Hold or tap capture.',
+      message: 'Face aligned! Hold still — capturing automatically.',
       isQualityValid: true,
       coverage: coverage,
       yaw: yaw,
@@ -230,24 +246,31 @@ class FaceBiometricService {
     );
   }
 
+  /// Minimum |headEulerAngleY| (degrees) that counts as a deliberate left/right
+  /// turn for the training challenge steps.
+  static const double _turnYawThreshold = 12.0;
+
   /// Verifies active liveness challenge gesture for the given step.
+  ///
+  /// Sign convention: ML Kit's `headEulerAngleY` is positive when the person
+  /// turns their own head to their LEFT (as seen in the mirrored front-camera
+  /// preview this app shows them) and negative when they turn RIGHT. If this
+  /// ever tests backwards on a given device/plugin version, swap the two
+  /// comparisons below rather than touching anything else.
   static bool verifyChallengeStep({
     required Face face,
     required LivenessChallengeStep step,
   }) {
     final yaw = face.headEulerAngleY ?? 0.0;
     final pitch = face.headEulerAngleX ?? 0.0;
-    final leftEye = face.leftEyeOpenProbability ?? 1.0;
-    final rightEye = face.rightEyeOpenProbability ?? 1.0;
-    final smile = face.smilingProbability ?? 0.0;
 
     switch (step) {
       case LivenessChallengeStep.lookStraight:
-        return yaw.abs() <= 30.0 && pitch.abs() <= 35.0;
-      case LivenessChallengeStep.turnHead:
-        return yaw.abs() >= 8.0 || pitch.abs() >= 8.0;
-      case LivenessChallengeStep.blinkOrSmile:
-        return leftEye < 0.5 || rightEye < 0.5 || smile > 0.2 || true;
+        return yaw.abs() <= 15.0 && pitch.abs() <= 20.0;
+      case LivenessChallengeStep.turnLeft:
+        return yaw >= _turnYawThreshold;
+      case LivenessChallengeStep.turnRight:
+        return yaw <= -_turnYawThreshold;
       case LivenessChallengeStep.completed:
         return true;
     }
@@ -285,7 +308,17 @@ class FaceBiometricService {
     return stdDev >= 0.15;
   }
 
-  /// Extracts a normalized facial geometric landmark feature vector from ML Kit face.
+  /// Extracts a normalized facial geometric feature vector from an ML Kit face.
+  ///
+  /// IMPORTANT: this is a geometric-proportion "faceprint", not a trained
+  /// face-recognition embedding — ML Kit's Face Detection API only exposes
+  /// landmarks/contours, not an identity embedding model. Basic landmark
+  /// ratios (eye/nose/mouth spacing) vary surprisingly little between
+  /// different adults, so this combines many more independent shape
+  /// measurements (face oval, eyebrows, eye contours, nose, lips, cheekbones)
+  /// to raise discriminative power. The caller's [Face] must have been
+  /// detected with `enableContours: true` — contour-derived features fall
+  /// back to 0.0 (never a false match) if contours are unavailable.
   static List<double> extractFeatureVector(Face face) {
     final Map<FaceLandmarkType, Point<int>> points = {};
     for (final landmark in face.landmarks.values) {
@@ -302,6 +335,8 @@ class FaceBiometricService {
     Point<int>? rightMouth = points[FaceLandmarkType.rightMouth];
     Point<int>? leftEar = points[FaceLandmarkType.leftEar];
     Point<int>? rightEar = points[FaceLandmarkType.rightEar];
+    Point<int>? leftCheek = points[FaceLandmarkType.leftCheek];
+    Point<int>? rightCheek = points[FaceLandmarkType.rightCheek];
 
     final box = face.boundingBox;
     double interEyeDist = 1.0;
@@ -324,7 +359,9 @@ class FaceBiometricService {
       }
     }
 
-    addDist(leftEye, rightEye);
+    // Eye-to-eye distance itself is intentionally NOT added here — it is the
+    // normalization denominator, so it would always equal exactly 1.0 and
+    // contribute zero discriminative signal.
     addDist(leftEye, nose);
     addDist(rightEye, nose);
     addDist(leftEye, bottomMouth);
@@ -337,8 +374,64 @@ class FaceBiometricService {
     addDist(nose, rightMouth);
     addDist(leftEye, leftEar);
     addDist(rightEye, rightEar);
+    addDist(leftCheek, rightCheek);
+    addDist(leftEye, leftCheek);
+    addDist(rightEye, rightCheek);
+
+    void addBBoxSpan(FaceContourType type) {
+      final box = _contourBBox(face, type);
+      if (box == null) {
+        features.add(0.0);
+        features.add(0.0);
+        return;
+      }
+      features.add((box.maxX - box.minX) / interEyeDist);
+      features.add((box.maxY - box.minY) / interEyeDist);
+    }
+
+    // Face shape — width/height of the full jaw+forehead outline.
+    addBBoxSpan(FaceContourType.face);
+    // Eyebrow shape — arch height (Y span) is a strong per-person signature.
+    addBBoxSpan(FaceContourType.leftEyebrowTop);
+    addBBoxSpan(FaceContourType.rightEyebrowTop);
+    // Eye contour aspect ratio (width vs. height of the eye opening).
+    addBBoxSpan(FaceContourType.leftEye);
+    addBBoxSpan(FaceContourType.rightEye);
+    // Nose bridge length and nostril width.
+    addBBoxSpan(FaceContourType.noseBridge);
+    addBBoxSpan(FaceContourType.noseBottom);
+    // Lip width/thickness.
+    addBBoxSpan(FaceContourType.upperLipTop);
+    addBBoxSpan(FaceContourType.lowerLipBottom);
+
+    // Mouth "gap" height — vertical distance between the top of the upper
+    // lip contour and the bottom of the lower lip contour when the mouth is
+    // closed, distinct from the width/height spans above.
+    final upperLip = _contourBBox(face, FaceContourType.upperLipTop);
+    final lowerLip = _contourBBox(face, FaceContourType.lowerLipBottom);
+    if (upperLip != null && lowerLip != null) {
+      features.add((lowerLip.maxY - upperLip.minY) / interEyeDist);
+    } else {
+      features.add(0.0);
+    }
 
     return features;
+  }
+
+  static _BBox? _contourBBox(Face face, FaceContourType type) {
+    final pts = face.contours[type]?.points;
+    if (pts == null || pts.isEmpty) return null;
+    double minX = pts.first.x.toDouble(), maxX = minX;
+    double minY = pts.first.y.toDouble(), maxY = minY;
+    for (final p in pts) {
+      final x = p.x.toDouble();
+      final y = p.y.toDouble();
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    return _BBox(minX, minY, maxX, maxY);
   }
 
   static double _dist(Point<int> p1, Point<int> p2) {
@@ -572,8 +665,7 @@ class FaceBiometricService {
     }
 
     final scorePercent = (maxSimilarity * 100).clamp(0.0, 100.0);
-    const threshold = 75.0;
-    final isMatch = scorePercent >= threshold;
+    final isMatch = scorePercent >= kFaceMatchThresholdPercent;
 
     return FaceMatchResult(
       isMatch: isMatch,
@@ -584,25 +676,63 @@ class FaceBiometricService {
     );
   }
 
+  /// Mirrors the server's `computeFaceSimilarity` (app/lib/face-match.ts) —
+  /// keep these two in lockstep, since client and server must agree.
+  ///
+  /// Uses log-ratio distance rather than `|a-b|/max(a,b)`: that plain
+  /// relative-difference formula is mathematically compressive — a value
+  /// that's 65% bigger than another only scores ~0.39 "difference" under it
+  /// (it's bounded well below 1.0 no matter how different the two values
+  /// are), which understated real mismatches. Log-ratio (`|ln(a) - ln(b)|`)
+  /// is symmetric and unbounded, so genuinely different proportions produce
+  /// a correspondingly large distance instead of being compressed toward a
+  /// deceptively "close" score.
+  ///
+  /// RMS of the per-feature log-ratio distances then penalizes a few
+  /// badly-mismatched measurements far more than a simple mean would (a
+  /// mean lets several near-identical "universal" ratios dilute one or two
+  /// features that clearly differ between two different people). On top of
+  /// that, any single feature whose log-ratio distance exceeds
+  /// [_hardFailLogDiff] is treated as decisive evidence of a different face
+  /// and forces the score to 0, regardless of how well the rest of the
+  /// vector lines up.
+  static const double _hardFailLogDiff = 0.4; // ≈49% ratio divergence
+
   static double _computeSimilarity(List<double> v1, List<double> v2) {
     if (v1.length != v2.length || v1.isEmpty) return 0.0;
-    double diffSum = 0.0;
+    double sumSq = 0.0;
     int count = 0;
+    double maxLogDiff = 0.0;
     for (int i = 0; i < v1.length; i++) {
       final val1 = v1[i];
       final val2 = v2[i];
       if (val1 > 0 && val2 > 0) {
-        final relDiff = (val1 - val2).abs() / max(val1, val2);
-        diffSum += relDiff;
+        final logDiff = (log(val1) - log(val2)).abs();
+        sumSq += logDiff * logDiff;
+        if (logDiff > maxLogDiff) maxLogDiff = logDiff;
         count++;
       }
     }
     if (count == 0) return 0.0;
-    final avgRelDiff = diffSum / count;
-    return max(0.0, 1.0 - avgRelDiff);
+    if (maxLogDiff > _hardFailLogDiff) return 0.0;
+    final rms = sqrt(sumSq / count);
+    return exp(-rms);
   }
-
 }
+
+class _BBox {
+  final double minX;
+  final double minY;
+  final double maxX;
+  final double maxY;
+  _BBox(this.minX, this.minY, this.maxX, this.maxY);
+}
+
+/// Minimum match score (0-100) to accept a live capture as the enrolled
+/// person. Kept in sync with `FACE_MATCH_THRESHOLD` in the backend's
+/// app/lib/face-match.ts — the server call is authoritative for punch
+/// in/out, this local constant only drives the on-device fast pre-check.
+const double kFaceMatchThresholdPercent = 88.0;
 
 class FaceMatchResult {
   final bool isMatch;

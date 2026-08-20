@@ -1,10 +1,18 @@
+import 'dart:async';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:camera/camera.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import 'package:sarvam/services/face_biometric_service.dart';
 
-/// Screen / Modal for capturing face photos.
-/// Guarantees that the FRONT camera is selected by default on all Android & iOS devices.
+/// Live front-camera face scanner. Automatically captures a photo the
+/// instant a well-aligned, live (non-photo) face is held steady inside the
+/// oval guide — there is no manual shutter button, so a spoofed photo held
+/// up to the camera can't be "clicked" through by a impatient tap.
 class FrontCameraCaptureScreen extends StatefulWidget {
   const FrontCameraCaptureScreen({
     super.key,
@@ -27,19 +35,40 @@ class _FrontCameraCaptureScreenState extends State<FrontCameraCaptureScreen>
   int _selectedCameraIndex = -1;
   bool _isInitializing = true;
   bool _isCapturing = false;
+  bool _isProcessingFrame = false;
   String? _errorMessage;
+
+  late final FaceDetector _faceDetector;
+  final List<Face> _recentFrames = [];
+  FaceQualityReport? _latestReport;
+  DateTime? _poseHoldStartTime;
+  double _holdProgress = 0.0;
+  DateTime? _lastFrameProcessingTime;
+
+  static const int _holdMillis = 400;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _faceDetector = FaceDetector(
+      options: FaceDetectorOptions(
+        performanceMode: FaceDetectorMode.accurate,
+        enableLandmarks: true,
+        enableContours: true,
+        enableClassification: true,
+        enableTracking: true,
+      ),
+    );
     _initCamera();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _stopImageStream();
     _controller?.dispose();
+    _faceDetector.close();
     super.dispose();
   }
 
@@ -50,6 +79,7 @@ class _FrontCameraCaptureScreenState extends State<FrontCameraCaptureScreen>
       return;
     }
     if (state == AppLifecycleState.inactive) {
+      _stopImageStream();
       cameraController.dispose();
     } else if (state == AppLifecycleState.resumed) {
       _initCamera();
@@ -77,11 +107,7 @@ class _FrontCameraCaptureScreenState extends State<FrontCameraCaptureScreen>
         (cam) => cam.lensDirection == CameraLensDirection.front,
       );
 
-      if (frontCameraIndex != -1) {
-        _selectedCameraIndex = frontCameraIndex;
-      } else {
-        _selectedCameraIndex = 0; // Fallback if front camera not reported
-      }
+      _selectedCameraIndex = frontCameraIndex != -1 ? frontCameraIndex : 0;
 
       await _setupController(_cameras[_selectedCameraIndex]);
     } catch (e) {
@@ -99,18 +125,20 @@ class _FrontCameraCaptureScreenState extends State<FrontCameraCaptureScreen>
       cameraDescription,
       ResolutionPreset.high,
       enableAudio: false,
-      imageFormatGroup: ImageFormatGroup.jpeg,
+      imageFormatGroup: Platform.isAndroid
+          ? ImageFormatGroup.nv21
+          : ImageFormatGroup.bgra8888,
     );
 
     _controller = controller;
 
     try {
       await controller.initialize();
-      if (mounted) {
-        setState(() {
-          _isInitializing = false;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _isInitializing = false;
+      });
+      _startImageStream();
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -124,8 +152,11 @@ class _FrontCameraCaptureScreenState extends State<FrontCameraCaptureScreen>
   Future<void> _switchCamera() async {
     if (_cameras.length < 2 || _controller == null) return;
 
+    _stopImageStream();
     setState(() {
       _isInitializing = true;
+      _poseHoldStartTime = null;
+      _holdProgress = 0.0;
     });
 
     _selectedCameraIndex = (_selectedCameraIndex + 1) % _cameras.length;
@@ -133,7 +164,129 @@ class _FrontCameraCaptureScreenState extends State<FrontCameraCaptureScreen>
     await _setupController(_cameras[_selectedCameraIndex]);
   }
 
-  Future<void> _capturePhoto() async {
+  void _startImageStream() {
+    if (_controller == null || !_controller!.value.isInitialized) return;
+    _controller!.startImageStream(_processCameraFrame);
+  }
+
+  void _stopImageStream() {
+    if (_controller != null && _controller!.value.isStreamingImages) {
+      try {
+        _controller!.stopImageStream();
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _processCameraFrame(CameraImage image) async {
+    if (_isProcessingFrame || _isCapturing) return;
+
+    final now = DateTime.now();
+    if (_lastFrameProcessingTime != null &&
+        now.difference(_lastFrameProcessingTime!).inMilliseconds < 180) {
+      return;
+    }
+    _lastFrameProcessingTime = now;
+    _isProcessingFrame = true;
+
+    try {
+      final inputImage = _inputImageFromCameraImage(image);
+      if (inputImage == null) {
+        _isProcessingFrame = false;
+        return;
+      }
+
+      final faces = await _faceDetector.processImage(inputImage);
+      if (!mounted) return;
+
+      final screenSize = MediaQuery.of(context).size;
+      final ovalBounds = Rect.fromCenter(
+        center: Offset(screenSize.width / 2, screenSize.height * 0.42),
+        width: 280.w,
+        height: 340.h,
+      );
+
+      final Face? primaryFace = faces.isNotEmpty ? faces.first : null;
+
+      final report = FaceBiometricService.evaluateRealTimeQuality(
+        face: primaryFace,
+        totalFacesFound: faces.length,
+        imageWidth: image.width.toDouble(),
+        imageHeight: image.height.toDouble(),
+        ovalBounds: ovalBounds,
+      );
+
+      if (primaryFace != null) {
+        _recentFrames.add(primaryFace);
+        if (_recentFrames.length > 12) _recentFrames.removeAt(0);
+      }
+
+      final isLive = FaceBiometricService.checkPassiveMicroMovementLiveness(
+        _recentFrames,
+      );
+
+      if (report.isQualityValid && isLive) {
+        if (_poseHoldStartTime == null) {
+          _poseHoldStartTime = DateTime.now();
+        } else {
+          final elapsedMs = DateTime.now()
+              .difference(_poseHoldStartTime!)
+              .inMilliseconds;
+          final progress = (elapsedMs / _holdMillis).clamp(0.0, 1.0);
+          setState(() => _holdProgress = progress);
+
+          if (progress >= 1.0 && !_isCapturing) {
+            _autoCapture();
+          }
+        }
+      } else {
+        _poseHoldStartTime = null;
+        if (_holdProgress != 0) setState(() => _holdProgress = 0.0);
+      }
+
+      setState(() => _latestReport = report);
+    } catch (e) {
+      if (kDebugMode) print('Frame processing error: $e');
+    } finally {
+      _isProcessingFrame = false;
+    }
+  }
+
+  InputImage? _inputImageFromCameraImage(CameraImage image) {
+    if (_controller == null) return null;
+    final camera = _controller!.description;
+
+    final sensorOrientation = camera.sensorOrientation;
+    InputImageRotation? rotation;
+    if (Platform.isIOS) {
+      rotation = InputImageRotationValue.fromRawValue(sensorOrientation);
+    } else if (Platform.isAndroid) {
+      rotation = InputImageRotationValue.fromRawValue(sensorOrientation);
+    }
+    if (rotation == null) return null;
+
+    final format = InputImageFormatValue.fromRawValue(image.format.raw);
+    if (format == null) return null;
+
+    if (image.planes.isEmpty) return null;
+
+    final WriteBuffer allBytes = WriteBuffer();
+    for (final Plane plane in image.planes) {
+      allBytes.putUint8List(plane.bytes);
+    }
+    final bytes = allBytes.done().buffer.asUint8List();
+
+    return InputImage.fromBytes(
+      bytes: bytes,
+      metadata: InputImageMetadata(
+        size: Size(image.width.toDouble(), image.height.toDouble()),
+        rotation: rotation,
+        format: format,
+        bytesPerRow: image.planes[0].bytesPerRow,
+      ),
+    );
+  }
+
+  Future<void> _autoCapture() async {
     if (_controller == null ||
         !_controller!.value.isInitialized ||
         _isCapturing) {
@@ -141,6 +294,8 @@ class _FrontCameraCaptureScreenState extends State<FrontCameraCaptureScreen>
     }
 
     setState(() => _isCapturing = true);
+    _stopImageStream();
+    HapticFeedback.mediumImpact();
 
     try {
       final XFile photoFile = await _controller!.takePicture();
@@ -160,10 +315,21 @@ class _FrontCameraCaptureScreenState extends State<FrontCameraCaptureScreen>
             backgroundColor: Colors.redAccent,
           ),
         );
+        setState(() => _isCapturing = false);
+        _startImageStream();
       }
-    } finally {
-      if (mounted) setState(() => _isCapturing = false);
     }
+  }
+
+  Color get _statusBorderColor {
+    if (_latestReport == null) return Colors.white54;
+    if (_latestReport!.isQualityValid) return const Color(0xFF00C853);
+    if (_latestReport!.status == FaceQualityStatus.offCenter ||
+        _latestReport!.status == FaceQualityStatus.tooFar ||
+        _latestReport!.status == FaceQualityStatus.tooClose) {
+      return const Color(0xFFFFB300);
+    }
+    return const Color(0xFFFF3D00);
   }
 
   @override
@@ -247,16 +413,15 @@ class _FrontCameraCaptureScreenState extends State<FrontCameraCaptureScreen>
                               child: CameraPreview(_controller!),
                             ),
                           ),
-                          Container(
-                            width: 280.w,
-                            height: 340.h,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.all(
-                                Radius.elliptical(140.w, 170.h),
-                              ),
-                              border: Border.all(
-                                color: const Color(0xFF008A3D),
-                                width: 3.5,
+                          IgnorePointer(
+                            child: SizedBox(
+                              width: 280.w,
+                              height: 340.h,
+                              child: CustomPaint(
+                                painter: _CaptureRingPainter(
+                                  borderColor: _statusBorderColor,
+                                  progress: _holdProgress,
+                                ),
                               ),
                             ),
                           ),
@@ -264,9 +429,10 @@ class _FrontCameraCaptureScreenState extends State<FrontCameraCaptureScreen>
                       ),
               ),
             ),
-            Container(
-              padding: EdgeInsets.symmetric(vertical: 24.h),
+            Padding(
+              padding: EdgeInsets.symmetric(vertical: 24.h, horizontal: 24.w),
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -306,37 +472,17 @@ class _FrontCameraCaptureScreenState extends State<FrontCameraCaptureScreen>
                       ),
                     ],
                   ),
-                  SizedBox(height: 20.h),
-                  GestureDetector(
-                    onTap:
-                        _isInitializing || _isCapturing ? null : _capturePhoto,
-                    child: Container(
-                      width: 76.w,
-                      height: 76.w,
-                      padding: EdgeInsets.all(4.w),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 4),
-                      ),
-                      child: Container(
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF008A3D),
-                          shape: BoxShape.circle,
-                        ),
-                        child: _isCapturing
-                            ? const Padding(
-                                padding: EdgeInsets.all(18),
-                                child: CircularProgressIndicator(
-                                  color: Colors.white,
-                                  strokeWidth: 3,
-                                ),
-                              )
-                            : Icon(
-                                Icons.camera_alt_rounded,
-                                color: Colors.white,
-                                size: 32.sp,
-                              ),
-                      ),
+                  SizedBox(height: 12.h),
+                  Text(
+                    _isCapturing
+                        ? 'Capturing…'
+                        : (_latestReport?.message ??
+                              'Hold your face steady inside the frame — it captures automatically.'),
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: 12.sp,
+                      fontWeight: FontWeight.w600,
+                      color: _isCapturing ? Colors.white : _statusBorderColor,
                     ),
                   ),
                 ],
@@ -346,5 +492,43 @@ class _FrontCameraCaptureScreenState extends State<FrontCameraCaptureScreen>
         ),
       ),
     );
+  }
+}
+
+/// Glowing capture-ring with a progress arc that fills as the auto-capture
+/// hold timer elapses, replacing the old manual shutter button.
+class _CaptureRingPainter extends CustomPainter {
+  final Color borderColor;
+  final double progress;
+
+  _CaptureRingPainter({required this.borderColor, required this.progress});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Rect.fromLTWH(0, 0, size.width, size.height).deflate(2);
+
+    final borderPaint = Paint()
+      ..color = borderColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.5;
+    canvas.drawOval(rect, borderPaint);
+
+    if (progress > 0.0) {
+      final progressPaint = Paint()
+        ..color = const Color(0xFF00C853)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 6.0
+        ..strokeCap = StrokeCap.round;
+
+      const startAngle = -3.14159 / 2;
+      final sweepAngle = 2 * 3.14159 * progress;
+      canvas.drawArc(rect, startAngle, sweepAngle, false, progressPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CaptureRingPainter oldDelegate) {
+    return oldDelegate.borderColor != borderColor ||
+        oldDelegate.progress != progress;
   }
 }
