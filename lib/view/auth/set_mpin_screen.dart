@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/view/auth/face_training_screen.dart';
 
 class SetMpinScreen extends StatefulWidget {
@@ -92,12 +93,22 @@ class _SetMpinScreenState extends State<SetMpinScreen> {
       return;
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('mpin', mpin);
-    await prefs.setBool('faceEnrollmentCompleted', false);
+    final AuthController authController = Get.isRegistered<AuthController>()
+        ? Get.find<AuthController>()
+        : Get.put(AuthController());
 
-    // MPIN set - navigate to Face Training
-    Get.off(() => const FaceTrainingScreen());
+    final bool success = await authController.setupMpin(
+      mpin: mpin,
+      confirmMpin: confirm,
+    );
+
+    if (success) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('faceEnrollmentCompleted', false);
+
+      // MPIN set - navigate to Face Training
+      Get.off(() => const FaceTrainingScreen());
+    }
   }
 
   @override

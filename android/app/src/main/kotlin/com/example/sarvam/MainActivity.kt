@@ -1,4 +1,4 @@
-package com.nidhimfi.sarvam
+package com.example.sarvam
 
 import io.flutter.embedding.android.FlutterActivity
 

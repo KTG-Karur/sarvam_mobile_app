@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/view/auth/otp_screen.dart';
 
@@ -13,10 +14,35 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final AuthController _authController = Get.put(AuthController());
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _employeeIdController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _isPasswordVisible = false;
   bool _rememberMe = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedCredentials();
+  }
+
+  Future<void> _loadSavedCredentials() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final bool rememberMe = prefs.getBool('rememberMe') ?? false;
+      if (rememberMe) {
+        final String? savedEmployeeId = prefs.getString('savedEmployeeId');
+        if (savedEmployeeId != null && savedEmployeeId.isNotEmpty) {
+          setState(() {
+            _employeeIdController.text = savedEmployeeId;
+            _rememberMe = true;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading saved credentials: $e');
+    }
+  }
 
   @override
   void dispose() {
@@ -26,22 +52,10 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleLogin() async {
-    if (_employeeIdController.text.trim().isEmpty) {
+    if (!_formKey.currentState!.validate()) {
       Get.snackbar(
-        'Required',
-        'Please enter your Employee ID',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.redAccent,
-        colorText: Colors.white,
-        margin: EdgeInsets.all(16.w),
-        borderRadius: 8.r,
-      );
-      return;
-    }
-    if (_passwordController.text.trim().isEmpty) {
-      Get.snackbar(
-        'Required',
-        'Please enter your password',
+        'Required Fields Missing',
+        'Please enter all required fields.',
         snackPosition: SnackPosition.BOTTOM,
         backgroundColor: Colors.redAccent,
         colorText: Colors.white,
@@ -51,12 +65,26 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
+    final String empId = _employeeIdController.text.trim();
+    final String password = _passwordController.text.trim();
+
+    final String deviceId = await _authController.getOrCreateDeviceId();
+
     final bool success = await _authController.login(
-      employeeId: _employeeIdController.text.trim(),
-      password: _passwordController.text.trim(),
+      employeeId: empId,
+      password: password,
+      deviceId: deviceId,
     );
 
     if (success) {
+      final prefs = await SharedPreferences.getInstance();
+      if (_rememberMe) {
+        await prefs.setBool('rememberMe', true);
+        await prefs.setString('savedEmployeeId', empId);
+      } else {
+        await prefs.setBool('rememberMe', false);
+        await prefs.remove('savedEmployeeId');
+      }
       Get.to(() => const OtpScreen());
     }
   }
@@ -78,176 +106,219 @@ class _LoginScreenState extends State<LoginScreen> {
                 physics: const ClampingScrollPhysics(),
                 child: Padding(
                   padding: EdgeInsets.symmetric(horizontal: 28.w),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(height: 50.h),
+                  child: Form(
+                    key: _formKey,
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(height: 50.h),
 
-                      Center(
-                        child: Image.asset(
-                          'assets/icon/Sarvam_01.png',
-                          height: 75.h,
-                          fit: BoxFit.contain,
+                        Center(
+                          child: Image.asset(
+                            'assets/icon/Sarvam_01.png',
+                            height: 75.h,
+                            fit: BoxFit.contain,
+                          ),
                         ),
-                      ),
-                      SizedBox(height: 16.h),
+                        SizedBox(height: 16.h),
 
-                      // Welcome Back Text
-                      Center(
-                        child: Text(
-                          'WELCOME BACK!',
+                        // Welcome Back Text
+                        Center(
+                          child: Text(
+                            'WELCOME BACK!',
+                            style: TextStyle(
+                              fontSize: 28.sp,
+                              fontWeight: FontWeight.w800,
+                              color: const Color(0xFF0F172A),
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+
+                        SizedBox(height: 6.h),
+
+                        // Instructions Subtext
+                        Center(
+                          child: Text(
+                            'Sign in to continue',
+                            style: TextStyle(
+                              fontSize: 15.sp,
+                              color: const Color(0xFF64748B),
+                            ),
+                          ),
+                        ),
+
+                        SizedBox(height: 36.h),
+
+                        // Employee ID Field Label
+                        Text(
+                          'EMPLOYEE ID',
                           style: TextStyle(
-                            fontSize: 28.sp,
-                            fontWeight: FontWeight.w800,
-                            color: const Color(0xFF0F172A),
+                            fontSize: 12.sp,
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFF64748B),
                             letterSpacing: 0.5,
                           ),
                         ),
-                      ),
 
-                      SizedBox(height: 6.h),
+                        SizedBox(height: 8.h),
 
-                      // Instructions Subtext
-                      Center(
-                        child: Text(
-                          'Sign in to continue',
-                          style: TextStyle(
-                            fontSize: 15.sp,
-                            color: const Color(0xFF64748B),
-                          ),
-                        ),
-                      ),
-
-                      SizedBox(height: 36.h),
-
-                      // Employee ID Field Label
-                      Text(
-                        'EMPLOYEE ID',
-                        style: TextStyle(
-                          fontSize: 12.sp,
-                          fontWeight: FontWeight.bold,
-                          color: const Color(0xFF64748B),
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-
-                      SizedBox(height: 8.h),
-
-                      // Employee ID Input Field
-                      TextFormField(
-                        controller: _employeeIdController,
-                        style: TextStyle(fontSize: 15.sp),
-                        decoration: InputDecoration(
-                          prefixIcon: Icon(
-                            Icons.badge_outlined,
-                            color: const Color(0xFF64748B),
-                            size: 20.sp,
-                          ),
-                          hintText: 'Enter your Employee ID',
-                          hintStyle: TextStyle(
-                            color: const Color(0xFF94A3B8),
-                            fontSize: 14.sp,
-                          ),
-                          filled: true,
-                          fillColor: const Color(0xFFF8F9FA),
-                          contentPadding: EdgeInsets.symmetric(
-                            vertical: 16.h,
-                            horizontal: 16.w,
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12.r),
-                            borderSide: const BorderSide(
-                              color: Color(0xFFE2E8F0),
-                            ),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12.r),
-                            borderSide: const BorderSide(
-                              color: Color(0xFFE2E8F0),
-                            ),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12.r),
-                            borderSide: const BorderSide(
-                              color: Color(0xFF0D6842),
-                              width: 1.5,
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      SizedBox(height: 24.h),
-
-                      // Password Field Label
-                      Text(
-                        'PASSWORD',
-                        style: TextStyle(
-                          fontSize: 12.sp,
-                          fontWeight: FontWeight.bold,
-                          color: const Color(0xFF64748B),
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-
-                      SizedBox(height: 8.h),
-
-                      // Password Input Field
-                      TextFormField(
-                        controller: _passwordController,
-                        obscureText: !_isPasswordVisible,
-                        style: TextStyle(fontSize: 15.sp),
-                        decoration: InputDecoration(
-                          prefixIcon: Icon(
-                            Icons.lock_outline,
-                            color: const Color(0xFF64748B),
-                            size: 20.sp,
-                          ),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _isPasswordVisible
-                                  ? Icons.visibility_outlined
-                                  : Icons.visibility_off_outlined,
-                              color: const Color(0xFF0D6842),
+                        // Employee ID Input Field
+                        TextFormField(
+                          controller: _employeeIdController,
+                          style: TextStyle(fontSize: 15.sp),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Employee ID is required';
+                            }
+                            return null;
+                          },
+                          decoration: InputDecoration(
+                            prefixIcon: Icon(
+                              Icons.badge_outlined,
+                              color: const Color(0xFF64748B),
                               size: 20.sp,
                             ),
-                            onPressed: () {
-                              setState(() {
-                                _isPasswordVisible = !_isPasswordVisible;
-                              });
-                            },
-                          ),
-                          hintText: 'Enter your password',
-                          hintStyle: TextStyle(
-                            color: const Color(0xFF94A3B8),
-                            fontSize: 14.sp,
-                          ),
-                          filled: true,
-                          fillColor: const Color(0xFFF8F9FA),
-                          contentPadding: EdgeInsets.symmetric(
-                            vertical: 16.h,
-                            horizontal: 16.w,
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12.r),
-                            borderSide: const BorderSide(
-                              color: Color(0xFFE2E8F0),
+                            hintText: 'Enter your Employee ID',
+                            hintStyle: TextStyle(
+                              color: const Color(0xFF94A3B8),
+                              fontSize: 14.sp,
                             ),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12.r),
-                            borderSide: const BorderSide(
-                              color: Color(0xFFE2E8F0),
+                            filled: true,
+                            fillColor: const Color(0xFFF8F9FA),
+                            contentPadding: EdgeInsets.symmetric(
+                              vertical: 16.h,
+                              horizontal: 16.w,
                             ),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12.r),
-                            borderSide: const BorderSide(
-                              color: Color(0xFF0D6842),
-                              width: 1.5,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12.r),
+                              borderSide: const BorderSide(
+                                color: Color(0xFFE2E8F0),
+                              ),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12.r),
+                              borderSide: const BorderSide(
+                                color: Color(0xFFE2E8F0),
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12.r),
+                              borderSide: const BorderSide(
+                                color: Color(0xFF0D6842),
+                                width: 1.5,
+                              ),
+                            ),
+                            errorBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12.r),
+                              borderSide: const BorderSide(
+                                color: Colors.redAccent,
+                                width: 1.5,
+                              ),
+                            ),
+                            focusedErrorBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12.r),
+                              borderSide: const BorderSide(
+                                color: Colors.redAccent,
+                                width: 1.5,
+                              ),
                             ),
                           ),
                         ),
-                      ),
+
+                        SizedBox(height: 24.h),
+
+                        // Password Field Label
+                        Text(
+                          'PASSWORD',
+                          style: TextStyle(
+                            fontSize: 12.sp,
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFF64748B),
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+
+                        SizedBox(height: 8.h),
+
+                        // Password Input Field
+                        TextFormField(
+                          controller: _passwordController,
+                          obscureText: !_isPasswordVisible,
+                          style: TextStyle(fontSize: 15.sp),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Password is required';
+                            }
+                            return null;
+                          },
+                          decoration: InputDecoration(
+                            prefixIcon: Icon(
+                              Icons.lock_outline,
+                              color: const Color(0xFF64748B),
+                              size: 20.sp,
+                            ),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _isPasswordVisible
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                                color: const Color(0xFF0D6842),
+                                size: 20.sp,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _isPasswordVisible = !_isPasswordVisible;
+                                });
+                              },
+                            ),
+                            hintText: 'Enter your password',
+                            hintStyle: TextStyle(
+                              color: const Color(0xFF94A3B8),
+                              fontSize: 14.sp,
+                            ),
+                            filled: true,
+                            fillColor: const Color(0xFFF8F9FA),
+                            contentPadding: EdgeInsets.symmetric(
+                              vertical: 16.h,
+                              horizontal: 16.w,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12.r),
+                              borderSide: const BorderSide(
+                                color: Color(0xFFE2E8F0),
+                              ),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12.r),
+                              borderSide: const BorderSide(
+                                color: Color(0xFFE2E8F0),
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12.r),
+                              borderSide: const BorderSide(
+                                color: Color(0xFF0D6842),
+                                width: 1.5,
+                              ),
+                            ),
+                            errorBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12.r),
+                              borderSide: const BorderSide(
+                                color: Colors.redAccent,
+                                width: 1.5,
+                              ),
+                            ),
+                            focusedErrorBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12.r),
+                              borderSide: const BorderSide(
+                                color: Colors.redAccent,
+                                width: 1.5,
+                              ),
+                            ),
+                          ),
+                        ),
 
                       SizedBox(height: 16.h),
 
@@ -376,6 +447,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ],
                   ),
                 ),
+              ),
               ),
             ),
           ),

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/view/auth/login_screen.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 import 'package:sarvam/view/auth/face_verification_screen.dart';
@@ -50,10 +51,22 @@ class _MpinLoginScreenState extends State<MpinLoginScreen> {
       return;
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    final savedMpin = prefs.getString('mpin') ?? '1234'; // Fallback to '1234' if none configured
+    final AuthController authController = Get.isRegistered<AuthController>()
+        ? Get.find<AuthController>()
+        : Get.put(AuthController());
 
-    if (mpin == savedMpin) {
+    bool isVerified = await authController.verifyMpin(mpin: mpin);
+
+    final prefs = await SharedPreferences.getInstance();
+    // Fallback to local offline check if offline
+    if (!isVerified) {
+      final savedMpin = prefs.getString('mpin');
+      if (savedMpin != null && mpin == savedMpin) {
+        isVerified = true;
+      }
+    }
+
+    if (isVerified) {
       if (hasPunchedInToday(prefs)) {
         // Already face-verified for today's shift — reopening the app
         // shouldn't ask again, only the first punch-in of the day should.
@@ -62,16 +75,6 @@ class _MpinLoginScreenState extends State<MpinLoginScreen> {
       } else {
         Get.offAll(() => const FaceVerificationScreen());
       }
-    } else {
-      Get.snackbar(
-        'Incorrect MPIN',
-        'The MPIN you entered is incorrect. Please try again.',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.redAccent,
-        colorText: Colors.white,
-        margin: EdgeInsets.all(16.w),
-        borderRadius: 8.r,
-      );
     }
   }
 

@@ -1,11 +1,17 @@
 class Api {
-  static const String baseUrl = "http://192.168.29.100:3320";
+  static const String baseUrl = "http://192.168.29.96:3320";
+  // static const String baseUrl = "http://172.29.176.1:3320";
+  // static const String baseUrl = "http://localhost:3320";
+  // static const String baseUrl = "http://192.168.29.100:3320";
   // static const String baseUrl = "https://sarvam.nidhimfi.com";
-  // static const String baseUrl = "http://192.168.29.204:3000";
 
-  static const String loginUrl = "$baseUrl/api/auth/login";
+  static const String mobileLoginUrl = "$baseUrl/api/mobile/login";
+  static const String loginUrl = "$baseUrl/api/mobile/login";
+  static const String mpinSetupUrl = "$baseUrl/api/mobile/mpin/setup";
+  static const String mpinVerifyUrl = "$baseUrl/api/mobile/mpin/verify";
+  static const String mpinForgotUrl = "$baseUrl/api/mobile/mpin/forgot";
+  static const String mpinChangeUrl = "$baseUrl/api/mobile/mpin/change";
   static const String faceRegisterUrl = "$baseUrl/api/auth/face/register";
-  static const String faceVerifyUrl = "$baseUrl/api/auth/face/verify";
   static const String demandCollectionUrl = "$baseUrl/api/collections/demand";
   static const String centersUrl = "$baseUrl/api/centers";
   static const String demandCentersUrl =

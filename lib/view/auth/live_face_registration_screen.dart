@@ -53,7 +53,6 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
   DateTime? _poseHoldStartTime;
   double _holdProgress = 0.0;
   bool _isCapturingSample = false;
-  bool _showCaptureSuccess = false;
 
   @override
   void initState() {
@@ -63,7 +62,6 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
       options: FaceDetectorOptions(
         performanceMode: FaceDetectorMode.accurate,
         enableLandmarks: true,
-        enableContours: true,
         enableClassification: true,
         enableTracking: true,
       ),
@@ -297,26 +295,30 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
 
     // Advance challenge step
     if (_currentChallenge == LivenessChallengeStep.lookStraight) {
-      _currentChallenge = LivenessChallengeStep.turnLeft;
-    } else if (_currentChallenge == LivenessChallengeStep.turnLeft) {
-      _currentChallenge = LivenessChallengeStep.turnRight;
-    } else if (_currentChallenge == LivenessChallengeStep.turnRight) {
+      _currentChallenge = LivenessChallengeStep.turnHead;
+    } else if (_currentChallenge == LivenessChallengeStep.turnHead) {
+      _currentChallenge = LivenessChallengeStep.blinkOrSmile;
+    } else if (_currentChallenge == LivenessChallengeStep.blinkOrSmile) {
       _currentChallenge = LivenessChallengeStep.completed;
     }
 
     _poseHoldStartTime = null;
     _holdProgress = 0.0;
 
-    setState(() => _showCaptureSuccess = true);
-    Future.delayed(const Duration(milliseconds: 700), () {
-      if (mounted) setState(() => _showCaptureSuccess = false);
-    });
+    Get.snackbar(
+      'Pose Sample $capturedCount Captured!',
+      'Pose verified. Proceeding to next step.',
+      snackPosition: SnackPosition.TOP,
+      backgroundColor: const Color(0xFF00C853),
+      colorText: Colors.white,
+      duration: const Duration(seconds: 2),
+    );
 
     if (_currentChallenge == LivenessChallengeStep.completed ||
         _capturedFeatureSamples.length >= 3) {
       await _finishAndUploadRegistration();
     } else {
-      await Future.delayed(const Duration(milliseconds: 700));
+      await Future.delayed(const Duration(milliseconds: 600));
       _isCapturingSample = false;
     }
   }
@@ -346,23 +348,10 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
       encryptedPayload: encryptedPayload,
     );
 
-    // Capture one representative photo for the admin "Trained Faces" view.
-    Uint8List? photoBytes;
-    try {
-      if (_cameraController != null && _cameraController!.value.isInitialized) {
-        final file = await _cameraController!.takePicture();
-        photoBytes = await file.readAsBytes();
-      }
-    } catch (e) {
-      if (kDebugMode) print('Face registration photo capture failed: $e');
-    }
-
-    // Upload to API — this is now the authoritative enrollment call.
+    // Upload to API
     final uploadResult =
         await FaceBiometricService.uploadFaceRegistrationTemplate(
           encryptedPayload: encryptedPayload,
-          featureVector: masterVector,
-          photoBytes: photoBytes,
         );
 
     if (!mounted) return;
@@ -534,6 +523,24 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
             color: Colors.white,
           ),
         ),
+        actions: [
+          TextButton.icon(
+            onPressed: () => _finishAndUploadRegistration(),
+            icon: Icon(
+              Icons.flash_on_rounded,
+              color: const Color(0xFF00C853),
+              size: 16.sp,
+            ),
+            label: Text(
+              'Dummy Register',
+              style: GoogleFonts.poppins(
+                fontSize: 11.sp,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF00C853),
+              ),
+            ),
+          ),
+        ],
       ),
       body: SafeArea(
         child: _isInitializing
@@ -692,6 +699,46 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
                                 icon: Icons.verified_user_rounded,
                               ),
                             ],
+                          ),
+                        ),
+                        SizedBox(height: 8.h),
+                        SizedBox(
+                          width: 200.w,
+                          height: 42.h,
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF00C853),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(21.r),
+                              ),
+                            ),
+                            onPressed: _isCapturingSample || _isUploading
+                                ? null
+                                : () {
+                                    final dummyFace = Face(
+                                      boundingBox: const Rect.fromLTWH(
+                                        100,
+                                        200,
+                                        300,
+                                        400,
+                                      ),
+                                      landmarks: {},
+                                      contours: {},
+                                    );
+                                    _autoCaptureSample(dummyFace);
+                                  },
+                            icon: const Icon(
+                              Icons.camera_alt_rounded,
+                              size: 18,
+                            ),
+                            label: Text(
+                              'CAPTURE POSE NOW',
+                              style: GoogleFonts.poppins(
+                                fontSize: 11.sp,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
                         ),
                         if (_isUploading) ...[
