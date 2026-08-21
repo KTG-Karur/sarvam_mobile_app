@@ -201,16 +201,29 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
       );
       return;
     }
+    final prefs = await SharedPreferences.getInstance();
+    final bool punchedInToday = hasPunchedInToday(prefs);
+    final bool punchedOutToday = prefs.getString('lastPunchOutDate') == todayDateKey();
+
     if (widget.isPunchOut) {
-      final prefs = await SharedPreferences.getInstance();
-      if (!hasPunchedInToday(prefs)) {
-        _showError('Punch-in is required before you can punch out.');
+      if (!punchedInToday) {
+        _showError('Please Punch-In first.');
+        return;
+      }
+      if (punchedOutToday) {
+        _showError('You have already punched out today.');
+        return;
+      }
+    } else {
+      if (punchedInToday) {
+        _showError('You have already punched in today.');
         return;
       }
     }
+
     setState(() => _isVerifying = true);
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final nowTimeStr = _formatTime(DateTime.now());
 
       // Verify live captured face against Server API / enrolled face samples
       final matchResult = await FaceBiometricService.verifyFace(
@@ -239,20 +252,13 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
         return;
       }
 
-      Get.snackbar(
-        'Face Verified',
-        matchResult.message,
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: const Color(0xFF008A3D),
-        colorText: Colors.white,
-        duration: const Duration(seconds: 3),
-      );
-
       if (widget.isPunchOut) {
-        await prefs.remove('lastPunchInDate');
+        await prefs.setString('lastPunchOutDate', todayDateKey());
+        await prefs.setString('lastPunchOutTime', nowTimeStr);
+
         Get.snackbar(
           'Punch Out Successful',
-          'Shift completed successfully at ${_formatTime(DateTime.now())}.',
+          'Shift completed successfully at $nowTimeStr.',
           snackPosition: SnackPosition.BOTTOM,
           backgroundColor: const Color(0xFF008A3D),
           colorText: Colors.white,
@@ -263,6 +269,17 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
       }
 
       await prefs.setString('lastPunchInDate', todayDateKey());
+      await prefs.setString('lastPunchInTime', nowTimeStr);
+
+      Get.snackbar(
+        'Punch In Successful',
+        'Attendance recorded successfully at $nowTimeStr.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: const Color(0xFF008A3D),
+        colorText: Colors.white,
+        duration: const Duration(seconds: 3),
+      );
+
       final homeScreen = await resolveHomeScreen();
       if (!mounted) return;
       Get.offAll(() => homeScreen);

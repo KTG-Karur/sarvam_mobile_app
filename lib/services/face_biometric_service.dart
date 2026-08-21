@@ -14,6 +14,7 @@ enum LivenessChallengeStep {
   lookStraight,
   turnLeft,
   turnRight,
+  finalCenter,
   completed,
 }
 
@@ -252,6 +253,8 @@ class FaceBiometricService {
         return yaw >= 10.0;
       case LivenessChallengeStep.turnRight:
         return yaw <= -10.0;
+      case LivenessChallengeStep.finalCenter:
+        return yaw.abs() <= 15.0 && pitch.abs() <= 25.0;
       case LivenessChallengeStep.completed:
         return true;
     }
@@ -553,24 +556,6 @@ class FaceBiometricService {
         message: 'Unable to verify your face. Check your connection and try again.',
       );
     }
-  }
-
-  static double _computeSimilarity(List<double> v1, List<double> v2) {
-    if (v1.length != v2.length || v1.isEmpty) return 0.0;
-    double diffSum = 0.0;
-    int count = 0;
-    for (int i = 0; i < v1.length; i++) {
-      final val1 = v1[i];
-      final val2 = v2[i];
-      if (val1 > 0 && val2 > 0) {
-        final relDiff = (val1 - val2).abs() / max(val1, val2);
-        diffSum += relDiff;
-        count++;
-      }
-    }
-    if (count == 0) return 0.0;
-    final avgRelDiff = diffSum / count;
-    return max(0.0, 1.0 - avgRelDiff);
   }
 }
 

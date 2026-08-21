@@ -288,12 +288,14 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
     final features = FaceBiometricService.extractFeatureVector(face);
     _capturedFeatureSamples.add(features);
 
-    // Advance challenge step: 1/3 -> 2/3 -> 3/3
+    // Advance challenge step: 1/4 -> 2/4 -> 3/4 -> 4/4
     if (_currentChallenge == LivenessChallengeStep.lookStraight) {
       _currentChallenge = LivenessChallengeStep.turnLeft;
     } else if (_currentChallenge == LivenessChallengeStep.turnLeft) {
       _currentChallenge = LivenessChallengeStep.turnRight;
     } else if (_currentChallenge == LivenessChallengeStep.turnRight) {
+      _currentChallenge = LivenessChallengeStep.finalCenter;
+    } else if (_currentChallenge == LivenessChallengeStep.finalCenter) {
       _currentChallenge = LivenessChallengeStep.completed;
     }
 
@@ -301,7 +303,7 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
     _holdProgress = 0.0;
 
     Get.snackbar(
-      'Pose Sample $capturedCount Captured!',
+      'Step $capturedCount/4 Captured!',
       'Pose verified. Proceeding to next step.',
       snackPosition: SnackPosition.TOP,
       backgroundColor: const Color(0xFF00C853),
@@ -310,7 +312,7 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
     );
 
     if (_currentChallenge == LivenessChallengeStep.completed ||
-        _capturedFeatureSamples.length >= 3) {
+        _capturedFeatureSamples.length >= 4) {
       await _finishAndUploadRegistration();
     } else {
       await Future.delayed(const Duration(milliseconds: 600));
@@ -469,11 +471,13 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
   String get _challengeTitleText {
     switch (_currentChallenge) {
       case LivenessChallengeStep.lookStraight:
-        return 'Step 1/3: Look Straight\n“Please look straight at the camera.”';
+        return 'Step 1/4: Look Straight\n“Please look straight at the camera.”';
       case LivenessChallengeStep.turnLeft:
-        return 'Step 2/3: Turn Left\n“Please slowly turn your face to the LEFT.”';
+        return 'Step 2/4: Turn Left\n“Please slowly turn your face to the LEFT.”';
       case LivenessChallengeStep.turnRight:
-        return 'Step 3/3: Turn Right\n“Please slowly turn your face to the RIGHT.”';
+        return 'Step 3/4: Turn Right\n“Please slowly turn your face to the RIGHT.”';
+      case LivenessChallengeStep.finalCenter:
+        return 'Step 4/4: Look Straight Again\n“Please look straight at the camera once more.”';
       case LivenessChallengeStep.completed:
         return '✓ Face Training Completed!';
     }

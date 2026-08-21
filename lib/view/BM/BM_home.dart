@@ -6,14 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/controller/dashboard_controller.dart';
 import 'package:sarvam/view/AM/collection_view/collection_view_hub.dart';
-import 'package:sarvam/view/BM/centre_approval.dart';
-import 'package:sarvam/view/BM/final_disbursement/final_disbursement.dart';
-import 'package:sarvam/view/BM/group_assignment/group_assignment.dart';
-import 'package:sarvam/view/BM/loan_index_approval/loan_index_approval.dart';
-import 'package:sarvam/view/BM/member_approval.dart';
-import 'package:sarvam/view/FDO/client_loan_tracker/client_loan_tracker.dart';
 import 'package:sarvam/view/FDO/client_search_locate/client_search_locate.dart';
-import 'package:sarvam/view/FDO/colletion/collection.dart';
 import 'package:sarvam/view/FDO/loan_disbursement/loan_disbursement.dart';
 import 'package:sarvam/view/auth/face_verification_screen.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
@@ -234,11 +227,35 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
           SizedBox(width: 14.w),
           // Punch Out
           GestureDetector(
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => const FaceVerificationScreen(isPunchOut: true),
-              ),
-            ),
+            onTap: () async {
+              final prefs = await SharedPreferences.getInstance();
+              if (!hasPunchedInToday(prefs)) {
+                Get.snackbar(
+                  'Punch Out',
+                  'Please Punch-In first.',
+                  snackPosition: SnackPosition.BOTTOM,
+                  backgroundColor: Colors.orange,
+                  colorText: Colors.white,
+                );
+                return;
+              }
+              if (prefs.getString('lastPunchOutDate') == todayDateKey()) {
+                Get.snackbar(
+                  'Punch Out',
+                  'You have already punched out today.',
+                  snackPosition: SnackPosition.BOTTOM,
+                  backgroundColor: Colors.orange,
+                  colorText: Colors.white,
+                );
+                return;
+              }
+              if (!context.mounted) return;
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const FaceVerificationScreen(isPunchOut: true),
+                ),
+              );
+            },
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [

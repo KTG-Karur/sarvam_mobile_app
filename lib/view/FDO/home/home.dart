@@ -206,12 +206,36 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
 
                   // Punch out (face verification, then logout)
                   GestureDetector(
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            const FaceVerificationScreen(isPunchOut: true),
-                      ),
-                    ),
+                    onTap: () async {
+                      final prefs = await SharedPreferences.getInstance();
+                      if (!hasPunchedInToday(prefs)) {
+                        Get.snackbar(
+                          'Punch Out',
+                          'Please Punch-In first.',
+                          snackPosition: SnackPosition.BOTTOM,
+                          backgroundColor: Colors.orange,
+                          colorText: Colors.white,
+                        );
+                        return;
+                      }
+                      if (prefs.getString('lastPunchOutDate') == todayDateKey()) {
+                        Get.snackbar(
+                          'Punch Out',
+                          'You have already punched out today.',
+                          snackPosition: SnackPosition.BOTTOM,
+                          backgroundColor: Colors.orange,
+                          colorText: Colors.white,
+                        );
+                        return;
+                      }
+                      if (!context.mounted) return;
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              const FaceVerificationScreen(isPunchOut: true),
+                        ),
+                      );
+                    },
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
