@@ -1,49 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
-import 'package:sarvam/services/face_biometric_service.dart';
 import 'package:sarvam/view/auth/live_face_registration_screen.dart';
-import 'package:sarvam/view/auth/role_home_router.dart';
 import 'package:lottie/lottie.dart';
 
 /// UI flow for enrolling face samples after OTP verification.
 /// Directs the user to the secure Real-Time Live Face Registration screen.
 class FaceTrainingScreen extends StatefulWidget {
-  const FaceTrainingScreen({super.key});
+  const FaceTrainingScreen({super.key, this.autoStart = false});
+
+  final bool autoStart;
 
   @override
   State<FaceTrainingScreen> createState() => _FaceTrainingScreenState();
 }
 
 class _FaceTrainingScreenState extends State<FaceTrainingScreen> {
-  void _startLiveRegistration() {
-    Get.to(() => const LiveFaceRegistrationScreen());
+  @override
+  void initState() {
+    super.initState();
+    if (widget.autoStart) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _startLiveRegistration();
+      });
+    }
   }
 
-  Future<void> _registerDummyFace() async {
-    final dummyVector = [0.85, 1.2, 0.95, 1.1, 0.88, 1.05, 0.92, 1.15, 0.98, 1.02, 0.94, 1.08, 1.0];
-    final encryptedPayload = FaceBiometricService.encryptTemplatePayload(
-      dummyVector,
-      userId: 'fdo_dummy_user',
-      livenessPassed: true,
-      qualityScore: 99.0,
-    );
-    await FaceBiometricService.saveEnrolledFeatures(
-      [dummyVector, dummyVector, dummyVector],
-      encryptedPayload: encryptedPayload,
-    );
-    if (!mounted) return;
-    Get.snackbar(
-      'Dummy Face Registered',
-      'Face biometric registered successfully on device (No API needed).',
-      snackPosition: SnackPosition.BOTTOM,
-      backgroundColor: const Color(0xFF008A3D),
-      colorText: Colors.white,
-      duration: const Duration(seconds: 3),
-    );
-    final homeScreen = await resolveHomeScreen();
-    if (!mounted) return;
-    Get.offAll(() => homeScreen);
+  void _startLiveRegistration() {
+    Get.to(() => const LiveFaceRegistrationScreen());
   }
 
   @override
@@ -139,32 +123,6 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen> {
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF0D6842),
                             foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12.r),
-                            ),
-                          ),
-                        ),
-                      ),
-                      SizedBox(height: 10.h),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 48.h,
-                        child: OutlinedButton.icon(
-                          onPressed: _registerDummyFace,
-                          icon: const Icon(
-                            Icons.touch_app_rounded,
-                            color: Color(0xFF0D6842),
-                          ),
-                          label: Text(
-                            'REGISTER DUMMY FACE (NO API NEEDED)',
-                            style: TextStyle(
-                              fontSize: 11.sp,
-                              fontWeight: FontWeight.w700,
-                              color: const Color(0xFF0D6842),
-                            ),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: Color(0xFF0D6842), width: 1.5),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12.r),
                             ),

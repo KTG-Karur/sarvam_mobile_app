@@ -7,11 +7,13 @@ import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 
 import 'package:sarvam/services/face_biometric_service.dart';
+import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/view/auth/front_camera_capture_screen.dart';
+import 'package:sarvam/view/auth/mpin_login_screen.dart';
+import 'package:sarvam/view/auth/face_training_screen.dart';
 
 /// Captures a fresh front-camera photo before entering the application, or
 /// (when [isPunchOut] is true) before ending the shift and logging out.
@@ -51,12 +53,27 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
   @override
   void initState() {
     super.initState();
-    _loadProfile();
     _fetchLocation();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _startAutomaticVerification());
+  }
+
+  Future<void> _startAutomaticVerification() async {
+    await _loadProfile();
+    if (!mounted) return;
+    await _captureFace();
+    if (mounted && _faceDetected && _liveFeatures != null) {
+      await _verifyFace();
+    }
   }
 
   Future<void> _loadProfile() async {
     final prefs = await SharedPreferences.getInstance();
+    final bool isEnrolled = await FaceBiometricService.isFaceEnrolled();
+    if (!isEnrolled && !widget.isPunchOut) {
+      if (!mounted) return;
+      Get.off(() => const FaceTrainingScreen(autoStart: true));
+      return;
+    }
     if (!mounted) return;
     setState(() {
       _firstName = prefs.getString('firstName') ?? '';
@@ -106,7 +123,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
     if (kIsWeb ||
         (defaultTargetPlatform != TargetPlatform.android &&
             defaultTargetPlatform != TargetPlatform.iOS)) {
-      await _verifyDummyFace();
+      _showError('Face verification requires an Android or iOS device with camera support.');
       return;
     }
     setState(() => _isCapturing = true);
@@ -164,20 +181,11 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
       }
     } on MissingPluginException {
       if (mounted) {
-        Get.snackbar(
-          'Camera Plugin Not Found',
-          'Switching to Dummy Face Verification mode.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: const Color(0xFF008A3D),
-          colorText: Colors.white,
-        );
-        await _verifyDummyFace();
+        _showError('Camera plugin not found on this device.');
       }
     } catch (e) {
       if (mounted) {
-        _showError(
-          'Unable to process camera image ($e). Please try again or use Dummy Verification.',
-        );
+        _showError('Unable to process camera image ($e). Please try again.');
       }
     } finally {
       if (mounted) {
@@ -193,24 +201,41 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
       );
       return;
     }
+    if (widget.isPunchOut) {
+      final prefs = await SharedPreferences.getInstance();
+      if (!hasPunchedInToday(prefs)) {
+        _showError('Punch-in is required before you can punch out.');
+        return;
+      }
+    }
     setState(() => _isVerifying = true);
     try {
       final prefs = await SharedPreferences.getInstance();
-      if (prefs.getBool('faceEnrollmentCompleted') != true) {
-        // Auto enroll dummy features if enrollment not found
-        await prefs.setBool('faceEnrollmentCompleted', true);
-      }
 
-      // Verify live captured face against enrolled face samples
-      final matchResult = await FaceBiometricService.verifyFace(_liveFeatures!);
+      // Verify live captured face against Server API / enrolled face samples
+      final matchResult = await FaceBiometricService.verifyFace(
+        liveFeatures: _liveFeatures!,
+        type: widget.isPunchOut ? 'PUNCH_OUT' : 'PUNCH_IN',
+        latitude: _position?.latitude,
+        longitude: _position?.longitude,
+        deviceId: await (Get.isRegistered<AuthController>()
+            ? Get.find<AuthController>()
+            : Get.put(AuthController())).getOrCreateDeviceId(),
+      );
 
       if (!matchResult.isMatch) {
         _showError(matchResult.message);
-        setState(() {
-          _facePhoto = null;
-          _liveFeatures = null;
-          _faceDetected = false;
-        });
+        if (matchResult.message.toLowerCase().contains('not enrolled')) {
+          Future.delayed(const Duration(milliseconds: 800), () {
+            Get.off(() => const FaceTrainingScreen(autoStart: true));
+          });
+        } else {
+          setState(() {
+            _facePhoto = null;
+            _liveFeatures = null;
+            _faceDetected = false;
+          });
+        }
         return;
       }
 
@@ -225,10 +250,15 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
 
       if (widget.isPunchOut) {
         await prefs.remove('lastPunchInDate');
-        final authController = Get.isRegistered<AuthController>()
-            ? Get.find<AuthController>()
-            : Get.put(AuthController());
-        await authController.logout();
+        Get.snackbar(
+          'Punch Out Successful',
+          'Shift completed successfully at ${_formatTime(DateTime.now())}.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: const Color(0xFF008A3D),
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+        Get.offAll(() => const MpinLoginScreen());
         return;
       }
 
@@ -236,47 +266,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
       final homeScreen = await resolveHomeScreen();
       if (!mounted) return;
       Get.offAll(() => homeScreen);
-    } finally {
-      if (mounted) setState(() => _isVerifying = false);
-    }
-  }
-
-  /// Dummy face verification function for testing/bypass without camera/API requirements.
-  Future<void> _verifyDummyFace() async {
-    setState(() => _isVerifying = true);
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final matchResult = await FaceBiometricService.verifyDummyFace();
-
-      setState(() {
-        _faceDetected = true;
-        _liveFeatures = [0.85, 1.2, 0.95, 1.1, 0.88, 1.05, 0.92, 1.15, 0.98, 1.02, 0.94, 1.08, 1.0];
-      });
-
-      Get.snackbar(
-        'Dummy Face Verified',
-        matchResult.message,
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: const Color(0xFF008A3D),
-        colorText: Colors.white,
-        duration: const Duration(seconds: 3),
-      );
-
-      if (widget.isPunchOut) {
-        await prefs.remove('lastPunchInDate');
-        final authController = Get.isRegistered<AuthController>()
-            ? Get.find<AuthController>()
-            : Get.put(AuthController());
-        await authController.logout();
-        return;
-      }
-
-      await prefs.setString('lastPunchInDate', todayDateKey());
-      final homeScreen = await resolveHomeScreen();
-      if (!mounted) return;
-      Get.offAll(() => homeScreen);
-    } catch (e) {
-      _showError('Dummy verification error: $e');
     } finally {
       if (mounted) setState(() => _isVerifying = false);
     }
@@ -395,8 +384,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
                     _attendanceStatusRow(),
                     SizedBox(height: 12.h),
                     _punchButton(busy),
-                    SizedBox(height: 10.h),
-                    _dummyVerifyButton(busy),
                   ],
                 ),
               ),
@@ -537,8 +524,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
         if (_facePhoto != null)
           Positioned.fill(child: Image.memory(_facePhoto!, fit: BoxFit.cover)),
         if (_facePhoto == null)
-          InkWell(
-            onTap: busy ? null : _captureFace,
+          Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -549,7 +535,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
                 ),
                 SizedBox(height: 10.h),
                 Text(
-                  'Tap to scan your face',
+                  'Scanning your face automatically',
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w700,
@@ -558,7 +544,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
                 ),
                 SizedBox(height: 2.h),
                 Text(
-                  'Opens the camera to capture a live photo',
+                  'Keep one well-lit face inside the frame',
                   style: TextStyle(
                     color: const Color(0xFFA9CFBB),
                     fontSize: 10.sp,
@@ -840,32 +826,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
       ),
     );
   }
-
-  Widget _dummyVerifyButton(bool busy) => SizedBox(
-    width: double.infinity,
-    height: 48.h,
-    child: OutlinedButton.icon(
-      onPressed: busy ? null : _verifyDummyFace,
-      icon: const Icon(
-        Icons.touch_app_rounded,
-        color: Color(0xFF0D6842),
-      ),
-      label: Text(
-        'DUMMY FACE VERIFICATION (NO API NEEDED)',
-        style: TextStyle(
-          fontSize: 11.sp,
-          fontWeight: FontWeight.w700,
-          color: const Color(0xFF0D6842),
-        ),
-      ),
-      style: OutlinedButton.styleFrom(
-        side: const BorderSide(color: Color(0xFF0D6842), width: 1.5),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16.r),
-        ),
-      ),
-    ),
-  );
 }
 
 class _FaceMeshPainter extends CustomPainter {

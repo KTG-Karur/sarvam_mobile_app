@@ -3,7 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sms_autofill/sms_autofill.dart';
+import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/view/auth/set_mpin_screen.dart';
+import 'package:sarvam/view/auth/mpin_login_screen.dart';
 
 class OtpScreen extends StatefulWidget {
   const OtpScreen({super.key});
@@ -12,7 +16,7 @@ class OtpScreen extends StatefulWidget {
   State<OtpScreen> createState() => _OtpScreenState();
 }
 
-class _OtpScreenState extends State<OtpScreen> {
+class _OtpScreenState extends State<OtpScreen> with CodeAutoFill {
   final List<TextEditingController> _otpControllers = List.generate(
     4,
     (_) => TextEditingController(),
@@ -21,15 +25,21 @@ class _OtpScreenState extends State<OtpScreen> {
 
   int _secondsRemaining = 45;
   Timer? _timer;
+  bool _isVerifying = false;
+  bool _isSendingOtp = false;
 
   @override
   void initState() {
     super.initState();
     _startTimer();
+    listenForCode();
+    _sendOtp();
   }
 
   @override
   void dispose() {
+    cancel();
+    unregisterListener();
     _timer?.cancel();
     for (var controller in _otpControllers) {
       controller.dispose();
@@ -38,6 +48,22 @@ class _OtpScreenState extends State<OtpScreen> {
       node.dispose();
     }
     super.dispose();
+  }
+
+  /// Receives a code through Android's SMS Retriever API. This does not request
+  /// SMS read permission and still leaves manual entry available on all devices.
+  @override
+  void codeUpdated() {
+    final receivedCode = code?.replaceAll(RegExp(r'\D'), '') ?? '';
+    if (receivedCode.length < 4 || !mounted) return;
+
+    final otp = receivedCode.substring(0, 4);
+    setState(() {
+      for (var index = 0; index < _otpControllers.length; index++) {
+        _otpControllers[index].text = otp[index];
+      }
+    });
+    FocusScope.of(context).unfocus();
   }
 
   void _startTimer() {
@@ -56,7 +82,27 @@ class _OtpScreenState extends State<OtpScreen> {
     });
   }
 
-  void _handleVerifyOtp() {
+  Future<void> _sendOtp() async {
+    if (_isSendingOtp) return;
+    if (mounted) setState(() => _isSendingOtp = true);
+    final prefs = await SharedPreferences.getInstance();
+    final destination = prefs.getString('mobileNumber') ?? prefs.getString('email') ?? prefs.getString('employeeId') ?? '';
+    final controller = Get.isRegistered<AuthController>() ? Get.find<AuthController>() : Get.put(AuthController());
+    final sent = await controller.sendOtp(destination: destination, purpose: 'LOGIN');
+    if (!mounted) return;
+    setState(() {
+      _isSendingOtp = false;
+      if (!sent) _secondsRemaining = 0;
+    });
+    if (sent) _startTimer();
+  }
+
+  Future<void> _resendOtp() async {
+    await _sendOtp();
+  }
+
+  Future<void> _handleVerifyOtp() async {
+    if (_isVerifying || _isSendingOtp) return;
     String otp = _otpControllers.map((c) => c.text).join();
     if (otp.length < 4) {
       Get.snackbar(
@@ -71,8 +117,18 @@ class _OtpScreenState extends State<OtpScreen> {
       return;
     }
 
-    // OTP completed - navigate to MPIN setup.
-    Get.to(() => const SetMpinScreen());
+    setState(() => _isVerifying = true);
+    final controller = Get.isRegistered<AuthController>() ? Get.find<AuthController>() : Get.put(AuthController());
+    final verified = await controller.verifyOtp(otp: otp, purpose: 'LOGIN');
+    if (!mounted) return;
+    setState(() => _isVerifying = false);
+    if (!verified) return;
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('isMpinSet') ?? false) {
+      Get.off(() => const MpinLoginScreen());
+    } else {
+      Get.off(() => const SetMpinScreen());
+    }
   }
 
   @override
@@ -246,6 +302,7 @@ class _OtpScreenState extends State<OtpScreen> {
                                   focusNode: _otpFocusNodes[index],
                                   textAlign: TextAlign.center,
                                   keyboardType: TextInputType.number,
+                                  autofillHints: const [AutofillHints.oneTimeCode],
                                   style: TextStyle(
                                     fontSize: 22.sp,
                                     fontWeight: FontWeight.bold,
@@ -334,7 +391,7 @@ class _OtpScreenState extends State<OtpScreen> {
                                       ],
                                     )
                                   : GestureDetector(
-                                      onTap: _startTimer,
+                                      onTap: _isSendingOtp ? null : _resendOtp,
                                       child: Text(
                                         'Resend OTP',
                                         style: TextStyle(
@@ -355,7 +412,9 @@ class _OtpScreenState extends State<OtpScreen> {
                             width: double.infinity,
                             height: 54.h,
                             child: ElevatedButton(
-                              onPressed: _handleVerifyOtp,
+                              onPressed: _isVerifying || _isSendingOtp
+                                  ? null
+                                  : _handleVerifyOtp,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF0D6842),
                                 shape: RoundedRectangleBorder(
@@ -363,15 +422,24 @@ class _OtpScreenState extends State<OtpScreen> {
                                 ),
                                 elevation: 0,
                               ),
-                              child: Text(
-                                'VERIFY OTP',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16.sp,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 1.2,
-                                ),
-                              ),
+                              child: _isVerifying
+                                  ? SizedBox(
+                                      width: 24.w,
+                                      height: 24.w,
+                                      child: const CircularProgressIndicator(
+                                        color: Colors.white,
+                                        strokeWidth: 2.5,
+                                      ),
+                                    )
+                                  : Text(
+                                      'VERIFY OTP',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16.sp,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 1.2,
+                                      ),
+                                    ),
                             ),
                           ),
 

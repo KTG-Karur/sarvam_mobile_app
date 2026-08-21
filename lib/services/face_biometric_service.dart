@@ -7,12 +7,13 @@ import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/constant/api.dart';
+import 'package:sarvam/services/secure_session_service.dart';
 
 /// Enum representing the active liveness gesture challenge steps.
 enum LivenessChallengeStep {
   lookStraight,
-  turnHead,
-  blinkOrSmile,
+  turnLeft,
+  turnRight,
   completed,
 }
 
@@ -71,15 +72,21 @@ class FaceUploadResult {
   });
 }
 
-/// Comprehensive service for real-time face quality evaluation, anti-spoofing liveness detection,
-/// landmark feature vector extraction, AES-256 client encryption, and API sync.
+/// Face quality, liveness, feature extraction and API synchronization. Templates
+/// are persisted only in the platform secure storage for offline matching.
 class FaceBiometricService {
   static const String keyEnrolledFeatures = 'enrolled_face_features_v2';
   static const String keyFaceEnrollmentCompleted = 'faceEnrollmentCompleted';
   static const String keyEncryptedTemplate = 'encrypted_face_template_payload';
 
-  // Key secret used for local HMAC & AES encryption signature
+  // Key used to sign the registration payload before transport.
   static const String _encryptionSecretKey = 'Sarvam_MFI_Biometric_SecKey_2026';
+
+  /// Helper method to check if face training/enrollment has been completed.
+  static Future<bool> isFaceEnrolled() async {
+    final enrolled = await getEnrolledFeatures();
+    return enrolled.isNotEmpty;
+  }
 
   /// Legacy helper method for single face image validation.
   static String? validateFaceQuality(
@@ -237,17 +244,14 @@ class FaceBiometricService {
   }) {
     final yaw = face.headEulerAngleY ?? 0.0;
     final pitch = face.headEulerAngleX ?? 0.0;
-    final leftEye = face.leftEyeOpenProbability ?? 1.0;
-    final rightEye = face.rightEyeOpenProbability ?? 1.0;
-    final smile = face.smilingProbability ?? 0.0;
 
     switch (step) {
       case LivenessChallengeStep.lookStraight:
-        return yaw.abs() <= 30.0 && pitch.abs() <= 35.0;
-      case LivenessChallengeStep.turnHead:
-        return yaw.abs() >= 8.0 || pitch.abs() >= 8.0;
-      case LivenessChallengeStep.blinkOrSmile:
-        return leftEye < 0.5 || rightEye < 0.5 || smile > 0.2 || true;
+        return yaw.abs() <= 15.0 && pitch.abs() <= 25.0;
+      case LivenessChallengeStep.turnLeft:
+        return yaw >= 10.0;
+      case LivenessChallengeStep.turnRight:
+        return yaw <= -10.0;
       case LivenessChallengeStep.completed:
         return true;
     }
@@ -363,7 +367,8 @@ class FaceBiometricService {
     return masterVector;
   }
 
-  /// Encrypts biometric template vector and metadata payload using AES-256 and generates HMAC SHA-256 signature.
+  /// Encodes the signed transport payload. At rest, this payload is kept in the
+  /// platform keystore by [saveEnrolledFeatures].
   static Map<String, dynamic> encryptTemplatePayload(
     List<double> featureVector, {
     required String userId,
@@ -382,40 +387,37 @@ class FaceBiometricService {
     final hmacSha256 = Hmac(sha256, keyBytes);
     final digest = hmacSha256.convert(utf8.encode(rawJson));
 
-    // Base64 obfuscation / encryption representation of vector payload
+    // The server validates the HMAC; Base64 is transport encoding, not encryption.
     final base64Payload = base64Encode(utf8.encode(rawJson));
 
     return {
       'encryptedTemplate': base64Payload,
       'hmacSignature': digest.toString(),
-      'algorithm': 'AES-256-HMAC-SHA256',
+      'algorithm': 'HMAC-SHA256',
       'vectorSize': featureVector.length,
+      // The API uses this vector for matching; no raw camera image is sent.
+      'featureVector': featureVector,
       'livenessVerified': livenessPassed,
       'qualityScore': qualityScore,
       'capturedAt': DateTime.now().toIso8601String(),
     };
   }
 
-  /// Uploads encrypted face registration template to backend API with automatic local fallback.
+  /// Uploads an encrypted face-registration template to the authoritative API.
   static Future<FaceUploadResult> uploadFaceRegistrationTemplate({
     required Map<String, dynamic> encryptedPayload,
     String? authToken,
-    bool forceDummyMode = false,
   }) async {
-    if (forceDummyMode) {
-      return FaceUploadResult(
-        success: true,
-        message: 'Face biometric registered successfully in local mode.',
-        templateId: 'FT-LOCAL-DUMMY-${DateTime.now().millisecondsSinceEpoch}',
-      );
-    }
-
     try {
       final headers = <String, String>{
         'Content-Type': 'application/json',
       };
-      if (authToken != null && authToken.isNotEmpty) {
-        headers['Authorization'] = 'Bearer $authToken';
+      String? token = authToken;
+      if (token == null || token.isEmpty) {
+        token = await SecureSessionService.readAccessToken();
+      }
+      if (token != null && token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
       }
 
       final response = await http.post(
@@ -432,20 +434,12 @@ class FaceBiometricService {
           templateId: data['templateId'] ?? data['id'],
         );
       } else {
-        // Fallback to local mode success
-        return FaceUploadResult(
-          success: true,
-          message: 'Face biometric registered and stored securely on device.',
-          templateId: 'FT-LOCAL-${DateTime.now().millisecondsSinceEpoch}',
-        );
+        final data = response.body.isEmpty ? <String, dynamic>{} : jsonDecode(response.body) as Map<String, dynamic>;
+        return FaceUploadResult(success: false, message: data['message']?.toString() ?? 'Face registration was rejected. Please try again.');
       }
     } catch (e) {
-      if (kDebugMode) print('Face registration API upload notice: $e (Falling back to Local Mode)');
-      return FaceUploadResult(
-        success: true,
-        message: 'Face biometric registered and saved securely on device.',
-        templateId: 'FT-LOCAL-${DateTime.now().millisecondsSinceEpoch}',
-      );
+      if (kDebugMode) print('Face registration API error: $e');
+      return FaceUploadResult(success: false, message: 'Unable to register your face. Check your connection and try again.');
     }
   }
 
@@ -456,17 +450,16 @@ class FaceBiometricService {
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final jsonStr = jsonEncode(samples);
-    await prefs.setString(keyEnrolledFeatures, jsonStr);
+    await SecureSessionService.writeSecret(keyEnrolledFeatures, jsonStr);
     await prefs.setBool(keyFaceEnrollmentCompleted, true);
     if (encryptedPayload != null) {
-      await prefs.setString(keyEncryptedTemplate, jsonEncode(encryptedPayload));
+      await SecureSessionService.writeSecret(keyEncryptedTemplate, jsonEncode(encryptedPayload));
     }
   }
 
   /// Retrieves stored enrolled feature vectors.
   static Future<List<List<double>>> getEnrolledFeatures() async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonStr = prefs.getString(keyEnrolledFeatures);
+    final jsonStr = await SecureSessionService.readSecret(keyEnrolledFeatures);
     if (jsonStr == null || jsonStr.isEmpty) return [];
     try {
       final List<dynamic> rawList = jsonDecode(jsonStr);
@@ -478,36 +471,88 @@ class FaceBiometricService {
     }
   }
 
-  /// Compares a live face feature vector against stored enrolled feature samples.
-  static Future<FaceMatchResult> verifyFace(List<double> liveFeatures) async {
-    final enrolled = await getEnrolledFeatures();
-    if (enrolled.isEmpty) {
+  /// Compares a live face feature vector using the authoritative backend API.
+  static Future<FaceMatchResult> verifyFace({
+    required List<double> liveFeatures,
+    String type = 'PUNCH_IN',
+    double? latitude,
+    double? longitude,
+    String? deviceId,
+  }) async {
+    final token = await SecureSessionService.readAccessToken();
+
+    if (token == null || token.isEmpty) {
       return FaceMatchResult(
-        isMatch: true,
-        scorePercent: 95.0,
-        message: 'Face verified successfully.',
+        isMatch: false,
+        scorePercent: 0,
+        message: 'Your session has expired. Please sign in again.',
       );
     }
 
-    double maxSimilarity = 0.0;
-    for (final sample in enrolled) {
-      final sim = _computeSimilarity(liveFeatures, sample);
-      if (sim > maxSimilarity) {
-        maxSimilarity = sim;
+    try {
+      final headers = <String, String>{
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      };
+
+      final body = jsonEncode({
+        'type': type,
+        'featureVector': liveFeatures,
+        if (latitude != null) 'latitude': latitude,
+        if (longitude != null) 'longitude': longitude,
+        if (deviceId != null) 'deviceId': deviceId,
+      });
+
+      final response = await http.post(
+        Uri.parse(Api.faceVerifyUrl),
+        headers: headers,
+        body: body,
+      ).timeout(const Duration(seconds: 6));
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final resData = jsonDecode(response.body);
+        final data = resData['data'] is Map ? resData['data'] : resData;
+        final bool matched = data['matched'] == true;
+        final double scorePercent = (data['scorePercent'] as num?)?.toDouble() ?? (matched ? 95.0 : 0.0);
+        final String message = resData['message'] ??
+            (matched
+                ? 'Face verified successfully (${scorePercent.toStringAsFixed(1)}% match).'
+                : 'Face mismatch (${scorePercent.toStringAsFixed(1)}% match). Please try again.');
+
+        return FaceMatchResult(
+          isMatch: matched,
+          scorePercent: scorePercent,
+          message: message,
+        );
+      } else if (response.statusCode == 409) {
+          final resData = jsonDecode(response.body);
+          return FaceMatchResult(
+            isMatch: false,
+            scorePercent: 0.0,
+            message: resData['message'] ?? 'Face not enrolled. Please complete face registration first.',
+          );
+      } else if (response.statusCode == 400 || response.statusCode == 401) {
+          final resData = jsonDecode(response.body);
+          return FaceMatchResult(
+            isMatch: false,
+            scorePercent: 0.0,
+            message: resData['message'] ?? resData['error'] ?? 'Face verification failed.',
+          );
       }
+
+      return FaceMatchResult(
+        isMatch: false,
+        scorePercent: 0.0,
+        message: 'Face verification is unavailable. Please try again.',
+      );
+    } catch (e) {
+      if (kDebugMode) print('Server face verification error: $e');
+      return FaceMatchResult(
+        isMatch: false,
+        scorePercent: 0.0,
+        message: 'Unable to verify your face. Check your connection and try again.',
+      );
     }
-
-    final scorePercent = (maxSimilarity * 100).clamp(0.0, 100.0);
-    const threshold = 75.0;
-    final isMatch = scorePercent >= threshold;
-
-    return FaceMatchResult(
-      isMatch: isMatch,
-      scorePercent: scorePercent,
-      message: isMatch
-          ? 'Face matched successfully (${scorePercent.toStringAsFixed(1)}% match).'
-          : 'Face mismatch (${scorePercent.toStringAsFixed(1)}% match). Position your face clearly.',
-    );
   }
 
   static double _computeSimilarity(List<double> v1, List<double> v2) {
@@ -527,28 +572,6 @@ class FaceBiometricService {
     final avgRelDiff = diffSum / count;
     return max(0.0, 1.0 - avgRelDiff);
   }
-
-  /// Performs dummy face verification for testing, web, or fallback bypass.
-  static Future<FaceMatchResult> verifyDummyFace() async {
-    final dummyFeatures = [0.85, 1.2, 0.95, 1.1, 0.88, 1.05, 0.92, 1.15, 0.98, 1.02, 0.94, 1.08, 1.0];
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(keyFaceEnrollmentCompleted, true);
-    final enrolled = await getEnrolledFeatures();
-    if (enrolled.isEmpty) {
-      final encryptedPayload = encryptTemplatePayload(
-        dummyFeatures,
-        userId: 'dummy_user',
-        livenessPassed: true,
-        qualityScore: 99.0,
-      );
-      await saveEnrolledFeatures([dummyFeatures, dummyFeatures], encryptedPayload: encryptedPayload);
-    }
-    return FaceMatchResult(
-      isMatch: true,
-      scorePercent: 99.0,
-      message: 'Dummy face verified successfully.',
-    );
-  }
 }
 
 class FaceMatchResult {
@@ -562,4 +585,3 @@ class FaceMatchResult {
     required this.message,
   });
 }
-

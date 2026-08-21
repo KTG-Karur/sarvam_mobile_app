@@ -110,6 +110,9 @@ class _FrontCameraCaptureScreenState extends State<FrontCameraCaptureScreen>
         setState(() {
           _isInitializing = false;
         });
+        // Attendance capture is hands-free. The returned photo is still
+        // validated by ML Kit in FaceVerificationScreen before any API call.
+        Future.delayed(const Duration(milliseconds: 900), _capturePhoto);
       }
     } catch (e) {
       if (mounted) {
@@ -307,37 +310,13 @@ class _FrontCameraCaptureScreenState extends State<FrontCameraCaptureScreen>
                     ],
                   ),
                   SizedBox(height: 20.h),
-                  GestureDetector(
-                    onTap:
-                        _isInitializing || _isCapturing ? null : _capturePhoto,
-                    child: Container(
-                      width: 76.w,
-                      height: 76.w,
-                      padding: EdgeInsets.all(4.w),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 4),
-                      ),
-                      child: Container(
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF008A3D),
-                          shape: BoxShape.circle,
-                        ),
-                        child: _isCapturing
-                            ? const Padding(
-                                padding: EdgeInsets.all(18),
-                                child: CircularProgressIndicator(
-                                  color: Colors.white,
-                                  strokeWidth: 3,
-                                ),
-                              )
-                            : Icon(
-                                Icons.camera_alt_rounded,
-                                color: Colors.white,
-                                size: 32.sp,
-                              ),
-                      ),
-                    ),
+                  const CircularProgressIndicator(
+                    color: Color(0xFF008A3D),
+                  ),
+                  SizedBox(height: 10.h),
+                  Text(
+                    'Detecting your face automatically…',
+                    style: GoogleFonts.poppins(fontSize: 11.sp, color: Colors.white70),
                   ),
                 ],
               ),

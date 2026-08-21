@@ -13,14 +13,20 @@ List<String> idOptions(List<dynamic> items) => items
     .toSet() // defensive de-dup in case the API ever repeats an id
     .toList();
 
+Map? _findItem(List<dynamic> items, String id) {
+  for (final e in items) {
+    if (e is Map && e['id']?.toString() == id) {
+      return e;
+    }
+  }
+  return null;
+}
+
 /// Builds a label for an id (from [idOptions]) by looking it up back in
 /// [items]. Falls back to a few common name-ish fields.
 String idLabel(List<dynamic> items, String id) {
-  final match = items.firstWhere(
-    (e) => e is Map && e['id']?.toString() == id,
-    orElse: () => null,
-  );
-  if (match is! Map) return id;
+  final match = _findItem(items, id);
+  if (match == null) return id;
   return (match['name'] ?? match['centerName'] ?? match['productName'] ?? id)
       .toString();
 }
@@ -28,11 +34,8 @@ String idLabel(List<dynamic> items, String id) {
 /// Matches the web app's center dropdown label exactly: `"{name} ({code})"`
 /// (`GroupAssignClient.tsx` center `SelectItem`s).
 String centerLabel(List<dynamic> items, String id) {
-  final match = items.firstWhere(
-    (e) => e is Map && e['id']?.toString() == id,
-    orElse: () => null,
-  );
-  if (match is! Map) return id;
+  final match = _findItem(items, id);
+  if (match == null) return id;
   final name = match['name'] ?? id;
   final code = match['code'];
   return formatCenterDisplay(name, code, parenthetical: true);
@@ -41,11 +44,8 @@ String centerLabel(List<dynamic> items, String id) {
 /// Matches the web app's group dropdown label exactly:
 /// `"{name} ({memberCount}/{maxMembersPerGroup})"`.
 String groupLabel(List<dynamic> items, String id) {
-  final match = items.firstWhere(
-    (e) => e is Map && e['id']?.toString() == id,
-    orElse: () => null,
-  );
-  if (match is! Map) return id;
+  final match = _findItem(items, id);
+  if (match == null) return id;
   final name = match['name'] ?? id;
   final memberCount = match['memberCount'] ?? '?';
   final maxMembers = match['maxMembersPerGroup'] ?? '?';

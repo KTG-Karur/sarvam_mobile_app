@@ -1,5 +1,6 @@
 class Api {
-  static const String baseUrl = "http://192.168.29.96:3320";
+  static const String baseUrl = "http://192.168.29.204:3320";
+  // static const String baseUrl = "http://192.168.29.96:3320";
   // static const String baseUrl = "http://172.29.176.1:3320";
   // static const String baseUrl = "http://localhost:3320";
   // static const String baseUrl = "http://192.168.29.100:3320";
@@ -11,7 +12,10 @@ class Api {
   static const String mpinVerifyUrl = "$baseUrl/api/mobile/mpin/verify";
   static const String mpinForgotUrl = "$baseUrl/api/mobile/mpin/forgot";
   static const String mpinChangeUrl = "$baseUrl/api/mobile/mpin/change";
+  static const String otpSendUrl = "$baseUrl/api/mobile/otp/send";
+  static const String otpVerifyUrl = "$baseUrl/api/mobile/otp/verify";
   static const String faceRegisterUrl = "$baseUrl/api/auth/face/register";
+  static const String faceVerifyUrl = "$baseUrl/api/auth/face/verify";
   static const String demandCollectionUrl = "$baseUrl/api/collections/demand";
   static const String centersUrl = "$baseUrl/api/centers";
   static const String demandCentersUrl =
@@ -132,4 +136,5 @@ class Api {
   static const String branchLockUrl = "$baseUrl/api/branches/lock";
   static const String groupAssignmentSettingsUrl =
       "$baseUrl/api/settings/group-assignment";
+  static const String meetingPlacesUrl = "$baseUrl/api/meeting-places";
 }

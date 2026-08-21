@@ -5,6 +5,7 @@ import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/constant/roles.dart';
+import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/controller/dashboard_controller.dart';
 import 'package:sarvam/view/AM/am_reports_hub.dart';
 import 'package:sarvam/view/AM/collection_view/collection_view_hub.dart';
@@ -1115,9 +1116,10 @@ class _AmHomeState extends State<AmHome> with SingleTickerProviderStateMixin {
   // ── Profile / logout ──────────────────────────────────────────────────────
 
   Future<void> _logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
-    Get.offAll(() => const LoginScreen());
+    final AuthController authController = Get.isRegistered<AuthController>()
+        ? Get.find<AuthController>()
+        : Get.put(AuthController());
+    await authController.logout();
   }
 
   void _showProfileBottomSheet(BuildContext context) {

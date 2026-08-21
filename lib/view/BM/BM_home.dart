@@ -3,6 +3,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/controller/dashboard_controller.dart';
 import 'package:sarvam/view/AM/collection_view/collection_view_hub.dart';
 import 'package:sarvam/view/BM/centre_approval.dart';
@@ -15,7 +16,6 @@ import 'package:sarvam/view/FDO/client_search_locate/client_search_locate.dart';
 import 'package:sarvam/view/FDO/colletion/collection.dart';
 import 'package:sarvam/view/FDO/loan_disbursement/loan_disbursement.dart';
 import 'package:sarvam/view/auth/face_verification_screen.dart';
-import 'package:sarvam/view/auth/login_screen.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 
 class _Metric {
@@ -1298,9 +1298,12 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
                         ),
                       ),
                       onPressed: () async {
-                        final prefs = await SharedPreferences.getInstance();
-                        await prefs.clear();
-                        Get.offAll(() => const LoginScreen());
+                        Navigator.pop(context);
+                        final AuthController authController =
+                            Get.isRegistered<AuthController>()
+                                ? Get.find<AuthController>()
+                                : Get.put(AuthController());
+                        await authController.logout();
                       },
                       child: Text(
                         'Logout',

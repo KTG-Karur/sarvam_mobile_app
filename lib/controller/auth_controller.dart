@@ -7,9 +7,81 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/view/auth/login_screen.dart';
 
+import 'package:sarvam/view/auth/set_mpin_screen.dart';
+import 'package:sarvam/view/auth/mpin_login_screen.dart';
+import 'package:sarvam/view/auth/face_training_screen.dart';
+import 'package:sarvam/services/face_biometric_service.dart';
+import 'package:sarvam/services/secure_session_service.dart';
+
 class AuthController extends GetxController {
   final GetConnect _connect = GetConnect();
   final RxBool isLoading = false.obs;
+
+  bool _validMpin(String value) => RegExp(r'^\d{4}$').hasMatch(value);
+
+  /// Requests a one-time login/reset challenge. The server owns expiry and
+  /// single-use validation; the app stores only the opaque challenge id.
+  Future<bool> sendOtp({required String destination, required String purpose}) async {
+    if (destination.trim().isEmpty) return false;
+    try {
+      isLoading.value = true;
+      _connect.timeout = const Duration(seconds: 15);
+      final response = await _connect.post(Api.otpSendUrl, {
+        'destination': destination.trim(),
+        'purpose': purpose,
+        'deviceId': await getOrCreateDeviceId(),
+      });
+      final body = response.body is Map ? response.body as Map : const {};
+      if ((response.statusCode == 200 || response.statusCode == 201) && body['success'] != false) {
+        final id = (body['data'] is Map ? body['data']['challengeId'] : body['challengeId'])?.toString();
+        if (id != null && id.isNotEmpty) await SecureSessionService.savePendingToken(id);
+        return true;
+      }
+      _showAuthError('OTP', body['message']?.toString() ?? 'Unable to send OTP. Please try again.');
+      return false;
+    } catch (_) {
+      _showAuthError('OTP', 'Unable to send OTP. Check your network connection and try again.');
+      return false;
+    } finally { isLoading.value = false; }
+  }
+
+  Future<bool> verifyOtp({required String otp, required String purpose}) async {
+    final normalizedOtp = otp.trim();
+    if (!RegExp(r'^\d{4,6}$').hasMatch(normalizedOtp)) {
+      _showAuthError('Invalid OTP', 'Enter the OTP sent to your registered mobile number.');
+      return false;
+    }
+    if (isLoading.value) return false;
+
+    try {
+      isLoading.value = true;
+      _connect.timeout = const Duration(seconds: 15);
+      final challengeId = await SecureSessionService.readPendingToken();
+      if (challengeId == null || challengeId.isEmpty) {
+        _showAuthError('OTP verification', 'This OTP request has expired. Please request a new OTP.');
+        return false;
+      }
+      final response = await _connect.post(Api.otpVerifyUrl, {
+        'otp': normalizedOtp,
+        'purpose': purpose,
+        'challengeId': challengeId,
+        'deviceId': await getOrCreateDeviceId(),
+      });
+      final body = response.body is Map ? response.body as Map : const {};
+      if ((response.statusCode == 200 || response.statusCode == 201) && body['success'] != false) {
+        await SecureSessionService.clearPendingToken();
+        return true;
+      }
+      _showAuthError('OTP verification', body['message']?.toString() ?? 'This OTP is invalid, expired, or has already been used.');
+      return false;
+    } catch (_) {
+      _showAuthError('OTP verification', 'Unable to verify OTP. Check your network connection and try again.');
+      return false;
+    } finally { isLoading.value = false; }
+  }
+
+  void _showAuthError(String title, String message) => Get.snackbar(title, message,
+      snackPosition: SnackPosition.BOTTOM, backgroundColor: Colors.redAccent, colorText: Colors.white);
 
   /// Retrieves the device's actual native identifier using device_info_plus.
   /// Stores it in SharedPreferences so the same ID is reused consistently on every launch/login.
@@ -86,17 +158,17 @@ class AuthController extends GetxController {
       if (response.statusCode == 200 || response.statusCode == 201) {
         final body = response.body;
         if (body != null && body['success'] == true) {
-          final data = body['data'];
+          final data = body['data'] is Map ? body['data'] : body;
           final accessToken = data['accessToken'];
           final refreshToken = data['refreshToken'];
           final user = data['user'];
           final branch = data['branch'];
+          final bool isMpinSet = data['isMpinSet'] ?? (user != null && user['isMpinSet'] == true);
+          final bool requiresMpinSetup = data['requiresMpinSetup'] ?? (!isMpinSet);
 
           final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('accessToken', accessToken ?? '');
-          await prefs.setString('refreshToken', refreshToken ?? '');
-          
-          debugPrint("Bearer $accessToken");
+          await SecureSessionService.saveTokens(
+            accessToken: accessToken?.toString(), refreshToken: refreshToken?.toString());
           
           if (user != null) {
             await prefs.setString('userId', user['id'] ?? '');
@@ -130,6 +202,11 @@ class AuthController extends GetxController {
             await prefs.setString('deviceId', returnedDeviceId.toString());
           }
 
+          if (requiresMpinSetup || !isMpinSet) {
+            await prefs.setBool('isMpinSet', false);
+            return true;
+          }
+
           return true;
         }
       }
@@ -138,12 +215,71 @@ class AuthController extends GetxController {
       if (response.status.connectionError) {
         errorMsg = 'Network error. Please check internet connection.';
       } else if (response.body != null && response.body is Map) {
-        if (response.body['error'] != null && response.body['error'].toString().isNotEmpty) {
-          errorMsg = response.body['error'].toString();
-        } else if (response.body['message'] != null && response.body['message'].toString().isNotEmpty) {
-          errorMsg = response.body['message'].toString();
+        final body = response.body;
+        final data = body['data'] is Map ? body['data'] : body;
+        final setupToken = data['mpinSetupToken'] ?? body['mpinSetupToken'];
+        final loginToken = data['mpinLoginToken'] ?? body['mpinLoginToken'];
+        final accessToken = setupToken ?? loginToken ?? data['accessToken'] ?? body['accessToken'];
+        final user = data['user'] ?? body['user'];
+        final String code = body['code']?.toString() ?? '';
+
+        final prefs = await SharedPreferences.getInstance();
+        if (accessToken != null && accessToken.toString().isNotEmpty) {
+          await SecureSessionService.savePendingToken(accessToken.toString());
+        }
+
+        if (user != null && user is Map) {
+          if (user['id'] != null) await prefs.setString('userId', user['id'].toString());
+          if (user['employeeId'] != null) await prefs.setString('employeeId', user['employeeId'].toString());
+          if (user['firstName'] != null) await prefs.setString('firstName', user['firstName'].toString());
+          if (user['lastName'] != null) await prefs.setString('lastName', user['lastName'].toString());
+          if (user['role'] != null) await prefs.setString('role', user['role'].toString());
+        }
+
+        if (body['error'] != null && body['error'].toString().isNotEmpty) {
+          errorMsg = body['error'].toString();
+        } else if (body['message'] != null && body['message'].toString().isNotEmpty) {
+          errorMsg = body['message'].toString();
         } else if (response.statusText != null && response.statusText!.isNotEmpty) {
           errorMsg = response.statusText!;
+        }
+
+        final String lowerError = errorMsg.toLowerCase();
+
+        // 1. Check if MPIN setup is required (MPIN not created yet)
+        if (code == 'MPIN_NOT_SET' ||
+            data['requiresMpinSetup'] == true ||
+            lowerError.contains('mpin is not set') ||
+            lowerError.contains('create a new') ||
+            lowerError.contains('setup mpin')) {
+          await prefs.setBool('isMpinSet', false);
+          Get.snackbar(
+            'MPIN Required',
+            'MPIN is not set. Redirecting to set a 4-digit MPIN...',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: const Color(0xFF008A3D),
+            colorText: Colors.white,
+            duration: const Duration(seconds: 2),
+          );
+          return true;
+        }
+
+        // 2. Check if MPIN verification is required (MPIN already created)
+        if (code == 'MPIN_REQUIRED' ||
+            data['mpinRequired'] == true ||
+            lowerError.contains('please enter your mpin') ||
+            lowerError.contains('enter your mpin') ||
+            lowerError.contains('mpin_required')) {
+          await prefs.setBool('isMpinSet', true);
+          Get.snackbar(
+            'Credentials Verified',
+            'Please enter your 4-digit MPIN to complete login.',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: const Color(0xFF008A3D),
+            colorText: Colors.white,
+            duration: const Duration(seconds: 2),
+          );
+          return true;
         }
       } else if (response.statusText != null && response.statusText!.isNotEmpty) {
         errorMsg = response.statusText!;
@@ -189,10 +325,14 @@ class AuthController extends GetxController {
     required String mpin,
     required String confirmMpin,
   }) async {
+    if (!_validMpin(mpin) || mpin != confirmMpin) {
+      _showAuthError('MPIN setup', 'MPIN must be four digits and both entries must match.');
+      return false;
+    }
     try {
       isLoading.value = true;
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('accessToken');
+      final token = await SecureSessionService.readPendingToken() ?? await SecureSessionService.readAccessToken();
 
       final response = await _connect.post(
         Api.mpinSetupUrl,
@@ -211,21 +351,31 @@ class AuthController extends GetxController {
         if (body != null && body['success'] == true) {
           final data = body['data'];
           if (data != null && data['accessToken'] != null) {
-            await prefs.setString('accessToken', data['accessToken']);
+            await SecureSessionService.saveTokens(accessToken: data['accessToken'].toString());
           }
           if (data != null && data['refreshToken'] != null) {
-            await prefs.setString('refreshToken', data['refreshToken']);
+            await SecureSessionService.saveTokens(refreshToken: data['refreshToken'].toString());
           }
-          await prefs.setString('mpin', mpin);
           await prefs.setBool('isMpinSet', true);
+          await SecureSessionService.clearPendingToken();
           return true;
         }
       }
 
       String errorMsg = 'Failed to set MPIN.';
-      if (response.body != null && response.body is Map && response.body['error'] != null) {
-        errorMsg = response.body['error'].toString();
+      if (response.body != null && response.body is Map) {
+        final body = response.body;
+        if (body['error'] != null && body['error'].toString().isNotEmpty) {
+          errorMsg = body['error'].toString();
+        } else if (body['message'] != null && body['message'].toString().isNotEmpty) {
+          errorMsg = body['message'].toString();
+        } else if (response.statusText != null && response.statusText!.isNotEmpty) {
+          errorMsg = response.statusText!;
+        }
+      } else if (response.statusText != null && response.statusText!.isNotEmpty) {
+        errorMsg = response.statusText!;
       }
+
       Get.snackbar(
         'MPIN Setup Failed',
         errorMsg,
@@ -246,10 +396,14 @@ class AuthController extends GetxController {
   Future<bool> verifyMpin({
     required String mpin,
   }) async {
+    if (!_validMpin(mpin)) {
+      _showAuthError('Invalid MPIN', 'MPIN must be exactly four digits.');
+      return false;
+    }
     try {
       isLoading.value = true;
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('accessToken');
+      final token = await SecureSessionService.readPendingToken() ?? await SecureSessionService.readAccessToken();
 
       final response = await _connect.post(
         Api.mpinVerifyUrl,
@@ -267,12 +421,12 @@ class AuthController extends GetxController {
         if (body != null && body['success'] == true) {
           final data = body['data'];
           if (data != null && data['accessToken'] != null) {
-            await prefs.setString('accessToken', data['accessToken']);
+            await SecureSessionService.saveTokens(accessToken: data['accessToken'].toString());
           }
           if (data != null && data['refreshToken'] != null) {
-            await prefs.setString('refreshToken', data['refreshToken']);
+            await SecureSessionService.saveTokens(refreshToken: data['refreshToken'].toString());
           }
-          await prefs.setString('mpin', mpin);
+          await SecureSessionService.clearPendingToken();
           return true;
         }
       }
@@ -304,7 +458,7 @@ class AuthController extends GetxController {
     try {
       isLoading.value = true;
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('accessToken');
+      final token = await SecureSessionService.readPendingToken() ?? await SecureSessionService.readAccessToken();
       final effectiveDeviceId = deviceId ?? prefs.getString('deviceId') ?? await getOrCreateDeviceId();
 
       final response = await _connect.post(
@@ -323,9 +477,8 @@ class AuthController extends GetxController {
         if (body != null && body['success'] == true) {
           final data = body['data'];
           if (data != null && data['accessToken'] != null) {
-            await prefs.setString('accessToken', data['accessToken']);
+            await SecureSessionService.saveTokens(accessToken: data['accessToken'].toString());
           }
-          await prefs.remove('mpin');
           await prefs.setBool('isMpinSet', false);
           return true;
         }
@@ -354,7 +507,7 @@ class AuthController extends GetxController {
     try {
       isLoading.value = true;
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('accessToken');
+      final token = await SecureSessionService.readPendingToken() ?? await SecureSessionService.readAccessToken();
 
       final Map<String, dynamic> payload = {
         "mpin": mpin,
@@ -378,12 +531,11 @@ class AuthController extends GetxController {
         if (body != null && body['success'] == true) {
           final data = body['data'];
           if (data != null && data['accessToken'] != null) {
-            await prefs.setString('accessToken', data['accessToken']);
+            await SecureSessionService.saveTokens(accessToken: data['accessToken'].toString());
           }
           if (data != null && data['refreshToken'] != null) {
-            await prefs.setString('refreshToken', data['refreshToken']);
+            await SecureSessionService.saveTokens(refreshToken: data['refreshToken'].toString());
           }
-          await prefs.setString('mpin', mpin);
           await prefs.setBool('isMpinSet', true);
           return true;
         }
@@ -406,8 +558,7 @@ class AuthController extends GetxController {
   Future<void> logout() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('accessToken');
-      await prefs.remove('refreshToken');
+      await SecureSessionService.clearSession();
       await prefs.remove('userId');
       await prefs.remove('employeeId');
       await prefs.remove('mobileNumber');
@@ -420,8 +571,21 @@ class AuthController extends GetxController {
       await prefs.remove('branchId');
       await prefs.remove('branchName');
       await prefs.remove('branchCode');
+      await prefs.remove('lastPunchInDate');
 
-      Get.offAll(() => const LoginScreen());
+      final bool isMpinSet = prefs.getBool('isMpinSet') ?? false;
+
+      final enrolled = await FaceBiometricService.getEnrolledFeatures();
+      final bool isFaceEnrolled = enrolled.isNotEmpty ||
+          (prefs.getBool('faceEnrollmentCompleted') ?? false);
+
+      if (isMpinSet && !isFaceEnrolled) {
+        Get.offAll(() => const FaceTrainingScreen(autoStart: true));
+      } else if (isMpinSet && isFaceEnrolled) {
+        Get.offAll(() => const MpinLoginScreen());
+      } else {
+        Get.offAll(() => const LoginScreen());
+      }
     } catch (e) {
       Get.snackbar(
         'Logout Error',

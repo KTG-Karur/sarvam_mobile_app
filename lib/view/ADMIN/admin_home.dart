@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/constant/roles.dart';
+import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/controller/admin/admin_dashboard_controller.dart';
 import 'package:sarvam/services/excel_export_service.dart';
 import 'package:sarvam/view/ADMIN/masters/funder_list.dart';
@@ -3688,9 +3689,10 @@ class _AdminHomeState extends State<AdminHome>
   }
 
   Future<void> _logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
-    Get.offAll(() => const LoginScreen());
+    final AuthController authController = Get.isRegistered<AuthController>()
+        ? Get.find<AuthController>()
+        : Get.put(AuthController());
+    await authController.logout();
   }
 }
 

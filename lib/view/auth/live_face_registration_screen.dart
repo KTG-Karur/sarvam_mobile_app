@@ -17,11 +17,11 @@ import 'package:sarvam/view/auth/role_home_router.dart';
 class LiveFaceRegistrationScreen extends StatefulWidget {
   const LiveFaceRegistrationScreen({
     super.key,
-    this.userId = 'fdo_user_01',
+    this.userId,
     this.onRegistrationComplete,
   });
 
-  final String userId;
+  final String? userId;
   final VoidCallback? onRegistrationComplete;
 
   @override
@@ -183,13 +183,6 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
       final faces = await _faceDetector.processImage(inputImage);
       if (!mounted) return;
 
-      final screenSize = MediaQuery.of(context).size;
-      final ovalBounds = Rect.fromCenter(
-        center: Offset(screenSize.width / 2, screenSize.height * 0.42),
-        width: 260.w,
-        height: 330.h,
-      );
-
       final Face? primaryFace = faces.isNotEmpty ? faces.first : null;
 
       final report = FaceBiometricService.evaluateRealTimeQuality(
@@ -197,7 +190,9 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
         totalFacesFound: faces.length,
         imageWidth: image.width.toDouble(),
         imageHeight: image.height.toDouble(),
-        ovalBounds: ovalBounds,
+        // ML Kit reports coordinates in the camera image, while this screen's
+        // oval is in logical display pixels. Do not compare these two spaces;
+        // doing so incorrectly rejects a visibly centered face as off-center.
       );
 
       if (primaryFace != null) {
@@ -293,12 +288,12 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
     final features = FaceBiometricService.extractFeatureVector(face);
     _capturedFeatureSamples.add(features);
 
-    // Advance challenge step
+    // Advance challenge step: 1/3 -> 2/3 -> 3/3
     if (_currentChallenge == LivenessChallengeStep.lookStraight) {
-      _currentChallenge = LivenessChallengeStep.turnHead;
-    } else if (_currentChallenge == LivenessChallengeStep.turnHead) {
-      _currentChallenge = LivenessChallengeStep.blinkOrSmile;
-    } else if (_currentChallenge == LivenessChallengeStep.blinkOrSmile) {
+      _currentChallenge = LivenessChallengeStep.turnLeft;
+    } else if (_currentChallenge == LivenessChallengeStep.turnLeft) {
+      _currentChallenge = LivenessChallengeStep.turnRight;
+    } else if (_currentChallenge == LivenessChallengeStep.turnRight) {
       _currentChallenge = LivenessChallengeStep.completed;
     }
 
@@ -337,15 +332,9 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
 
     final encryptedPayload = FaceBiometricService.encryptTemplatePayload(
       masterVector,
-      userId: widget.userId,
+      userId: widget.userId ?? 'authenticated-user',
       livenessPassed: true,
       qualityScore: 98.5,
-    );
-
-    // Save locally to SharedPreferences first
-    await FaceBiometricService.saveEnrolledFeatures(
-      _capturedFeatureSamples,
-      encryptedPayload: encryptedPayload,
     );
 
     // Upload to API
@@ -361,6 +350,10 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
     });
 
     if (uploadResult.success) {
+      await FaceBiometricService.saveEnrolledFeatures(
+        _capturedFeatureSamples,
+        encryptedPayload: encryptedPayload,
+      );
       _showSuccessDialog(uploadResult.message);
     } else {
       _showRetryDialog(uploadResult.message);
@@ -446,7 +439,7 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
           borderRadius: BorderRadius.circular(20.r),
         ),
         title: Text(
-          'Registration Saved Locally',
+          'Registration Failed',
           style: GoogleFonts.poppins(
             fontSize: 16.sp,
             fontWeight: FontWeight.w700,
@@ -454,18 +447,10 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
           ),
         ),
         content: Text(
-          '$errorMessage\n\nYour face template is encrypted and saved securely on your device. You can retry syncing with the server now.',
+          '$errorMessage\n\nFace training is complete only after the server securely saves your template.',
           style: GoogleFonts.poppins(fontSize: 12.sp),
         ),
         actions: [
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              final homeScreen = await resolveHomeScreen();
-              Get.offAll(() => homeScreen);
-            },
-            child: const Text('CONTINUE OFFLINE'),
-          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF0D6842),
@@ -484,13 +469,13 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
   String get _challengeTitleText {
     switch (_currentChallenge) {
       case LivenessChallengeStep.lookStraight:
-        return 'Step 1 of 3: Look Directly Straight';
-      case LivenessChallengeStep.turnHead:
-        return 'Step 2 of 3: Turn Head Slightly Left or Right';
-      case LivenessChallengeStep.blinkOrSmile:
-        return 'Step 3 of 3: Blink Your Eyes or Smile';
+        return 'Step 1/3: Look Straight\n“Please look straight at the camera.”';
+      case LivenessChallengeStep.turnLeft:
+        return 'Step 2/3: Turn Left\n“Please slowly turn your face to the LEFT.”';
+      case LivenessChallengeStep.turnRight:
+        return 'Step 3/3: Turn Right\n“Please slowly turn your face to the RIGHT.”';
       case LivenessChallengeStep.completed:
-        return 'Processing Face Registration...';
+        return '✓ Face Training Completed!';
     }
   }
 
@@ -523,24 +508,6 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
             color: Colors.white,
           ),
         ),
-        actions: [
-          TextButton.icon(
-            onPressed: () => _finishAndUploadRegistration(),
-            icon: Icon(
-              Icons.flash_on_rounded,
-              color: const Color(0xFF00C853),
-              size: 16.sp,
-            ),
-            label: Text(
-              'Dummy Register',
-              style: GoogleFonts.poppins(
-                fontSize: 11.sp,
-                fontWeight: FontWeight.w600,
-                color: const Color(0xFF00C853),
-              ),
-            ),
-          ),
-        ],
       ),
       body: SafeArea(
         child: _isInitializing
@@ -699,46 +666,6 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
                                 icon: Icons.verified_user_rounded,
                               ),
                             ],
-                          ),
-                        ),
-                        SizedBox(height: 8.h),
-                        SizedBox(
-                          width: 200.w,
-                          height: 42.h,
-                          child: ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF00C853),
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(21.r),
-                              ),
-                            ),
-                            onPressed: _isCapturingSample || _isUploading
-                                ? null
-                                : () {
-                                    final dummyFace = Face(
-                                      boundingBox: const Rect.fromLTWH(
-                                        100,
-                                        200,
-                                        300,
-                                        400,
-                                      ),
-                                      landmarks: {},
-                                      contours: {},
-                                    );
-                                    _autoCaptureSample(dummyFace);
-                                  },
-                            icon: const Icon(
-                              Icons.camera_alt_rounded,
-                              size: 18,
-                            ),
-                            label: Text(
-                              'CAPTURE POSE NOW',
-                              style: GoogleFonts.poppins(
-                                fontSize: 11.sp,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
                           ),
                         ),
                         if (_isUploading) ...[

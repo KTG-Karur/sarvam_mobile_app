@@ -3,7 +3,8 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
-import 'package:sarvam/view/auth/otp_screen.dart';
+import 'package:sarvam/view/auth/set_mpin_screen.dart';
+import 'package:sarvam/view/auth/mpin_login_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -70,23 +71,28 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final String deviceId = await _authController.getOrCreateDeviceId();
 
+    final prefs = await SharedPreferences.getInstance();
+    if (_rememberMe) {
+      await prefs.setBool('rememberMe', true);
+      await prefs.setString('savedEmployeeId', empId);
+    } else {
+      await prefs.setBool('rememberMe', false);
+      await prefs.remove('savedEmployeeId');
+    }
+
     final bool success = await _authController.login(
       employeeId: empId,
       password: password,
       deviceId: deviceId,
     );
 
-    if (success) {
-      final prefs = await SharedPreferences.getInstance();
-      if (_rememberMe) {
-        await prefs.setBool('rememberMe', true);
-        await prefs.setString('savedEmployeeId', empId);
-      } else {
-        await prefs.setBool('rememberMe', false);
-        await prefs.remove('savedEmployeeId');
-      }
-      Get.to(() => const OtpScreen());
-    }
+    if (!success || !mounted) return;
+
+    // The mobile API completes credential login with an MPIN ticket. It does
+    // not expose mobile OTP endpoints, so going to the OTP screen would always
+    // result in a 404 / "Unable to send OTP" response.
+    final isMpinSet = prefs.getBool('isMpinSet') ?? false;
+    Get.off(() => isMpinSet ? const MpinLoginScreen() : const SetMpinScreen());
   }
 
   @override

@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/view/auth/login_screen.dart';
 import 'package:sarvam/view/auth/mpin_login_screen.dart';
+import 'package:sarvam/services/secure_session_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -38,9 +39,9 @@ class _SplashScreenState extends State<SplashScreen>
     Future.delayed(const Duration(milliseconds: 1800), () async {
       if (!mounted) return;
       final prefs = await SharedPreferences.getInstance();
-      final String? token = prefs.getString('accessToken');
-      final String? mpin = prefs.getString('mpin');
-      if (token != null && token.isNotEmpty && mpin != null && mpin.isNotEmpty) {
+      final String? token = await SecureSessionService.readAccessToken();
+      final bool mpinSet = prefs.getBool('isMpinSet') ?? false;
+      if (token != null && token.isNotEmpty && mpinSet) {
         Get.off(() => const MpinLoginScreen());
       } else {
         Get.off(() => const LoginScreen());

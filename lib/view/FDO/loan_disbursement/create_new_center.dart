@@ -1,9 +1,12 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/controller/centre_controller.dart';
+import 'package:sarvam/services/api_client.dart';
 
 class CreateNewCenter extends StatefulWidget {
   const CreateNewCenter({super.key});
@@ -35,6 +38,18 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
   DateTime _formationDate = DateTime.now();
   String? _meetingDay;
 
+  double? _branchLat;
+  double? _branchLng;
+  List<String> _meetingPlaces = const [
+    'Community Hall',
+    'Center Lead House',
+    'Panchayat Office',
+    'School',
+    'Temple',
+    'Anganwadi',
+  ];
+  String? _selectedMeetingPlace;
+
   String _fdoName = '';
   bool _locating = false;
 
@@ -43,6 +58,8 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
     super.initState();
     _dateController.text = DateFormat('dd-MM-yyyy').format(_formationDate);
     _loadFdoName();
+    _loadBranchLocation();
+    _loadMeetingPlaces();
   }
 
   Future<void> _loadFdoName() async {
@@ -51,6 +68,93 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
     final lastName = prefs.getString('lastName') ?? '';
     if (!mounted) return;
     setState(() => _fdoName = '$firstName $lastName'.trim());
+  }
+
+  Future<void> _loadBranchLocation() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final branchId = prefs.getString('branchId') ?? '';
+      final token = prefs.getString('accessToken') ?? '';
+      if (branchId.isEmpty) return;
+
+      final response = await ApiClient().get(
+        "${Api.branchesUrl}/$branchId",
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (response.statusCode == 200 && response.body != null) {
+        final data = response.body['data'];
+        if (data is Map) {
+          final lat = data['latitude'];
+          final lng = data['longitude'];
+          if (lat != null && lng != null) {
+            _branchLat = double.tryParse('$lat');
+            _branchLng = double.tryParse('$lng');
+
+            final cLat = double.tryParse(_latitudeController.text);
+            final cLng = double.tryParse(_longitudeController.text);
+            if (cLat != null && cLng != null) {
+              _autoCalculateKmFromBranch(cLat, cLng);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("Error loading branch location: $e");
+    }
+  }
+
+  Future<void> _loadMeetingPlaces() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('accessToken') ?? '';
+
+      final response = await ApiClient().get(
+        "${Api.meetingPlacesUrl}?includeInactive=false",
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (response.statusCode == 200 && response.body != null) {
+        final data = response.body['data'];
+        if (data is List) {
+          final fetched = data
+              .whereType<Map>()
+              .map((e) => (e['name'] ?? e['placeName'] ?? '').toString())
+              .where((name) => name.isNotEmpty)
+              .toList();
+          if (fetched.isNotEmpty && mounted) {
+            setState(() {
+              final combined = <String>{..._meetingPlaces, ...fetched};
+              _meetingPlaces = combined.toList();
+            });
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("Error loading meeting places: $e");
+    }
+  }
+
+  double _haversineKm(double lat1, double lon1, double lat2, double lon2) {
+    const R = 6371.0;
+    final dLat = (lat2 - lat1) * math.pi / 180.0;
+    final dLon = (lon2 - lon1) * math.pi / 180.0;
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1 * math.pi / 180.0) *
+            math.cos(lat2 * math.pi / 180.0) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return R * c;
+  }
+
+  void _autoCalculateKmFromBranch(double centerLat, double centerLng) {
+    if (_branchLat != null && _branchLng != null) {
+      final distance = _haversineKm(_branchLat!, _branchLng!, centerLat, centerLng);
+      if (mounted) {
+        setState(() {
+          _kmFromBranchController.text = distance.toStringAsFixed(2);
+        });
+      }
+    }
   }
 
   @override
@@ -96,6 +200,7 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
         _latitudeController.text = position.latitude.toStringAsFixed(6);
         _longitudeController.text = position.longitude.toStringAsFixed(6);
       });
+      _autoCalculateKmFromBranch(position.latitude, position.longitude);
     } catch (_) {
       _showLocationError('Unable to fetch your current location.');
     } finally {
@@ -204,10 +309,15 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    _textField(
+                    _dropdown(
                       'Meeting Place',
-                      'Enter meeting place',
-                      controller: _meetingPlaceController,
+                      _selectedMeetingPlace,
+                      _meetingPlaces,
+                      (value) => setState(() {
+                        _selectedMeetingPlace = value;
+                        _meetingPlaceController.text = value ?? '';
+                      }),
+                      allowCustom: true,
                     ),
                     const SizedBox(height: 20),
                     _section('Contact & Location'),
@@ -261,8 +371,10 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
                     const SizedBox(height: 12),
                     _textField(
                       'KM From Branch',
-                      'Enter distance from branch in KM',
+                      'Auto-calculated when location is captured',
                       controller: _kmFromBranchController,
+                      helper: '(Auto-Calculated)',
+                      readOnly: true,
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
@@ -392,41 +504,93 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
     String label,
     String? value,
     List<String> items,
-    ValueChanged<String?> onChanged,
-  ) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      _label(label, required: true),
-      const SizedBox(height: 5),
-      SizedBox(
-        height: 46,
-        child: DropdownButtonFormField<String>(
-          initialValue: value,
-          isExpanded: true,
-          decoration: _decoration(''),
-          hint: Text(
-            '-- SELECT ${label.split(' ').first.toUpperCase()} --',
-            style: const TextStyle(fontSize: 11, color: Color(0xFF6B9D7C)),
-            overflow: TextOverflow.ellipsis,
+    ValueChanged<String?> onChanged, {
+    bool allowCustom = false,
+  }) {
+    final validValue = (value != null && items.contains(value)) ? value : value;
+    final displayText = validValue ?? '';
+    final hasValue = displayText.isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _label(label, required: true),
+        const SizedBox(height: 5),
+        InkWell(
+          onTap: () => _openSearchableBottomSheet(
+            title: 'Select $label',
+            items: items,
+            selectedValue: value,
+            allowCustom: allowCustom,
+            onSelected: onChanged,
           ),
-          icon: const Icon(
-            Icons.keyboard_arrow_down_rounded,
-            size: 15,
-            color: Color(0xFF478E66),
-          ),
-          items: items
-              .map(
-                (item) => DropdownMenuItem(
-                  value: item,
-                  child: Text(item, style: const TextStyle(fontSize: 13)),
+          borderRadius: BorderRadius.circular(5),
+          child: Container(
+            height: 46,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FFFA),
+              borderRadius: BorderRadius.circular(5),
+              border: Border.all(color: const Color(0xFF82C69A)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    hasValue
+                        ? displayText
+                        : '-- SELECT ${label.split(' ').first.toUpperCase()} --',
+                    style: TextStyle(
+                      fontSize: hasValue ? 13 : 11,
+                      color: hasValue
+                          ? const Color(0xFF073E23)
+                          : const Color(0xFF6B9D7C),
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-              )
-              .toList(),
-          onChanged: onChanged,
+                const Icon(
+                  Icons.search_rounded,
+                  size: 16,
+                  color: Color(0xFF478E66),
+                ),
+                const SizedBox(width: 4),
+                const Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  size: 16,
+                  color: Color(0xFF478E66),
+                ),
+              ],
+            ),
+          ),
         ),
+      ],
+    );
+  }
+
+  void _openSearchableBottomSheet({
+    required String title,
+    required List<String> items,
+    required String? selectedValue,
+    required ValueChanged<String?> onSelected,
+    bool allowCustom = false,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (bottomSheetContext) => _SearchablePickerSheet(
+        title: title,
+        items: items,
+        selectedValue: selectedValue,
+        allowCustom: allowCustom,
+        onSelected: (val) {
+          Navigator.pop(bottomSheetContext);
+          onSelected(val);
+        },
       ),
-    ],
-  );
+    );
+  }
 
   Widget _dateField() => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
@@ -622,6 +786,7 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
     _latitudeController.clear();
     _longitudeController.clear();
     _meetingDay = null;
+    _selectedMeetingPlace = null;
     _formationDate = DateTime.now();
     _dateController.text = DateFormat('dd-MM-yyyy').format(_formationDate);
     _timeController.text = '--:--';
@@ -640,6 +805,18 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
       return;
     }
 
+    final meetingPlace = _selectedMeetingPlace ?? _meetingPlaceController.text.trim();
+    if (meetingPlace.isEmpty) {
+      Get.snackbar(
+        'Meeting Place required',
+        'Please select a meeting place.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.redAccent,
+        colorText: Colors.white,
+      );
+      return;
+    }
+
     final prefs = await SharedPreferences.getInstance();
     final branchId = prefs.getString('branchId') ?? '';
 
@@ -651,7 +828,7 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
       'formationDate': DateFormat('yyyy-MM-dd').format(_formationDate),
       'meetingDay': _meetingDay,
       'meetingTime': _timeController.text.trim(),
-      'meetingPlace': _meetingPlaceController.text.trim(),
+      'meetingPlace': meetingPlace,
       'latitude': double.tryParse(_latitudeController.text.trim()),
       'longitude': double.tryParse(_longitudeController.text.trim()),
       'kmFromBranch': double.tryParse(_kmFromBranchController.text.trim()),
@@ -764,6 +941,182 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _SearchablePickerSheet extends StatefulWidget {
+  const _SearchablePickerSheet({
+    required this.title,
+    required this.items,
+    required this.selectedValue,
+    required this.onSelected,
+    this.allowCustom = false,
+  });
+
+  final String title;
+  final List<String> items;
+  final String? selectedValue;
+  final ValueChanged<String?> onSelected;
+  final bool allowCustom;
+
+  @override
+  State<_SearchablePickerSheet> createState() => _SearchablePickerSheetState();
+}
+
+class _SearchablePickerSheetState extends State<_SearchablePickerSheet> {
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _searchQuery.trim().toLowerCase();
+    final filtered = widget.items
+        .where((item) => item.toLowerCase().contains(query))
+        .toList();
+
+    final showCustomOption = widget.allowCustom &&
+        _searchQuery.trim().isNotEmpty &&
+        !filtered.any((item) => item.toLowerCase() == query);
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.65,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    widget.title,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF063B20),
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: TextField(
+              controller: _searchController,
+              autofocus: true,
+              onChanged: (val) => setState(() => _searchQuery = val),
+              style: const TextStyle(fontSize: 13),
+              decoration: InputDecoration(
+                hintText: 'Search options...',
+                hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                prefixIcon: const Icon(Icons.search_rounded, size: 18, color: Color(0xFF00843D)),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear_rounded, size: 16),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      )
+                    : null,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                filled: true,
+                fillColor: const Color(0xFFF8FFFA),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: Color(0xFF82C69A)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: Color(0xFF82C69A)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: Color(0xFF00843D), width: 1.5),
+                ),
+              ),
+            ),
+          ),
+          if (showCustomOption)
+            InkWell(
+              onTap: () => widget.onSelected(_searchQuery.trim()),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                color: const Color(0xFFF0FDF4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.add_circle_outline_rounded, size: 18, color: Color(0xFF00843D)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Use custom value: "${_searchQuery.trim()}"',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF00843D),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          Expanded(
+            child: filtered.isEmpty && !showCustomOption
+                ? const Center(
+                    child: Text(
+                      'No matching options found',
+                      style: TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    itemCount: filtered.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1, indent: 16, endIndent: 16),
+                    itemBuilder: (context, index) {
+                      final item = filtered[index];
+                      final isSelected = item == widget.selectedValue;
+
+                      return ListTile(
+                        dense: true,
+                        title: Text(
+                          item,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                            color: isSelected ? const Color(0xFF00843D) : const Color(0xFF0F172A),
+                          ),
+                        ),
+                        trailing: isSelected
+                            ? const Icon(Icons.check_circle_rounded, size: 18, color: Color(0xFF00843D))
+                            : null,
+                        onTap: () => widget.onSelected(item),
+                      );
+                    },
+                  ),
+          ),
+        ],
       ),
     );
   }

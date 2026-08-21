@@ -7,6 +7,8 @@ import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/view/auth/login_screen.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 import 'package:sarvam/view/auth/face_verification_screen.dart';
+import 'package:sarvam/view/auth/face_training_screen.dart';
+import 'package:sarvam/services/face_biometric_service.dart';
 
 class MpinLoginScreen extends StatefulWidget {
   const MpinLoginScreen({super.key});
@@ -58,16 +60,11 @@ class _MpinLoginScreenState extends State<MpinLoginScreen> {
     bool isVerified = await authController.verifyMpin(mpin: mpin);
 
     final prefs = await SharedPreferences.getInstance();
-    // Fallback to local offline check if offline
-    if (!isVerified) {
-      final savedMpin = prefs.getString('mpin');
-      if (savedMpin != null && mpin == savedMpin) {
-        isVerified = true;
-      }
-    }
-
     if (isVerified) {
-      if (hasPunchedInToday(prefs)) {
+      final bool faceEnrolled = await FaceBiometricService.isFaceEnrolled();
+      if (!faceEnrolled) {
+        Get.offAll(() => const FaceTrainingScreen(autoStart: true));
+      } else if (hasPunchedInToday(prefs)) {
         // Already face-verified for today's shift — reopening the app
         // shouldn't ask again, only the first punch-in of the day should.
         final homeScreen = await resolveHomeScreen();
