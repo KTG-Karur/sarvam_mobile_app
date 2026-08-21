@@ -249,12 +249,7 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
                 );
                 return;
               }
-              if (!context.mounted) return;
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const FaceVerificationScreen(isPunchOut: true),
-                ),
-              );
+              Get.to(() => const FaceVerificationScreen(isPunchOut: true));
             },
             child: Column(
               mainAxisSize: MainAxisSize.min,
