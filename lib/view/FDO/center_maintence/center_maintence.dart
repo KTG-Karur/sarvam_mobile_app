@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -46,10 +47,12 @@ class _CenterMaintenceState extends State<CenterMaintence>
   String _selectedCenterType = 'New Center';
   String _selectedVillage = '--Select--';
   String _selectedAreaCategory = '--Select--';
+  String _selectedMeetingPlace = '--Select--';
 
   // Controllers & State for Location tab
   late TextEditingController _latitudeController;
   late TextEditingController _longitudeController;
+  late TextEditingController _kmFromBranchController;
   bool _isFetchingGps = false;
 
   final _formKey = GlobalKey<FormState>();
@@ -70,10 +73,34 @@ class _CenterMaintenceState extends State<CenterMaintence>
     _addressController = TextEditingController(text: widget.centerName);
     _latitudeController = TextEditingController(text: '13.0441268');
     _longitudeController = TextEditingController(text: '80.2277187');
+    _kmFromBranchController = TextEditingController();
+
+    _calculateKmFromBranch();
+    _latitudeController.addListener(_calculateKmFromBranch);
+    _longitudeController.addListener(_calculateKmFromBranch);
+  }
+
+  void _calculateKmFromBranch() {
+    final lat = double.tryParse(_latitudeController.text.trim());
+    final lng = double.tryParse(_longitudeController.text.trim());
+    if (lat == null || lng == null) {
+      _kmFromBranchController.text = '—';
+      return;
+    }
+    const branchLat = 13.0827;
+    const branchLng = 80.2707;
+    const p = 0.017453292519943295;
+    final a = 0.5 -
+        cos((lat - branchLat) * p) / 2 +
+        cos(branchLat * p) * cos(lat * p) * (1 - cos((lng - branchLng) * p)) / 2;
+    final distance = 12742 * asin(sqrt(a));
+    _kmFromBranchController.text = '${distance.toStringAsFixed(1)} KM';
   }
 
   @override
   void dispose() {
+    _latitudeController.removeListener(_calculateKmFromBranch);
+    _longitudeController.removeListener(_calculateKmFromBranch);
     _tabController.dispose();
     _processFlowController.dispose();
     _fileNoController.dispose();
@@ -84,6 +111,7 @@ class _CenterMaintenceState extends State<CenterMaintence>
     _addressController.dispose();
     _latitudeController.dispose();
     _longitudeController.dispose();
+    _kmFromBranchController.dispose();
     super.dispose();
   }
 
@@ -540,6 +568,26 @@ class _CenterMaintenceState extends State<CenterMaintence>
                   if (val != null) setState(() => _selectedAreaCategory = val);
                 },
               ),
+              SizedBox(height: 14.h),
+
+              // 6. Meeting Place Dropdown
+              _buildModernDropdown(
+                label: 'Meeting Place',
+                value: _selectedMeetingPlace,
+                items: [
+                  '--Select--',
+                  'School',
+                  'Temple',
+                  'Panchayat Hall',
+                  'Community Hall',
+                  'Leader House',
+                  'Member House',
+                  'Public Place',
+                ],
+                onChanged: (val) {
+                  if (val != null) setState(() => _selectedMeetingPlace = val);
+                },
+              ),
             ],
           ),
         ],
@@ -575,6 +623,15 @@ class _CenterMaintenceState extends State<CenterMaintence>
                     ),
                   ),
                 ],
+              ),
+              SizedBox(height: 12.h),
+
+              // KM from Branch (Auto-Calculated)
+              _buildModernTextField(
+                label: 'KM from Branch (Auto-Calculated)',
+                controller: _kmFromBranchController,
+                readOnly: true,
+                prefixIcon: Icons.straighten_outlined,
               ),
               SizedBox(height: 12.h),
 

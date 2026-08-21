@@ -432,6 +432,18 @@ mixin EnrollmentLookupsMixin on GetxController {
     }
     final aadhaar = otherIdNoCtrl.text.trim();
     final phone = mobileNumberCtrl.text.trim();
+    final firstName = clientNameCtrl.text.trim();
+    final lastName = lastNameCtrl.text.trim();
+
+    if (firstName.isEmpty) {
+      Get.snackbar(
+        'First Name Required',
+        'Please enter the client\'s First Name on Tab 1 before running credit check.',
+        backgroundColor: Colors.orange,
+        colorText: Colors.white,
+      );
+      return;
+    }
     if (aadhaar.length != 12 || phone.length < 10) {
       Get.snackbar(
         'Missing Details',
@@ -444,8 +456,8 @@ mixin EnrollmentLookupsMixin on GetxController {
     isRunningCreditCheck.value = true;
     try {
       highmarkReport.value = await api.runHighmarkCheck({
-        'firstName': clientNameCtrl.text.trim(),
-        'lastName': lastNameCtrl.text.trim(),
+        'firstName': firstName,
+        'lastName': lastName.isEmpty ? firstName : lastName,
         'aadhaar': aadhaar,
         'phone': phone,
         'consentObtained': true,

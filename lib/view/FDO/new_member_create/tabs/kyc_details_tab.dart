@@ -197,6 +197,22 @@ class KycDetailsTab extends StatelessWidget {
                   );
                 },
               ),
+              if (documentType.toLowerCase().contains('aadhaar') ||
+                  documentType.toLowerCase().contains('pancard') ||
+                  documentType.toLowerCase().contains('pan')) ...[
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.qr_code_scanner_rounded, color: enrollmentGreen),
+                  title: Text(
+                    'Scan & Auto-Fill ${documentType.toLowerCase().contains('aadhaar') ? 'Aadhaar No' : 'PAN Card No'}',
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: enrollmentGreen),
+                  ),
+                  onTap: () {
+                    Navigator.pop(bottomContext);
+                    _showScanIdModal(context, documentType, owner: owner);
+                  },
+                ),
+              ],
               if (allowPdf) ...[
                 const Divider(height: 1),
                 ListTile(
@@ -215,6 +231,88 @@ class KycDetailsTab extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _showScanIdModal(BuildContext context, String documentType, {required String owner}) {
+    final isAadhaar = documentType.toLowerCase().contains('aadhaar');
+    final title = isAadhaar ? 'Scan Aadhaar Card' : 'Scan PAN Card';
+    final ctrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14.r)),
+        title: Row(
+          children: [
+            const Icon(Icons.qr_code_scanner_rounded, color: enrollmentGreen),
+            SizedBox(width: 8.w),
+            Text(title, style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w800, color: const Color(0xFF063B20))),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              isAadhaar
+                  ? 'Enter or scan 12-digit Aadhaar Number:'
+                  : 'Enter or scan 10-character PAN Card Number:',
+              style: TextStyle(fontSize: 12.sp, color: Colors.grey[700]),
+            ),
+            SizedBox(height: 12.h),
+            TextField(
+              controller: ctrl,
+              maxLength: isAadhaar ? 12 : 10,
+              keyboardType: isAadhaar ? TextInputType.number : TextInputType.text,
+              textCapitalization: TextCapitalization.characters,
+              decoration: InputDecoration(
+                hintText: isAadhaar ? '123456789012' : 'ABCDE1234F',
+                border: const OutlineInputBorder(),
+                prefixIcon: Icon(isAadhaar ? Icons.badge_outlined : Icons.credit_card_outlined),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: enrollmentGreen, foregroundColor: Colors.white),
+            icon: const Icon(Icons.check_rounded, size: 18),
+            label: const Text('Auto-Fill Field'),
+            onPressed: () {
+              final val = ctrl.text.trim();
+              if (val.isEmpty) {
+                Get.snackbar('Input Required', 'Please enter a valid number.', backgroundColor: Colors.orange, colorText: Colors.white);
+                return;
+              }
+              if (isAadhaar) {
+                if (owner == 'client') {
+                  controller.otherIdNoCtrl.text = val;
+                } else {
+                  controller.caOtherIdNoCtrl.text = val;
+                }
+              } else {
+                if (owner == 'client') {
+                  controller.pancardNoCtrl.text = val;
+                } else {
+                  controller.caPancardNoCtrl.text = val;
+                }
+              }
+              Navigator.pop(ctx);
+              Get.snackbar(
+                'Auto-Filled',
+                '${isAadhaar ? "Aadhaar Number" : "PAN Card Number"} updated successfully.',
+                backgroundColor: enrollmentGreen,
+                colorText: Colors.white,
+              );
+            },
+          ),
+        ],
       ),
     );
   }

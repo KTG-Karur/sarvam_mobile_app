@@ -166,6 +166,7 @@ class EnrollmentTextField extends StatelessWidget {
     this.enableCopyPaste = true,
     this.inputFormatters,
     this.errorText,
+    this.suffixIcon,
   });
 
   final String label;
@@ -183,6 +184,7 @@ class EnrollmentTextField extends StatelessWidget {
   final bool enableCopyPaste;
   final List<TextInputFormatter>? inputFormatters;
   final String? errorText;
+  final Widget? suffixIcon;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -209,6 +211,7 @@ class EnrollmentTextField extends StatelessWidget {
           decoration: enrollmentDecoration(
             hint,
             icon: icon,
+            suffixIcon: suffixIcon,
           ).copyWith(counterText: '', errorText: errorText),
         ),
       ],

@@ -36,7 +36,9 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
   void initState() {
     super.initState();
     _loadUserDetails();
-    _controller.getDashboardStats();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _controller.getDashboardStats();
+    });
 
     _pageAnimController = AnimationController(
       vsync: this,

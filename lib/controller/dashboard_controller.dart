@@ -72,22 +72,10 @@ class DashboardController extends GetxController {
 
       final errorMsg =
           response.body?['message'] ?? 'Failed to load dashboard stats.';
-      Get.snackbar(
-        'Error ${response.statusCode}',
-        errorMsg,
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.redAccent,
-        colorText: Colors.white,
-      );
+      _showSnackbar('Error ${response.statusCode}', errorMsg);
     } catch (e) {
       debugPrint("Request Error: $e");
-      Get.snackbar(
-        'Request Error',
-        e.toString(),
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.redAccent,
-        colorText: Colors.white,
-      );
+      _showSnackbar('Request Error', e.toString());
     } finally {
       isLoading.value = false;
     }
@@ -106,24 +94,31 @@ class DashboardController extends GetxController {
         return;
       }
 
-      Get.snackbar(
+      _showSnackbar(
         'Dashboard Error',
         response.body?['message'] ?? 'Failed to load Area Manager dashboard.',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.redAccent,
-        colorText: Colors.white,
       );
     } catch (e) {
       debugPrint('Task details request error: $e');
-      Get.snackbar(
+      _showSnackbar(
         'Dashboard Error',
         'Unable to load the Area Manager dashboard.',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.redAccent,
-        colorText: Colors.white,
       );
     } finally {
       isTaskDetailsLoading.value = false;
     }
+  }
+
+  void _showSnackbar(String title, String message) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (Get.isSnackbarOpen) return;
+      Get.snackbar(
+        title,
+        message,
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.redAccent,
+        colorText: Colors.white,
+      );
+    });
   }
 }

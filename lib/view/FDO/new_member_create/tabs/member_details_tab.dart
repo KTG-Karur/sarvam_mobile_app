@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:sarvam/controller/client_enrollment/enrollment_options.dart';
 import 'package:sarvam/controller/client_enrollment_controller.dart';
+import 'package:sarvam/services/document_scanner_service.dart';
 import 'package:sarvam/view/FDO/new_member_create/widgets/enrollment_field_widgets.dart';
 
 class MemberDetailsTab extends StatelessWidget {
@@ -37,6 +39,18 @@ class MemberDetailsTab extends StatelessWidget {
           required: controller.isRequired('otherIdNo'),
           keyboardType: TextInputType.number,
           maxLength: 12,
+          suffixIcon: IconButton(
+            tooltip: 'Scan Aadhaar Card',
+            icon: const Icon(Icons.qr_code_scanner_rounded, color: enrollmentGreen),
+            onPressed: () => _showScanDialog(
+              context,
+              'Aadhaar Card',
+              controller.otherIdNoCtrl,
+              scanType: DocumentScanType.aadhaar,
+              isNumeric: true,
+              maxLen: 12,
+            ),
+          ),
         ),
         EnrollmentTextField(
           label: 'First Name',
@@ -58,6 +72,18 @@ class MemberDetailsTab extends StatelessWidget {
           required: controller.isRequired('pancardNo'),
           maxLength: 10,
           errorText: controller.pancardNoError.value,
+          suffixIcon: IconButton(
+            tooltip: 'Scan PAN Card',
+            icon: const Icon(Icons.qr_code_scanner_rounded, color: enrollmentGreen),
+            onPressed: () => _showScanDialog(
+              context,
+              'PAN Card',
+              controller.pancardNoCtrl,
+              scanType: DocumentScanType.panCard,
+              isNumeric: false,
+              maxLen: 10,
+            ),
+          ),
         ),
         EnrollmentTextField(
           label: 'Voter ID Number',
@@ -67,6 +93,18 @@ class MemberDetailsTab extends StatelessWidget {
           required: controller.isRequired('votersIdNo'),
           maxLength: 30,
           errorText: controller.votersIdNoError.value,
+          suffixIcon: IconButton(
+            tooltip: 'Scan Voter ID',
+            icon: const Icon(Icons.qr_code_scanner_rounded, color: enrollmentGreen),
+            onPressed: () => _showScanDialog(
+              context,
+              'Voter ID',
+              controller.votersIdNoCtrl,
+              scanType: DocumentScanType.voterId,
+              isNumeric: false,
+              maxLen: 20,
+            ),
+          ),
         ),
         EnrollmentDateField(
           label: 'Date of Birth',
@@ -154,4 +192,101 @@ class MemberDetailsTab extends StatelessWidget {
       ],
     ),
   );
+
+  void _showScanDialog(
+    BuildContext context,
+    String docTitle,
+    TextEditingController targetCtrl, {
+    required DocumentScanType scanType,
+    required bool isNumeric,
+    required int maxLen,
+  }) {
+    final tempCtrl = TextEditingController(text: targetCtrl.text);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: Row(
+          children: [
+            const Icon(Icons.qr_code_scanner_rounded, color: enrollmentGreen),
+            const SizedBox(width: 8),
+            Text('Scan $docTitle', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF063B20))),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Scan document photo using Camera or Gallery:', style: TextStyle(fontSize: 12, color: Colors.grey[700])),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(backgroundColor: enrollmentGreen, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 10)),
+                    icon: const Icon(Icons.camera_alt_outlined, size: 18),
+                    label: const Text('Camera'),
+                    onPressed: () async {
+                      final scanned = await DocumentScannerService.scanDocument(scanType: scanType, source: ImageSource.camera);
+                      if (scanned != null && scanned.isNotEmpty) {
+                        targetCtrl.text = scanned;
+                        tempCtrl.text = scanned;
+                        Get.snackbar('Auto-Detected', 'Scanned $docTitle: $scanned', backgroundColor: enrollmentGreen, colorText: Colors.white);
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(foregroundColor: enrollmentGreen, side: const BorderSide(color: enrollmentGreen), padding: const EdgeInsets.symmetric(vertical: 10)),
+                    icon: const Icon(Icons.photo_library_outlined, size: 18),
+                    label: const Text('Gallery'),
+                    onPressed: () async {
+                      final scanned = await DocumentScannerService.scanDocument(scanType: scanType, source: ImageSource.gallery);
+                      if (scanned != null && scanned.isNotEmpty) {
+                        targetCtrl.text = scanned;
+                        tempCtrl.text = scanned;
+                        Get.snackbar('Auto-Detected', 'Scanned $docTitle: $scanned', backgroundColor: enrollmentGreen, colorText: Colors.white);
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: tempCtrl,
+              maxLength: maxLen,
+              keyboardType: isNumeric ? TextInputType.number : TextInputType.text,
+              textCapitalization: TextCapitalization.characters,
+              decoration: InputDecoration(
+                hintText: 'Enter or auto-filled number',
+                border: const OutlineInputBorder(),
+                prefixIcon: Icon(isNumeric ? Icons.badge_outlined : Icons.credit_card_outlined),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: enrollmentGreen, foregroundColor: Colors.white),
+            icon: const Icon(Icons.check_rounded, size: 18),
+            label: const Text('Apply Field'),
+            onPressed: () {
+              final text = tempCtrl.text.trim();
+              if (text.isNotEmpty) {
+                targetCtrl.text = text;
+              }
+              Navigator.pop(ctx);
+            },
+          ),
+        ],
+      ),
+    );
+  }
 }
