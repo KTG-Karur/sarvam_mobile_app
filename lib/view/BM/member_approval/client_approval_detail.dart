@@ -68,6 +68,13 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
     return v == null || v.toString().trim().isEmpty ? fallback : v.toString();
   }
 
+  String _extractActivity(Map data, String key) {
+    final v = data[key];
+    if (v is Map) return v['name']?.toString() ?? '—';
+    if (v != null && v.toString().trim().isNotEmpty) return v.toString();
+    return '—';
+  }
+
   /// Opens an in-app map centered on the client's enrolled GPS location —
   /// triggered by the "Location QR" document's "View on Map" chip. Uses
   /// `google_maps_flutter` (already a dependency, used elsewhere for
@@ -367,9 +374,17 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
               _row('Gender', _f(coApplicant, 'gender')),
               _row('Age', _f(coApplicant, 'age')),
               _row('Mobile', _f(coApplicant, 'mobileNumber')),
-              _row('PAN Card No', _f(coApplicant, 'pancardNo')),
-              _row('Voter ID No', _f(coApplicant, 'voterIdNo')),
-              _row('Aadhaar No', _f(coApplicant, 'otherIdNo')),
+              _row(
+                'Economic Activity Type',
+                _extractActivity(coApplicant, 'economicActivityType'),
+              ),
+              _row(
+                'Economic Activity',
+                _extractActivity(coApplicant, 'economicActivity'),
+              ),
+              _row('PAN Card No', _f(coApplicant, 'caPancardNo', _f(coApplicant, 'pancardNo'))),
+              _row('Voter ID No', _f(coApplicant, 'caVoterIdNo', _f(coApplicant, 'voterIdNo'))),
+              _row('Aadhaar No', _f(coApplicant, 'caOtherIdNo', _f(coApplicant, 'otherIdNo'))),
             ]),
           ],
           const SizedBox(height: 12),

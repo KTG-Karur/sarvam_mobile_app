@@ -194,6 +194,7 @@ class FinalDisbursementController extends GetxController {
     try {
       await api.bmDisburse(
         centerId: idx['centerId'].toString(),
+        indexId: idx['id'].toString(),
         funderId: fId,
         disbursements: disbursements,
       );

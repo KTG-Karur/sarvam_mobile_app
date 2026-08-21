@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:sarvam/controller/client_enrollment/enrollment_options.dart';
 import 'package:sarvam/controller/client_enrollment_controller.dart';
 import 'package:sarvam/view/FDO/new_member_create/widgets/enrollment_field_widgets.dart';
@@ -143,6 +144,81 @@ class KycDetailsTab extends StatelessWidget {
     ),
   );
 
+  void _showUploadSourceSheet(
+    BuildContext context,
+    String documentType,
+    String label, {
+    required String owner,
+    required bool allowPdf,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (bottomContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Upload $label',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF063B20),
+                ),
+              ),
+              const SizedBox(height: 14),
+              ListTile(
+                leading: const Icon(Icons.camera_alt_outlined, color: enrollmentGreen),
+                title: const Text('Take Photo (Camera)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(bottomContext);
+                  controller.pickAndUploadDocument(
+                    documentType,
+                    owner: owner,
+                    source: ImageSource.camera,
+                  );
+                },
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined, color: enrollmentGreen),
+                title: const Text('Choose from Photo Gallery', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(bottomContext);
+                  controller.pickAndUploadDocument(
+                    documentType,
+                    owner: owner,
+                    source: ImageSource.gallery,
+                  );
+                },
+              ),
+              if (allowPdf) ...[
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.picture_as_pdf_outlined, color: enrollmentGreen),
+                  title: const Text('Choose PDF / Document File', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  onTap: () {
+                    Navigator.pop(bottomContext);
+                    controller.pickAndUploadDocument(
+                      documentType,
+                      owner: owner,
+                      allowPdf: true,
+                    );
+                  },
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _docRow(String documentType, String label, {required String owner}) => Obx(() {
     final state = controller.docState(documentType);
     final allowPdf = EnrollmentOptions.pdfEligibleDocumentTypes.contains(documentType);
@@ -165,29 +241,37 @@ class KycDetailsTab extends StatelessWidget {
           else if (state?.isUploaded == true) ...[
             Icon(Icons.check_circle, color: enrollmentGreen, size: 18.sp),
             SizedBox(width: 6.w),
-            InkWell(
-              onTap: () => controller.pickAndUploadDocument(
-                documentType,
-                owner: owner,
-                allowPdf: allowPdf,
-              ),
-              child: Text(
-                'Replace',
-                style: TextStyle(fontSize: 11.5.sp, color: enrollmentGreen),
+            Builder(
+              builder: (ctx) => InkWell(
+                onTap: () => _showUploadSourceSheet(
+                  ctx,
+                  documentType,
+                  label,
+                  owner: owner,
+                  allowPdf: allowPdf,
+                ),
+                child: Text(
+                  'Replace',
+                  style: TextStyle(fontSize: 11.5.sp, color: enrollmentGreen),
+                ),
               ),
             ),
           ] else
-            OutlinedButton.icon(
-              onPressed: () => controller.pickAndUploadDocument(
-                documentType,
-                owner: owner,
-                allowPdf: allowPdf,
-              ),
-              icon: const Icon(Icons.attach_file, size: 16),
-              label: const Text('Upload'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: enrollmentGreen,
-                minimumSize: const Size(90, 35),
+            Builder(
+              builder: (ctx) => OutlinedButton.icon(
+                onPressed: () => _showUploadSourceSheet(
+                  ctx,
+                  documentType,
+                  label,
+                  owner: owner,
+                  allowPdf: allowPdf,
+                ),
+                icon: const Icon(Icons.attach_file, size: 16),
+                label: const Text('Upload'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: enrollmentGreen,
+                  minimumSize: const Size(90, 35),
+                ),
               ),
             ),
         ],

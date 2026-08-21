@@ -632,10 +632,28 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
             const Divider(height: 1, color: Color(0xFFE1EAE4)),
             SizedBox(height: 14.h),
             Padding(
-              padding: EdgeInsets.only(bottom: 10.h),
-              child: Text(
-                'Changing the loan product is available on the web app.',
-                style: TextStyle(fontSize: 10.5.sp, color: _muted),
+              padding: EdgeInsets.only(bottom: 12.h),
+              child: SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => _showEditProductSheet(context),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _green,
+                    side: const BorderSide(color: _green, width: 1.2),
+                    padding: EdgeInsets.symmetric(vertical: 12.h),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10.r),
+                    ),
+                  ),
+                  icon: const Icon(Icons.edit_rounded, size: 18),
+                  label: Text(
+                    'Edit Product',
+                    style: TextStyle(
+                      fontSize: 13.sp,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
               ),
             ),
             SizedBox(
@@ -683,6 +701,274 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
         ),
       );
     });
+  }
+
+  void _showEditProductSheet(BuildContext context) {
+    controller.fetchProductEditData();
+
+    final loan = controller.loan;
+    final currentProductId = loan['loanProductId']?.toString() ?? '';
+    final maxAllowedAmount = double.tryParse('${loan['indexedAmount'] ?? loan['appliedAmount'] ?? loan['amount']}') ?? 0.0;
+
+    String? selectedTypeId;
+    String? selectedFrequency;
+    String? selectedProductId;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20.r)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Obx(() {
+              if (controller.isLoadingProductData.value) {
+                return Container(
+                  height: 250.h,
+                  alignment: Alignment.center,
+                  child: const CircularProgressIndicator(color: _green),
+                );
+              }
+
+              final types = controller.productTypes;
+              final products = controller.allProducts;
+
+              if (selectedProductId == null && currentProductId.isNotEmpty && products.isNotEmpty) {
+                final curr = products.cast<Map<String, dynamic>?>().firstWhere(
+                  (p) => p?['id']?.toString() == currentProductId,
+                  orElse: () => null,
+                );
+                if (curr != null) {
+                  selectedTypeId = curr['loanProductTypeId']?.toString();
+                  selectedFrequency = curr['frequency']?.toString().toLowerCase();
+                  selectedProductId = curr['id']?.toString();
+                }
+              }
+
+              final typeProducts = products.where((p) {
+                if (p is! Map) return false;
+                final pTypeId = p['loanProductTypeId']?.toString();
+                final pAmount = double.tryParse('${p['loanAmount']}') ?? 0.0;
+                return pTypeId == selectedTypeId && (maxAllowedAmount <= 0 || pAmount <= maxAllowedAmount);
+              }).toList();
+
+              final availableFreqs = typeProducts
+                  .map((p) => p['frequency']?.toString().toLowerCase() ?? '')
+                  .where((f) => f.isNotEmpty)
+                  .toSet()
+                  .toList();
+
+              final filteredProducts = typeProducts.where((p) {
+                final f = p['frequency']?.toString().toLowerCase();
+                return f == selectedFrequency;
+              }).toList();
+
+              final selectedProduct = filteredProducts.cast<Map<String, dynamic>?>().firstWhere(
+                (p) => p?['id']?.toString() == selectedProductId,
+                orElse: () => null,
+              );
+
+              return Padding(
+                padding: EdgeInsets.only(
+                  left: 16.w,
+                  right: 16.w,
+                  top: 16.h,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 20.h,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Edit Loan Product',
+                          style: TextStyle(
+                            fontSize: 16.sp,
+                            fontWeight: FontWeight.w800,
+                            color: _darkText,
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close_rounded, color: _muted),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 12.h),
+
+                    Text(
+                      'Loan Product Type',
+                      style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700, color: _darkText),
+                    ),
+                    SizedBox(height: 6.h),
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedTypeId,
+                      decoration: InputDecoration(
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10.r)),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10.r),
+                          borderSide: const BorderSide(color: _green, width: 1.4),
+                        ),
+                      ),
+                      hint: const Text('Select Product Type'),
+                      items: types.map<DropdownMenuItem<String>>((t) {
+                        return DropdownMenuItem<String>(
+                          value: t['id']?.toString(),
+                          child: Text('${t['name']}', style: TextStyle(fontSize: 12.5.sp)),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        setModalState(() {
+                          selectedTypeId = val;
+                          selectedFrequency = null;
+                          selectedProductId = null;
+                        });
+                      },
+                    ),
+                    SizedBox(height: 12.h),
+
+                    Text(
+                      'Frequency',
+                      style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700, color: _darkText),
+                    ),
+                    SizedBox(height: 6.h),
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedFrequency,
+                      decoration: InputDecoration(
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10.r)),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10.r),
+                          borderSide: const BorderSide(color: _green, width: 1.4),
+                        ),
+                      ),
+                      hint: const Text('Select Frequency'),
+                      items: availableFreqs.map<DropdownMenuItem<String>>((f) {
+                        final label = f.isEmpty ? f : '${f[0].toUpperCase()}${f.substring(1)}';
+                        return DropdownMenuItem<String>(
+                          value: f,
+                          child: Text(label, style: TextStyle(fontSize: 12.5.sp)),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        setModalState(() {
+                          selectedFrequency = val;
+                          selectedProductId = null;
+                        });
+                      },
+                    ),
+                    SizedBox(height: 12.h),
+
+                    Text(
+                      'Loan Product',
+                      style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700, color: _darkText),
+                    ),
+                    SizedBox(height: 6.h),
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedProductId,
+                      decoration: InputDecoration(
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10.r)),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10.r),
+                          borderSide: const BorderSide(color: _green, width: 1.4),
+                        ),
+                      ),
+                      hint: const Text('Select Loan Product'),
+                      items: filteredProducts.map<DropdownMenuItem<String>>((p) {
+                        final amount = _currency(_amount(p, 'loanAmount'));
+                        return DropdownMenuItem<String>(
+                          value: p['id']?.toString(),
+                          child: Text('${p['productName']} ($amount)', style: TextStyle(fontSize: 12.5.sp)),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        setModalState(() {
+                          selectedProductId = val;
+                        });
+                      },
+                    ),
+                    SizedBox(height: 16.h),
+
+                    if (selectedProduct != null)
+                      Container(
+                        padding: EdgeInsets.all(12.w),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0FAF4),
+                          borderRadius: BorderRadius.circular(10.r),
+                          border: Border.all(color: const Color(0xFFE1EAE4)),
+                        ),
+                        child: Column(
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('New Amount:', style: TextStyle(fontSize: 11.sp, color: _muted)),
+                                Text(_currency(_amount(selectedProduct, 'loanAmount')), style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w800, color: _green)),
+                              ],
+                            ),
+                            SizedBox(height: 4.h),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Interest Rate:', style: TextStyle(fontSize: 11.sp, color: _muted)),
+                                Text('${_amount(selectedProduct, 'interestRate')}%', style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700, color: _darkText)),
+                              ],
+                            ),
+                            SizedBox(height: 4.h),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Dues / Tenure:', style: TextStyle(fontSize: 11.sp, color: _muted)),
+                                Text('${selectedProduct['numberOfDues']} dues', style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700, color: _darkText)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+
+                    SizedBox(height: 18.h),
+
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: selectedProductId == null || controller.isUpdatingProduct.value
+                            ? null
+                            : () async {
+                                final ok = await controller.updateLoanProduct(selectedProductId!);
+                                if (ok && context.mounted) {
+                                  Navigator.pop(context);
+                                }
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _green,
+                          foregroundColor: Colors.white,
+                          padding: EdgeInsets.symmetric(vertical: 13.h),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.r)),
+                        ),
+                        child: controller.isUpdatingProduct.value
+                            ? SizedBox(
+                                width: 16.sp,
+                                height: 16.sp,
+                                child: const CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                            : Text('Update Product', style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w700)),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            });
+          },
+        );
+      },
+    );
   }
 
   Widget _appraisalFieldCard({

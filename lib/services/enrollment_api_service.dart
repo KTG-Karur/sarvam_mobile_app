@@ -86,12 +86,15 @@ class EnrollmentApiService {
   Future<List<dynamic>> getGroupsForCenter(
     String centerId, {
     bool availableOnly = true,
-  }) {
-    if (centerId.isEmpty) return Future.value(<dynamic>[]);
-    return _getList(
+  }) async {
+    if (centerId.isEmpty) return <dynamic>[];
+    final availableGroups = await _getList(
       "${Api.groupsUrl}?centerId=$centerId&includeInactive=false"
       "${availableOnly ? '&availableOnly=true' : ''}",
     );
+    if (availableGroups.isNotEmpty || !availableOnly) return availableGroups;
+    // Fallback: fetch all active groups in center regardless of spare capacity
+    return _getList("${Api.groupsUrl}?centerId=$centerId&includeInactive=false");
   }
 
   /// `GET /api/clients` — pass [noCenter] for Tab 1's "awaiting center

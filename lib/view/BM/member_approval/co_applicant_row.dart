@@ -96,8 +96,16 @@ class _CoApplicantRowState extends State<CoApplicantRow> {
     final documents = co['kycDocuments'] is List
         ? (co['kycDocuments'] as List).whereType<Map>().map((d) => Map<String, dynamic>.from(d)).toList()
         : <Map<String, dynamic>>[];
-    final economicActivityType = co['economicActivityType'] is Map ? co['economicActivityType']['name'] : null;
-    final economicActivity = co['economicActivity'] is Map ? co['economicActivity']['name'] : null;
+    final String economicActivityType = co['economicActivityType'] is Map
+        ? (co['economicActivityType']['name']?.toString() ?? '—')
+        : (co['economicActivityType']?.toString().trim().isNotEmpty == true
+            ? co['economicActivityType'].toString()
+            : '—');
+    final String economicActivity = co['economicActivity'] is Map
+        ? (co['economicActivity']['name']?.toString() ?? '—')
+        : (co['economicActivity']?.toString().trim().isNotEmpty == true
+            ? co['economicActivity'].toString()
+            : '—');
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -162,11 +170,11 @@ class _CoApplicantRowState extends State<CoApplicantRow> {
                   _row('Gender', _f(co, 'gender')),
                   _row('Date of Birth', _f(co, 'dateOfBirth')),
                   _row('Age', _f(co, 'age')),
-                  if (economicActivityType != null) _row('Economic Activity Type', '$economicActivityType'),
-                  if (economicActivity != null) _row('Economic Activity', '$economicActivity'),
-                  _row('PAN Card No', _f(co, 'pancardNo')),
-                  _row('Voter ID No', _f(co, 'voterIdNo')),
-                  _row('Aadhaar No', _f(co, 'otherIdNo')),
+                  _row('Economic Activity Type', economicActivityType),
+                  _row('Economic Activity', economicActivity),
+                  _row('PAN Card No', _f(co, 'caPancardNo', _f(co, 'pancardNo'))),
+                  _row('Voter ID No', _f(co, 'caVoterIdNo', _f(co, 'voterIdNo'))),
+                  _row('Aadhaar No', _f(co, 'caOtherIdNo', _f(co, 'otherIdNo'))),
                   const SizedBox(height: 6),
                   Container(
                     padding: const EdgeInsets.all(8),

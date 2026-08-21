@@ -179,15 +179,17 @@ class _CenterDetailsState extends State<CenterDetails> {
         final longitude = detail['longitude'] != null
             ? "${detail['longitude']}"
             : '—';
-        final km = (detail['kmFromBranch'] != null && detail['kmFromBranch'].toString().isNotEmpty)
-            ? "${detail['kmFromBranch']} km"
+        final kmVal = detail['kmFromBranch'] ?? detail['distanceFromBranch'];
+        final km = (kmVal != null && kmVal.toString().isNotEmpty && kmVal.toString() != '—')
+            ? "${kmVal} km"
             : '—';
 
         final contactPerson = (detail['contactPerson']?.toString().trim().isNotEmpty == true)
             ? detail['contactPerson'].toString().trim()
             : '—';
-        final contactNumber = (detail['contactNumber']?.toString().trim().isNotEmpty == true)
-            ? detail['contactNumber'].toString().trim()
+        final rawNum = detail['contactNumber'] ?? detail['contactPersonNumber'] ?? detail['contactPhone'] ?? detail['mobileNumber'];
+        final contactNumber = (rawNum?.toString().trim().isNotEmpty == true)
+            ? rawNum.toString().trim()
             : '—';
 
         final formationDate = _formatDateOnly(

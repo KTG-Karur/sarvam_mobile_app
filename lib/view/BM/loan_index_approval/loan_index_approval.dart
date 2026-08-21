@@ -497,6 +497,10 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
               spacing: 6.w,
               runSpacing: 6.h,
               children: [
+                if (loan['highmarkScore'] != null)
+                  _tag('HM: ${loan['highmarkScore']}', const Color(0xFFD1FAE5), const Color(0xFF065F46))
+                else
+                  _tag('HM: ${_field(loan, 'highmarkStatus')}', const Color(0xFFF3F4F6), const Color(0xFF4B5563)),
                 _tag(_field(loan, 'purpose')),
                 _tag(_field(loan, 'product')),
                 _tag(_field(loan, 'frequency')),
@@ -546,15 +550,19 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
     });
   }
 
-  Widget _tag(String label) => Container(
+  Widget _tag(String label, [Color? bgColor, Color? textColor]) => Container(
     padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 3.h),
     decoration: BoxDecoration(
-      color: const Color(0xFFF0FAF4),
+      color: bgColor ?? const Color(0xFFF0FAF4),
       borderRadius: BorderRadius.circular(6.r),
     ),
     child: Text(
       label,
-      style: TextStyle(fontSize: 9.5.sp, color: _green, fontWeight: FontWeight.w600),
+      style: TextStyle(
+        fontSize: 9.5.sp,
+        color: textColor ?? _green,
+        fontWeight: FontWeight.w600,
+      ),
     ),
   );
 

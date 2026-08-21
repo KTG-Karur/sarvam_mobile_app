@@ -250,10 +250,14 @@ mixin EnrollmentLookupsMixin on GetxController {
       selectedProduct.value = null;
       return;
     }
-    selectedProduct.value = filteredProducts.firstWhere(
-      (p) => p is Map && '${p['id']}' == productId,
-      orElse: () => null,
-    );
+    Map<String, dynamic>? match;
+    for (final p in filteredProducts) {
+      if (p is Map && '${p['id']}' == productId) {
+        match = Map<String, dynamic>.from(p);
+        break;
+      }
+    }
+    selectedProduct.value = match;
   }
 
   /// Mirrors `computeTenureMonths` in `ClientEnrollmentForm.tsx` — must stay

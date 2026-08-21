@@ -73,6 +73,9 @@ mixin EnrollmentSubmitMixin on GetxController {
   TextEditingController get caPancardNoCtrl;
   TextEditingController get caVoterIdNoCtrl;
   TextEditingController get caOtherIdNoCtrl;
+  Rxn<String> get caPancardNoError;
+  Rxn<String> get caVoterIdNoError;
+  Rxn<String> get caOtherIdNoError;
 
   // Tab 5
   Rxn<String> get memberGroupStatus;

@@ -159,4 +159,31 @@ class MemberIndividualApiService {
   /// complete.
   Future<Map<String, dynamic>> completeHouseholdVisit(String loanId) =>
       _patchMap("${Api.memberIndividualUrl}/$loanId/household-visit/complete", {});
+
+  /// `GET /api/loan-product-types?includeInactive=false`
+  Future<List<dynamic>> getLoanProductTypes() =>
+      _getList("${Api.loanProductTypesUrl}?includeInactive=false");
+
+  /// `GET /api/products?branchId={branchId}`
+  Future<List<dynamic>> getProductsForBranch(String branchId) =>
+      _getList("${Api.productsUrl}?branchId=$branchId");
+
+  /// `PATCH /api/disbursements/{loanId}/update-product` or `/api/loans/{loanId}/update-product`
+  Future<Map<String, dynamic>> updateLoanProduct(
+    String loanId, {
+    required String loanProductId,
+    required bool isIndexed,
+    String stage = 'MEMBER_INDIVIDUAL',
+  }) {
+    final url = isIndexed
+        ? "${Api.baseUrl}/api/disbursements/$loanId/update-product"
+        : "${Api.loansUrl}/$loanId/update-product";
+
+    final payload = <String, dynamic>{
+      'loanProductId': loanProductId,
+      if (isIndexed) 'stage': stage,
+    };
+
+    return _patchMap(url, payload);
+  }
 }

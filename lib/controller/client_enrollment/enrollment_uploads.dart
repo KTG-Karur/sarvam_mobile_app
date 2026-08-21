@@ -75,13 +75,36 @@ mixin EnrollmentUploadsMixin on GetxController {
     String documentType, {
     required String owner,
     bool allowPdf = false,
+    ImageSource? source,
   }) async {
     try {
       List<int>? bytes;
       String? filename;
       String? contentType;
 
-      if (allowPdf) {
+      if (source == ImageSource.camera) {
+        final picked = await _picker.pickImage(
+          source: ImageSource.camera,
+          maxWidth: 1920,
+          maxHeight: 1920,
+          imageQuality: 80,
+        );
+        if (picked == null) return;
+        bytes = await picked.readAsBytes();
+        filename = picked.name;
+        contentType = 'image/jpeg';
+      } else if (source == ImageSource.gallery) {
+        final picked = await _picker.pickImage(
+          source: ImageSource.gallery,
+          maxWidth: 1920,
+          maxHeight: 1920,
+          imageQuality: 80,
+        );
+        if (picked == null) return;
+        bytes = await picked.readAsBytes();
+        filename = picked.name;
+        contentType = 'image/jpeg';
+      } else if (allowPdf) {
         final result = await FilePicker.platform.pickFiles(
           type: FileType.custom,
           allowedExtensions: const ['jpg', 'jpeg', 'png', 'pdf'],
@@ -114,9 +137,6 @@ mixin EnrollmentUploadsMixin on GetxController {
         contentType = 'image/jpeg';
       }
 
-      final resolvedBytes = bytes;
-      if (resolvedBytes == null) return;
-
       _setDocState(
         documentType,
         (docState(documentType) ?? EnrollmentDocState()).copyWith(
@@ -125,7 +145,7 @@ mixin EnrollmentUploadsMixin on GetxController {
       );
 
       final result = await api.uploadKycDocument(
-        bytes: resolvedBytes,
+        bytes: bytes,
         filename: filename,
         contentType: contentType,
         documentType: documentType,

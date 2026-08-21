@@ -350,11 +350,14 @@ List<String> enrollmentIdOptions(List<dynamic> items) => items
 /// to its display name for the given lookup list.
 String Function(String) enrollmentIdLabelBuilder(List<dynamic> items) {
   return (id) {
-    final match = items.firstWhere(
-      (e) => e is Map && e['id']?.toString() == id,
-      orElse: () => null,
-    );
-    if (match is! Map) return id;
+    Map? match;
+    for (final e in items) {
+      if (e is Map && e['id']?.toString() == id) {
+        match = e;
+        break;
+      }
+    }
+    if (match == null) return id;
     return (match['name'] ?? match['productName'] ?? id).toString();
   };
 }

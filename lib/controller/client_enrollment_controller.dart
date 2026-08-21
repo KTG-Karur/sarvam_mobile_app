@@ -113,6 +113,7 @@ class ClientEnrollmentController extends GetxController
   final votersIdNoError = Rxn<String>();
   final caPancardNoError = Rxn<String>();
   final caVoterIdNoError = Rxn<String>();
+  final caOtherIdNoError = Rxn<String>();
   final ifscCodeError = Rxn<String>();
   final bankAcNoError = Rxn<String>();
   final retypeBankAcNoError = Rxn<String>();
@@ -267,7 +268,12 @@ class ClientEnrollmentController extends GetxController
     spouseNameCtrl.addListener(_syncSpouseToNomineeIfLocked);
     spouseDobCtrl.addListener(_syncSpouseToNomineeIfLocked);
     ever(spouseGender, (_) => _syncSpouseToNomineeIfLocked());
-    ever(spouseEconomicActivityTypeId, (_) => _syncSpouseToNomineeIfLocked());
+    ever(spouseEconomicActivityTypeId, (id) {
+      if (id != null && id.isNotEmpty) {
+        onEconomicActivityTypeChanged(id, scope: EaScope.spouse);
+      }
+      _syncSpouseToNomineeIfLocked();
+    });
     ever(spouseEconomicActivityId, (_) => _syncSpouseToNomineeIfLocked());
 
     loadStaticLookups();
@@ -376,6 +382,13 @@ class ClientEnrollmentController extends GetxController
           spouseEconomicActivityTypeId.value) {
         coApplicantEconomicActivityTypeId.value =
             spouseEconomicActivityTypeId.value;
+        if (spouseEconomicActivityTypeId.value != null &&
+            spouseEconomicActivityTypeId.value!.isNotEmpty) {
+          onEconomicActivityTypeChanged(
+            spouseEconomicActivityTypeId.value,
+            scope: EaScope.coApplicant,
+          );
+        }
       }
       if (coApplicantEconomicActivityId.value !=
           spouseEconomicActivityId.value) {

@@ -130,6 +130,7 @@ class CoApplicantTab extends StatelessWidget {
           focusNode: controller.caPancardNoFocus,
           required: controller.isRequired('caPancardNo'),
           maxLength: 10,
+          readOnly: locked,
           errorText: controller.caPancardNoError.value,
         ),
         EnrollmentTextField(
@@ -139,6 +140,7 @@ class CoApplicantTab extends StatelessWidget {
           focusNode: controller.caVoterIdNoFocus,
           required: controller.isRequired('caVoterIdNo'),
           maxLength: 30,
+          readOnly: locked,
           errorText: controller.caVoterIdNoError.value,
         ),
         EnrollmentTextField(
@@ -149,6 +151,8 @@ class CoApplicantTab extends StatelessWidget {
           required: controller.isRequired('caOtherIdNo'),
           keyboardType: TextInputType.number,
           maxLength: 12,
+          readOnly: locked,
+          errorText: controller.caOtherIdNoError.value,
         ),
       ],
     );

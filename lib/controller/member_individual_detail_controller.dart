@@ -207,6 +207,68 @@ class MemberIndividualDetailController extends GetxController {
     }
   }
 
+  Map<String, dynamic> get branch => _sub('branch');
+
+  final isLoadingProductData = false.obs;
+  final isUpdatingProduct = false.obs;
+  final productTypes = <dynamic>[].obs;
+  final allProducts = <dynamic>[].obs;
+
+  Future<void> fetchProductEditData() async {
+    final branchId = _fmt(branch['id']).isNotEmpty
+        ? _fmt(branch['id'])
+        : (_fmt(center['branchId']).isNotEmpty
+            ? _fmt(center['branchId'])
+            : _fmt(loan['branchId']));
+
+    if (branchId.isEmpty) return;
+
+    isLoadingProductData.value = true;
+    try {
+      final types = await api.getLoanProductTypes();
+      final prods = await api.getProductsForBranch(branchId);
+      productTypes.assignAll(types);
+      allProducts.assignAll(prods);
+    } catch (e) {
+      debugPrint('Failed to load product edit data: $e');
+    } finally {
+      isLoadingProductData.value = false;
+    }
+  }
+
+  Future<bool> updateLoanProduct(String newProductId) async {
+    isUpdatingProduct.value = true;
+    try {
+      final isIndexed =
+          loan['indexId'] != null ||
+          loan['disbursementStatus'] == 'PENDING_LEVEL2';
+      await api.updateLoanProduct(
+        loanId,
+        loanProductId: newProductId,
+        isIndexed: isIndexed,
+        stage: 'MEMBER_INDIVIDUAL',
+      );
+      Get.snackbar(
+        'Product Updated',
+        'Loan product updated successfully.',
+        backgroundColor: const Color(0xFF00843D),
+        colorText: Colors.white,
+      );
+      await loadRecord();
+      return true;
+    } catch (e) {
+      Get.snackbar(
+        'Error',
+        'Failed to update loan product: $e',
+        backgroundColor: Colors.redAccent,
+        colorText: Colors.white,
+      );
+      return false;
+    } finally {
+      isUpdatingProduct.value = false;
+    }
+  }
+
   /// Captures a photo (camera or gallery) with the device's current GPS
   /// location and uploads it. [isMandatory] must be true exactly once per
   /// loan — that's the photo the backend validates against the center

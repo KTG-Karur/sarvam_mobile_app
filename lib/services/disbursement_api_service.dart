@@ -147,6 +147,7 @@ class DisbursementApiService {
   /// though AM already approved these loans.
   Future<Map<String, dynamic>> bmDisburse({
     required String centerId,
+    required String indexId,
     required String funderId,
     required List<Map<String, dynamic>> disbursements,
   }) async {
@@ -154,7 +155,12 @@ class DisbursementApiService {
     _client.timeout = const Duration(seconds: 45);
     final response = await _client.post(
       Api.disbursementsBmDisburseUrl,
-      {'centerId': centerId, 'funderId': funderId, 'disbursements': disbursements},
+      {
+        'centerId': centerId,
+        'indexId': indexId,
+        'funderId': funderId,
+        'disbursements': disbursements,
+      },
       headers: _authHeaders(token),
     );
     final data = _unwrap(response);
