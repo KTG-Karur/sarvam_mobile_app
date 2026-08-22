@@ -11,6 +11,62 @@ const _green = Color(0xFF0D6842);
 const _muted = Color(0xFF64748B);
 const _border = Color(0xFFE1EEE6);
 
+/// Mirrors the web app's ApprovalClientDetail.tsx `docPairs` display order
+/// (photo → Aadhaar → voter ID → smart card → house/location → NOC),
+/// flattened. The backend always returns `kycDocuments` sorted by
+/// `createdAt desc` (newest re-upload first) — the web app never trusts
+/// that order for display and re-sorts client-side into this fixed
+/// grouping; this mobile screen previously rendered the raw API order
+/// directly, which is why the two apps showed documents in different
+/// (and, after any retake re-upload, shifting) sequences.
+const List<List<String>> _kycDocCanonicalGroups = [
+  ['client_photo'],
+  ['co_applicant_photo'],
+  ['aadhaar_front'],
+  ['aadhaar_back'],
+  ['co_applicant_other_id', 'co_applicant_aadhaar_front'],
+  ['co_applicant_aadhaar_back'],
+  ['voter_id'],
+  ['co_applicant_voter_id'],
+  ['voter_id_back'],
+  ['co_applicant_voter_id_back'],
+  ['smart_card_front', 'smart_card'],
+  ['smart_card_back'],
+  ['house_image_1'],
+  ['location_qr'],
+  ['house_image_2'],
+  ['house_image_3'],
+  ['gas_bill'],
+  ['noc_image_1'],
+  ['noc_image_2'],
+  ['noc_image_3'],
+];
+
+/// Any document type not in the canonical groups above (PAN card, bank
+/// passbook, signatures, etc.) falls after them, keeping its original
+/// (createdAt desc) relative order — matching the web app's "Other
+/// Documents" section, which is likewise never re-sorted.
+List<Map<String, dynamic>> _sortedKycDocuments(
+  List<Map<String, dynamic>> docs,
+) {
+  final rank = <String, int>{};
+  for (var i = 0; i < _kycDocCanonicalGroups.length; i++) {
+    for (final type in _kycDocCanonicalGroups[i]) {
+      rank[type] = i;
+    }
+  }
+  final indexed = docs.asMap().entries.toList()
+    ..sort((a, b) {
+      final rankA = rank[a.value['documentType']?.toString() ?? ''] ??
+          _kycDocCanonicalGroups.length;
+      final rankB = rank[b.value['documentType']?.toString() ?? ''] ??
+          _kycDocCanonicalGroups.length;
+      if (rankA != rankB) return rankA.compareTo(rankB);
+      return a.key.compareTo(b.key);
+    });
+  return indexed.map((e) => e.value).toList();
+}
+
 /// BM's per-client review screen — a Flutter port of the read-only + BM
 /// action portion of the web app's `ApprovalClientDetail.tsx`. Whole-client
 /// actions only (Submit to AM / Request Retake / Reject); KYC documents are
@@ -448,7 +504,7 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
                   style: TextStyle(fontSize: 12, color: _muted),
                 )
               else
-                ...kycDocuments.map((doc) {
+                ..._sortedKycDocuments(kycDocuments).map((doc) {
                   final docId = doc['id']?.toString() ?? '';
                   return _docReviewCard(
                     doc,
@@ -456,6 +512,7 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
                     key: ValueKey(docId),
                     lat: (detail['latitude'] as num?)?.toDouble(),
                     lng: (detail['longitude'] as num?)?.toDouble(),
+                    blockVerify: retakeFlaggedCount > 0,
                   );
                 }),
             ],
@@ -536,42 +593,25 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
               TextField(
                 controller: _remarksCtrl,
                 maxLines: 3,
-                decoration: const InputDecoration(
-                  hintText:
-                      'Required for Retake / Reject, optional for Submit to AM',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  hintText: retakeFlaggedCount > 0
+                      ? 'Describe what needs to be re-captured (required)'
+                      : 'Required for Retake / Reject, optional for Submit to AM',
+                  border: const OutlineInputBorder(),
                   isDense: true,
                 ),
               ),
               const SizedBox(height: 12),
               Obx(() {
                 final submitting = controller.isSubmittingClientAction.value;
-                return Column(
-                  children: [
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: (submitting ||
-                                unreviewedDocsCount > 0 ||
-                                retakeFlaggedCount > 0 ||
-                                !hasCenter ||
-                                !hasGroup)
-                            ? null
-                            : () => _act(
-                                  _isAM ? 'AM_APPROVE' : 'BM_SUBMIT_TO_AM',
-                                  needsRemarks: false,
-                                ),
-                        icon: const Icon(Icons.verified_rounded, size: 18),
-                        label: Text(
-                          _isAM
-                              ? 'Approve Member Enrollment'
-                              : 'Verify & Submit to AM',
-                        ),
-                        style: FilledButton.styleFrom(backgroundColor: _green),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    if (retakeFlaggedCount > 0) ...[
+                // Once any document is flagged for retake, this stage can
+                // only go one way — back to the FDO for re-upload. Approving
+                // (or rejecting outright) with a known-bad document still
+                // attached would be a mistake, so only Request Retake shows
+                // until every flagged document is resolved.
+                if (retakeFlaggedCount > 0) {
+                  return Column(
+                    children: [
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton.icon(
@@ -597,8 +637,35 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      if (submitting) ...[
+                        const SizedBox(height: 10),
+                        const CircularProgressIndicator(color: _green),
+                      ],
                     ],
+                  );
+                }
+                return Column(
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: (submitting ||
+                                unreviewedDocsCount > 0 ||
+                                !hasCenter ||
+                                !hasGroup)
+                            ? null
+                            : () => _act(
+                                  _isAM ? 'AM_APPROVE' : 'BM_SUBMIT_TO_AM',
+                                  needsRemarks: false,
+                                ),
+                        icon: const Icon(Icons.verified_rounded, size: 18),
+                        label: Text(
+                          _isAM ? 'Approve Member Enrollment' : 'Submit to AM',
+                        ),
+                        style: FilledButton.styleFrom(backgroundColor: _green),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
                     Row(
                       children: [
                         Expanded(
@@ -944,6 +1011,7 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
     Key? key,
     double? lat,
     double? lng,
+    bool blockVerify = false,
   }) {
     final docId = doc['id']?.toString() ?? '';
     final documentType = doc['documentType']?.toString() ?? '';
@@ -1079,6 +1147,13 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
                 border: OutlineInputBorder(),
               ),
             ),
+            if (blockVerify) ...[
+              const SizedBox(height: 6),
+              const Text(
+                'Another document is flagged for retake — resolve it (Request Retake below) before verifying more documents.',
+                style: TextStyle(fontSize: 11, color: Color(0xFFB45309)),
+              ),
+            ],
             const SizedBox(height: 10),
             Obx(() {
               final isSubmitting = controller.submittingDocId.value == docId;
@@ -1086,7 +1161,7 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: isSubmitting
+                      onPressed: (isSubmitting || blockVerify)
                           ? null
                           : () => _actOnDoc(docId, 'VERIFIED'),
                       style: OutlinedButton.styleFrom(

@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:sarvam/controller/member_approval_controller.dart';
+import 'package:sarvam/services/api_client.dart';
+import 'package:sarvam/services/enrollment_api_service.dart';
 import 'package:sarvam/view/BM/member_approval/client_approval_detail.dart';
 import 'package:sarvam/view/BM/member_approval/co_applicant_row.dart';
+import 'package:sarvam/view/shared/highmark_report_sheet.dart';
 
 class MemberApproval extends StatefulWidget {
   const MemberApproval({super.key});
@@ -25,6 +28,7 @@ class _MemberApprovalState extends State<MemberApproval> {
       Get.isRegistered<MemberApprovalController>()
       ? Get.find<MemberApprovalController>()
       : Get.put(MemberApprovalController());
+  final EnrollmentApiService _highmarkApi = EnrollmentApiService(ApiClient());
 
   final _searchController = TextEditingController();
   int _selectedTab = 0;
@@ -752,6 +756,48 @@ class _MemberApprovalState extends State<MemberApproval> {
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
+                      onPressed: () {
+                        final dbId = client['id']?.toString() ?? '';
+                        if (dbId.isEmpty) return;
+                        showHighmarkReport(
+                          context,
+                          api: _highmarkApi,
+                          clientDbId: dbId,
+                          clientName: name,
+                        );
+                      },
+                      icon: const Icon(
+                        Icons.shield_outlined,
+                        size: 15,
+                        color: Color(0xFF7C3AED),
+                      ),
+                      label: Text(
+                        'Highmark',
+                        style: GoogleFonts.poppins(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF7C3AED),
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(
+                          color: Color(0xFFDDD6FE),
+                          width: 1.4,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  // Review Details is the only way in — KYC documents must
+                  // be verified one by one on that screen; there's no
+                  // shortcut here to bulk-verify-and-submit a client
+                  // without opening each image first.
+                  Expanded(
+                    child: OutlinedButton.icon(
                       onPressed: () async {
                         final cid = client['clientId']?.toString();
                         if (cid == null) return;
@@ -784,33 +830,6 @@ class _MemberApprovalState extends State<MemberApproval> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () => _confirmVerifyClient(clientId, name),
-                      icon: const Icon(
-                        Icons.verified_rounded,
-                        size: 15,
-                        color: Colors.white,
-                      ),
-                      label: Text(
-                        'Verify & Submit',
-                        style: GoogleFonts.poppins(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                        ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _primaryGreen,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ],
@@ -818,87 +837,6 @@ class _MemberApprovalState extends State<MemberApproval> {
         ),
       ),
     );
-  }
-
-  Future<void> _confirmVerifyClient(String clientId, String clientName) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: const BoxDecoration(
-                color: Color(0xFFE8F5EF),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.verified_rounded,
-                color: _primaryGreen,
-                size: 22,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Text(
-              'Verify Member',
-              style: GoogleFonts.poppins(
-                fontWeight: FontWeight.w700,
-                fontSize: 17,
-                color: _darkGreen,
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          'Are you sure you want to verify "$clientName" ($clientId) and submit to Area Manager?',
-          style: GoogleFonts.poppins(
-            fontSize: 13,
-            color: const Color(0xFF334155),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: Text(
-              'Cancel',
-              style: GoogleFonts.poppins(
-                color: const Color(0xFF64748B),
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-          ElevatedButton.icon(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            icon: const Icon(
-              Icons.check_circle_rounded,
-              size: 16,
-              color: Colors.white,
-            ),
-            label: Text(
-              'Verify & Submit',
-              style: GoogleFonts.poppins(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-                fontSize: 12.5,
-              ),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _primaryGreen,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-              elevation: 0,
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      await controller.verifyAndSubmitMember(clientId);
-    }
   }
 
   Widget _buildStatusPill(String status) {

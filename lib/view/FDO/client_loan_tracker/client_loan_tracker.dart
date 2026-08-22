@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/constant/roles.dart';
 import 'package:sarvam/services/api_client.dart';
+import 'package:sarvam/view/FDO/client_loan_tracker/fdo_recheck_dialog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ClientLoanTracker extends StatefulWidget {
@@ -491,98 +492,33 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
     );
   }
 
-  void _simulateRecheckAction(LoanTrackerItem item) {
-    showModalBottomSheet(
+  /// Opens the real re-upload/resubmit flow (mirrors the web app's
+  /// `FDORecheckDialog`): fetches the client's flagged KYC documents,
+  /// lets the FDO replace each one via `.../documents/{id}/reupload`, and
+  /// only then allows `FDO_RESUBMIT` via `.../action`. On success, reloads
+  /// the tracker from the server so the item's real new status shows —
+  /// nothing is guessed or set locally.
+  Future<void> _openRecheckAction(LoanTrackerItem item) async {
+    final resubmitted = await showModalBottomSheet<bool>(
       context: context,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20.r)),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => FdoRecheckDialog(
+        clientId: item.clientId,
+        clientName: item.name,
+        stageRemark: item.remarks,
       ),
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: EdgeInsets.all(16.r),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'Resolve Recheck for ${item.name}',
-                  style: TextStyle(
-                    fontSize: 16.sp,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                SizedBox(height: 8.h),
-                Text(
-                  'Stage: ${item.recheckStage} by AM. Fix discrepancies and re-submit the loan file.',
-                  style: TextStyle(
-                    fontSize: 12.sp,
-                    color: const Color(0xFF64748B),
-                  ),
-                ),
-                SizedBox(height: 16.h),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0C5F34),
-                    padding: EdgeInsets.symmetric(vertical: 12.h),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10.r),
-                    ),
-                  ),
-                  icon: const Icon(
-                    Icons.upload_file_outlined,
-                    color: Colors.white,
-                  ),
-                  label: const Text(
-                    'Re-upload Documents & Resubmit',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                  onPressed: () {
-                    final navigator = Navigator.of(context);
-                    final scaffoldMessenger = ScaffoldMessenger.of(context);
-                    // Show loading state
-                    showDialog(
-                      context: context,
-                      barrierDismissible: false,
-                      builder: (context) => AlertDialog(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14.r),
-                        ),
-                        content: const Row(
-                          children: [
-                            CircularProgressIndicator(color: Color(0xFF0C5F34)),
-                            SizedBox(width: 20),
-                            Text('Resubmitting loan application...'),
-                          ],
-                        ),
-                      ),
-                    );
-
-                    Future.delayed(const Duration(milliseconds: 1200), () {
-                      navigator.pop(); // Close loading dialog
-                      setState(() {
-                        // Change item status back to Submitted / Approval Queue
-                        item.status = 'Approval Queue';
-                      });
-                      scaffoldMessenger.showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            'Application for ${item.name} resubmitted for Approval Review!',
-                          ),
-                          backgroundColor: const Color(0xFF0C5F34),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
-                    });
-                  },
-                ),
-                SizedBox(height: 8.h),
-              ],
-            ),
-          ),
-        );
-      },
     );
+    if (resubmitted == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Application for ${item.name} resubmitted for review.'),
+          backgroundColor: const Color(0xFF0C5F34),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      await _loadTracker();
+    }
   }
 
   @override
@@ -1334,7 +1270,7 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
                             borderRadius: BorderRadius.circular(8.r),
                           ),
                         ),
-                        onPressed: () => _simulateRecheckAction(item),
+                        onPressed: () => _openRecheckAction(item),
                         child: Text(
                           item.recheckAction,
                           style: TextStyle(
