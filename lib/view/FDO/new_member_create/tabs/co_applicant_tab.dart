@@ -15,6 +15,9 @@ class CoApplicantTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Obx(() {
     final locked = controller.coApplicantFieldsLockedFromSpouse.value;
+    // Register Obx dependency on lookup lists so dropdowns update when loaded
+    final _ = controller.economicActivityTypes.length;
+    final __ = controller.coApplicantEconomicActivitiesForType.length;
     return EnrollmentSectionShell(
       title: 'Co-Applicant Details',
       subtitle: 'Enter co-applicant details for this enrollment.',

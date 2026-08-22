@@ -8,6 +8,7 @@ class Api {
 
   static const String mobileLoginUrl = "$baseUrl/api/mobile/login";
   static const String loginUrl = "$baseUrl/api/mobile/login";
+  static const String logoutUrl = "$baseUrl/api/auth/logout";
   static const String mpinSetupUrl = "$baseUrl/api/mobile/mpin/setup";
   static const String mpinVerifyUrl = "$baseUrl/api/mobile/mpin/verify";
   static const String mpinForgotUrl = "$baseUrl/api/mobile/mpin/forgot";

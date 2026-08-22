@@ -20,6 +20,7 @@ const Map<String, String> kycDocTypeLabels = {
   'noc_image_3': 'NOC Image 3',
   'location_qr': 'Location QR',
   'co_applicant_photo': 'Co-Applicant Photo',
+  'co_applicant_other_id': 'Co-Applicant Aadhaar - Front',
   'co_applicant_aadhaar_front': 'Co-Applicant Aadhaar - Front',
   'co_applicant_aadhaar_back': 'Co-Applicant Aadhaar - Back',
   'co_applicant_pan_card': 'Co-Applicant PAN Card',

@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:sarvam/controller/client_enrollment/enrollment_lookups.dart';
 import 'package:sarvam/controller/client_enrollment/enrollment_uploads.dart';
 import 'package:sarvam/services/enrollment_api_service.dart';
 
@@ -14,6 +16,11 @@ mixin EnrollmentDraftMixin on GetxController {
   EnrollmentApiService get api;
   RxMap<String, EnrollmentDocState> get kycDocuments;
   Rxn<String> get draftDbId;
+
+  final isAutoSaving = false.obs;
+  final lastAutoSavedAt = Rxn<DateTime>();
+  Timer? _autoSaveTimer;
+  Timer? _periodicSaveTimer;
 
   TextEditingController get mobileNumberCtrl;
   TextEditingController get clientNameCtrl;
@@ -67,11 +74,35 @@ mixin EnrollmentDraftMixin on GetxController {
   Rxn<String> get nomineeGender;
   TextEditingController get nomineeDateOfBirthCtrl;
   TextEditingController get nomineeAgeCtrl;
+  Rxn<String> get coApplicantEconomicActivityTypeId;
+  Rxn<String> get coApplicantEconomicActivityId;
+  Future<void> onEconomicActivityTypeChanged(
+    String? typeId, {
+    required EaScope scope,
+  });
+  Rxn<String> get memberGroupStatus;
+  Rxn<String> get requestedCenterId;
+  Rxn<String> get requestedGroupId;
+  Future<void> onCenterChanged(String? centerId);
+  void onLoanProductSelected(String? productId);
+  Future<void> onLoanPurposeTypeChanged(String? typeId);
   Rxn<String> get requestedLoanProductId;
   Rxn<String> get requestedLoanProductTypeId;
   RxString get requestedLoanFrequency;
   Rxn<String> get requestedLoanPurposeTypeId;
   Rxn<String> get requestedLoanPurposeId;
+
+  String _formatDob(String? raw) {
+    if (raw == null || raw.isEmpty) return '';
+    final clean = raw.split('T').first.trim();
+    if (clean.contains('-')) {
+      final parts = clean.split('-');
+      if (parts.length == 3 && parts[0].length == 4) {
+        return '${parts[2].padLeft(2, '0')}-${parts[1].padLeft(2, '0')}-${parts[0]}';
+      }
+    }
+    return clean;
+  }
 
   Map<String, dynamic> _buildDraftBody() {
     return {
@@ -127,6 +158,12 @@ mixin EnrollmentDraftMixin on GetxController {
       'nomineeGender': nomineeGender.value,
       'nomineeDateOfBirth': nomineeDateOfBirthCtrl.text.trim(),
       'nomineeAge': nomineeAgeCtrl.text.trim(),
+      'coApplicantEconomicActivityTypeId':
+          coApplicantEconomicActivityTypeId.value,
+      'coApplicantEconomicActivityId': coApplicantEconomicActivityId.value,
+      'memberGroupStatus': memberGroupStatus.value,
+      'requestedCenterId': requestedCenterId.value,
+      'requestedGroupId': requestedGroupId.value,
       'requestedLoanProductId': requestedLoanProductId.value,
       'requestedLoanProductTypeId': requestedLoanProductTypeId.value,
       'requestedLoanFrequency': requestedLoanFrequency.value,
@@ -148,6 +185,92 @@ mixin EnrollmentDraftMixin on GetxController {
     };
   }
 
+  void scheduleAutoSave() {
+    final mobile = mobileNumberCtrl.text.trim();
+    if (mobile.length < 10) return;
+    _autoSaveTimer?.cancel();
+    _autoSaveTimer = Timer(const Duration(milliseconds: 1500), () {
+      saveDraft(silent: true);
+    });
+  }
+
+  void startAutoSaveListeners() {
+    final textCtrls = [
+      mobileNumberCtrl,
+      clientNameCtrl,
+      lastNameCtrl,
+      emailCtrl,
+      dobCtrl,
+      fatherNameCtrl,
+      motherNameCtrl,
+      noOfChildrenCtrl,
+      permanentAddressCtrl,
+      pincodeCtrl,
+      postOfficeCtrl,
+      districtCtrl,
+      stateCtrl,
+      monthlyFamilyIncomeCtrl,
+      monthlyFamilyExpenseCtrl,
+      spouseNameCtrl,
+      spouseDobCtrl,
+      spouseMobileNumberCtrl,
+      ifscCodeCtrl,
+      bankAcNoCtrl,
+      votersIdNoCtrl,
+      caVoterIdNoCtrl,
+      otherIdNoCtrl,
+      caOtherIdNoCtrl,
+      pancardNoCtrl,
+      caPancardNoCtrl,
+      smartCardNoCtrl,
+      nomineeNameCtrl,
+      nomineePhoneNumberCtrl,
+      nomineeDateOfBirthCtrl,
+    ];
+    for (final ctrl in textCtrls) {
+      ctrl.addListener(scheduleAutoSave);
+    }
+
+    final rxnVars = [
+      gender,
+      caste,
+      community,
+      religion,
+      qualification,
+      maritalStatus,
+      houseStatus,
+      economicActivityTypeId,
+      economicActivityId,
+      spouseGender,
+      spouseEconomicActivityTypeId,
+      spouseEconomicActivityId,
+      bankAccountType,
+      nomineeRelation,
+      nomineeGender,
+      requestedLoanProductId,
+      requestedLoanProductTypeId,
+      requestedLoanPurposeTypeId,
+      requestedLoanPurposeId,
+    ];
+    for (final rxn in rxnVars) {
+      ever(rxn, (_) => scheduleAutoSave());
+    }
+
+    ever(kycDocuments, (_) => scheduleAutoSave());
+
+    _periodicSaveTimer?.cancel();
+    _periodicSaveTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (mobileNumberCtrl.text.trim().length >= 10) {
+        saveDraft(silent: true);
+      }
+    });
+  }
+
+  void cancelAutoSaveTimers() {
+    _autoSaveTimer?.cancel();
+    _periodicSaveTimer?.cancel();
+  }
+
   Future<void> saveDraft({bool silent = false}) async {
     final mobile = mobileNumberCtrl.text.trim();
     if (mobile.length < 10) {
@@ -162,10 +285,12 @@ mixin EnrollmentDraftMixin on GetxController {
       return;
     }
     try {
+      isAutoSaving.value = true;
       final result = await api.saveDraft(_buildDraftBody());
       if (result != null && result['id'] != null) {
         draftDbId.value = result['id'].toString();
       }
+      lastAutoSavedAt.value = DateTime.now();
       if (!silent) {
         Get.snackbar(
           'Draft Saved',
@@ -183,6 +308,8 @@ mixin EnrollmentDraftMixin on GetxController {
           colorText: Colors.white,
         );
       }
+    } finally {
+      isAutoSaving.value = false;
     }
   }
 
@@ -197,7 +324,10 @@ mixin EnrollmentDraftMixin on GetxController {
       clientNameCtrl.text = draft['firstName']?.toString() ?? clientNameCtrl.text;
       lastNameCtrl.text = draft['lastName']?.toString() ?? lastNameCtrl.text;
       emailCtrl.text = draft['email']?.toString() ?? emailCtrl.text;
-      dobCtrl.text = draft['dateOfBirth']?.toString() ?? dobCtrl.text;
+      final dobVal = (draft['dateOfBirth'] ?? draft['dob'])?.toString();
+      if (dobVal != null && dobVal.isNotEmpty) {
+        dobCtrl.text = _formatDob(dobVal);
+      }
       gender.value = draft['gender']?.toString() ?? gender.value;
       caste.value = draft['caste']?.toString() ?? caste.value;
       community.value = draft['community']?.toString() ?? community.value;
@@ -215,18 +345,39 @@ mixin EnrollmentDraftMixin on GetxController {
       districtCtrl.text = draft['district']?.toString() ?? districtCtrl.text;
       stateCtrl.text = draft['state']?.toString() ?? stateCtrl.text;
       countryCtrl.text = draft['country']?.toString() ?? countryCtrl.text;
-      latitude.value = draft['latitude']?.toString() ?? latitude.value;
-      longitude.value = draft['longitude']?.toString() ?? longitude.value;
+
+      final lat = (draft['latitude'] ?? draft['lat'] ?? draft['location']?['latitude'])?.toString();
+      if (lat != null && lat.isNotEmpty && lat != 'null') {
+        latitude.value = lat;
+      }
+      final lng = (draft['longitude'] ?? draft['lng'] ?? draft['location']?['longitude'])?.toString();
+      if (lng != null && lng.isNotEmpty && lng != 'null') {
+        longitude.value = lng;
+      }
+
       economicActivityTypeId.value =
           draft['economicActivityTypeId']?.toString() ?? economicActivityTypeId.value;
       economicActivityId.value =
           draft['economicActivityId']?.toString() ?? economicActivityId.value;
+      if (economicActivityTypeId.value != null &&
+          economicActivityTypeId.value!.isNotEmpty) {
+        onEconomicActivityTypeChanged(
+          economicActivityTypeId.value,
+          scope: EaScope.client,
+        );
+      }
+
       monthlyFamilyIncomeCtrl.text =
           draft['monthlyFamilyIncome']?.toString() ?? monthlyFamilyIncomeCtrl.text;
       monthlyFamilyExpenseCtrl.text =
           draft['monthlyFamilyExpense']?.toString() ?? monthlyFamilyExpenseCtrl.text;
       spouseNameCtrl.text = draft['spouseName']?.toString() ?? spouseNameCtrl.text;
-      spouseDobCtrl.text = draft['spouseDob']?.toString() ?? spouseDobCtrl.text;
+
+      final spouseDobVal = (draft['spouseDob'] ?? draft['spouseDateOfBirth'])?.toString();
+      if (spouseDobVal != null && spouseDobVal.isNotEmpty) {
+        spouseDobCtrl.text = _formatDob(spouseDobVal);
+      }
+
       spouseMobileNumberCtrl.text =
           draft['spouseMobileNumber']?.toString() ?? spouseMobileNumberCtrl.text;
       spouseGender.value = draft['spouseGender']?.toString() ?? spouseGender.value;
@@ -235,6 +386,14 @@ mixin EnrollmentDraftMixin on GetxController {
           spouseEconomicActivityTypeId.value;
       spouseEconomicActivityId.value =
           draft['spouseEconomicActivityId']?.toString() ?? spouseEconomicActivityId.value;
+      if (spouseEconomicActivityTypeId.value != null &&
+          spouseEconomicActivityTypeId.value!.isNotEmpty) {
+        onEconomicActivityTypeChanged(
+          spouseEconomicActivityTypeId.value,
+          scope: EaScope.spouse,
+        );
+      }
+
       ifscCodeCtrl.text = draft['ifscCode']?.toString() ?? ifscCodeCtrl.text;
       bankAcNoCtrl.text = draft['bankAcNo']?.toString() ?? bankAcNoCtrl.text;
       bankNameCtrl.text = draft['bankName']?.toString() ?? bankNameCtrl.text;
@@ -252,19 +411,59 @@ mixin EnrollmentDraftMixin on GetxController {
       nomineePhoneNumberCtrl.text =
           draft['nomineePhone']?.toString() ?? nomineePhoneNumberCtrl.text;
       nomineeGender.value = draft['nomineeGender']?.toString() ?? nomineeGender.value;
-      nomineeDateOfBirthCtrl.text =
-          draft['nomineeDateOfBirth']?.toString() ?? nomineeDateOfBirthCtrl.text;
+
+      final nomineeDobVal = (draft['nomineeDateOfBirth'] ?? draft['nomineeDob'])?.toString();
+      if (nomineeDobVal != null && nomineeDobVal.isNotEmpty) {
+        nomineeDateOfBirthCtrl.text = _formatDob(nomineeDobVal);
+      }
       nomineeAgeCtrl.text = draft['nomineeAge']?.toString() ?? nomineeAgeCtrl.text;
-      requestedLoanProductId.value =
-          draft['requestedLoanProductId']?.toString() ?? requestedLoanProductId.value;
+
+      coApplicantEconomicActivityTypeId.value =
+          draft['coApplicantEconomicActivityTypeId']?.toString() ??
+          coApplicantEconomicActivityTypeId.value;
+      coApplicantEconomicActivityId.value =
+          draft['coApplicantEconomicActivityId']?.toString() ??
+          coApplicantEconomicActivityId.value;
+      if (coApplicantEconomicActivityTypeId.value != null &&
+          coApplicantEconomicActivityTypeId.value!.isNotEmpty) {
+        onEconomicActivityTypeChanged(
+          coApplicantEconomicActivityTypeId.value,
+          scope: EaScope.coApplicant,
+        );
+      }
+
+      memberGroupStatus.value =
+          draft['memberGroupStatus']?.toString() ??
+          draft['groupStatus']?.toString() ??
+          memberGroupStatus.value;
+      final centerId = (draft['requestedCenterId'] ?? draft['centerId'])?.toString();
+      if (centerId != null && centerId.isNotEmpty && centerId != 'null') {
+        requestedCenterId.value = centerId;
+        await onCenterChanged(centerId);
+      }
+      final groupId = (draft['requestedGroupId'] ?? draft['groupId'])?.toString();
+      if (groupId != null && groupId.isNotEmpty && groupId != 'null') {
+        requestedGroupId.value = groupId;
+      }
+
       requestedLoanProductTypeId.value =
           draft['requestedLoanProductTypeId']?.toString() ??
           requestedLoanProductTypeId.value;
       requestedLoanFrequency.value =
           draft['requestedLoanFrequency']?.toString() ?? requestedLoanFrequency.value;
+      requestedLoanProductId.value =
+          draft['requestedLoanProductId']?.toString() ?? requestedLoanProductId.value;
+      if (requestedLoanProductId.value != null &&
+          requestedLoanProductId.value!.isNotEmpty) {
+        onLoanProductSelected(requestedLoanProductId.value);
+      }
       requestedLoanPurposeTypeId.value =
           draft['requestedLoanPurposeTypeId']?.toString() ??
           requestedLoanPurposeTypeId.value;
+      if (requestedLoanPurposeTypeId.value != null &&
+          requestedLoanPurposeTypeId.value!.isNotEmpty) {
+        await onLoanPurposeTypeChanged(requestedLoanPurposeTypeId.value);
+      }
       requestedLoanPurposeId.value =
           draft['requestedLoanPurposeId']?.toString() ?? requestedLoanPurposeId.value;
 

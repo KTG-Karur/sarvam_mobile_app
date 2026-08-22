@@ -88,7 +88,7 @@ class EnrollmentOptions {
 
   // Co-applicant KYC document types.
   static const docCoApplicantPhoto = 'co_applicant_photo';
-  static const docCoApplicantAadhaarFront = 'co_applicant_aadhaar_front';
+  static const docCoApplicantAadhaarFront = 'co_applicant_other_id';
   static const docCoApplicantAadhaarBack = 'co_applicant_aadhaar_back';
   static const docCoApplicantPanCard = 'co_applicant_pan_card';
   static const docCoApplicantVoterId = 'co_applicant_voter_id';
@@ -144,6 +144,7 @@ class EnrollmentOptions {
     docBankPassbook,
     docSmartCardFront,
     docSmartCardBack,
+    docCoApplicantAadhaarFront,
     docCoApplicantOtherIdFront,
     docCoApplicantOtherIdBack,
   ];

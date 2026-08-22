@@ -7,8 +7,8 @@ import 'package:sarvam/view/FDO/loan_disbursement/loan_disbursement.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/controller/dashboard_controller.dart';
-import 'package:sarvam/view/auth/face_verification_screen.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
+import 'package:sarvam/widgets/punch_out_dialog.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -204,38 +204,9 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
                   ),
                   SizedBox(width: 14.w),
 
-                  // Punch out (face verification, then logout)
+                  // Punch out (MPIN verification + face verification, then logout)
                   GestureDetector(
-                    onTap: () async {
-                      final prefs = await SharedPreferences.getInstance();
-                      if (!hasPunchedInToday(prefs)) {
-                        Get.snackbar(
-                          'Punch Out',
-                          'Please Punch-In first.',
-                          snackPosition: SnackPosition.BOTTOM,
-                          backgroundColor: Colors.orange,
-                          colorText: Colors.white,
-                        );
-                        return;
-                      }
-                      if (prefs.getString('lastPunchOutDate') == todayDateKey()) {
-                        Get.snackbar(
-                          'Punch Out',
-                          'You have already punched out today.',
-                          snackPosition: SnackPosition.BOTTOM,
-                          backgroundColor: Colors.orange,
-                          colorText: Colors.white,
-                        );
-                        return;
-                      }
-                      if (!context.mounted) return;
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              const FaceVerificationScreen(isPunchOut: true),
-                        ),
-                      );
-                    },
+                    onTap: () => PunchOutDialog.show(context),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -572,7 +543,7 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
                             Get.isRegistered<AuthController>()
                             ? Get.find<AuthController>()
                             : Get.put(AuthController());
-                        authController.logout();
+                        authController.confirmLogout(context);
                       },
                       icon: const Icon(
                         Icons.logout_rounded,

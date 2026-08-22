@@ -21,7 +21,6 @@ import 'package:sarvam/view/BM/member_individual/member_individual.dart';
 import 'package:sarvam/view/FDO/client_loan_tracker/client_loan_tracker.dart';
 import 'package:sarvam/view/FDO/client_search_locate/client_search_locate.dart';
 import 'package:sarvam/view/auth/face_verification_screen.dart';
-import 'package:sarvam/view/auth/login_screen.dart';
 
 class _Metric {
   const _Metric(this.icon, this.label, this.value, [this.sub]);
@@ -1115,11 +1114,11 @@ class _AmHomeState extends State<AmHome> with SingleTickerProviderStateMixin {
 
   // ── Profile / logout ──────────────────────────────────────────────────────
 
-  Future<void> _logout() async {
+  void _logout() {
     final AuthController authController = Get.isRegistered<AuthController>()
         ? Get.find<AuthController>()
         : Get.put(AuthController());
-    await authController.logout();
+    authController.confirmLogout(context);
   }
 
   void _showProfileBottomSheet(BuildContext context) {

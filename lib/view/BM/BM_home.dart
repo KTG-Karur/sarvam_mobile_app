@@ -8,8 +8,8 @@ import 'package:sarvam/controller/dashboard_controller.dart';
 import 'package:sarvam/view/AM/collection_view/collection_view_hub.dart';
 import 'package:sarvam/view/FDO/client_search_locate/client_search_locate.dart';
 import 'package:sarvam/view/FDO/loan_disbursement/loan_disbursement.dart';
-import 'package:sarvam/view/auth/face_verification_screen.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
+import 'package:sarvam/widgets/punch_out_dialog.dart';
 
 class _Metric {
   const _Metric(this.icon, this.label, this.value, [this.sub]);
@@ -227,35 +227,7 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
           SizedBox(width: 14.w),
           // Punch Out
           GestureDetector(
-            onTap: () async {
-              final prefs = await SharedPreferences.getInstance();
-              if (!hasPunchedInToday(prefs)) {
-                Get.snackbar(
-                  'Punch Out',
-                  'Please Punch-In first.',
-                  snackPosition: SnackPosition.BOTTOM,
-                  backgroundColor: Colors.orange,
-                  colorText: Colors.white,
-                );
-                return;
-              }
-              if (prefs.getString('lastPunchOutDate') == todayDateKey()) {
-                Get.snackbar(
-                  'Punch Out',
-                  'You have already punched out today.',
-                  snackPosition: SnackPosition.BOTTOM,
-                  backgroundColor: Colors.orange,
-                  colorText: Colors.white,
-                );
-                return;
-              }
-              if (!context.mounted) return;
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const FaceVerificationScreen(isPunchOut: true),
-                ),
-              );
-            },
+            onTap: () => PunchOutDialog.show(context),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1320,7 +1292,7 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
                             Get.isRegistered<AuthController>()
                                 ? Get.find<AuthController>()
                                 : Get.put(AuthController());
-                        await authController.logout();
+                        authController.confirmLogout(context);
                       },
                       child: Text(
                         'Logout',

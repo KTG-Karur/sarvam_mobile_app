@@ -33,25 +33,32 @@ class _NewMemberCreateState extends State<NewMemberCreate> {
   ];
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: const Color(0xFFF4FBF6),
-    body: SafeArea(
-      child: Column(
-        children: [
-          _header(),
-          _stepsBar(),
-          Expanded(
-            child: Obx(
-              () => SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-                child: _stepContent(),
+  Widget build(BuildContext context) => PopScope(
+    onPopInvokedWithResult: (didPop, result) {
+      if (didPop) {
+        controller.saveDraft(silent: true);
+      }
+    },
+    child: Scaffold(
+      backgroundColor: const Color(0xFFF4FBF6),
+      body: SafeArea(
+        child: Column(
+          children: [
+            _header(),
+            _stepsBar(),
+            Expanded(
+              child: Obx(
+                () => SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+                  child: _stepContent(),
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
+      bottomNavigationBar: _actions(),
     ),
-    bottomNavigationBar: _actions(),
   );
 
   Widget _stepContent() {
@@ -92,24 +99,64 @@ class _NewMemberCreateState extends State<NewMemberCreate> {
           child: const Icon(Icons.person_add_alt_1_rounded, color: Colors.white, size: 24),
         ),
         const SizedBox(width: 11),
-        const Expanded(
+        Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
+              const Text(
                 'Member Enrollment',
                 style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: Color(0xFF064524)),
               ),
-              SizedBox(height: 3),
-              Text(
-                'Create new member enrollment with KYC verification',
-                style: TextStyle(fontSize: 10.5, color: Color(0xFF347151)),
-              ),
+              const SizedBox(height: 3),
+              Obx(() {
+                if (controller.isAutoSaving.value) {
+                  return const Row(
+                    children: [
+                      SizedBox(
+                        width: 10,
+                        height: 10,
+                        child: CircularProgressIndicator(strokeWidth: 1.5, color: _green),
+                      ),
+                      SizedBox(width: 5),
+                      Text(
+                        'Auto-saving draft...',
+                        style: TextStyle(fontSize: 10.5, color: _green, fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  );
+                }
+                final savedAt = controller.lastAutoSavedAt.value;
+                if (savedAt != null) {
+                  final timeStr =
+                      "${savedAt.hour.toString().padLeft(2, '0')}:${savedAt.minute.toString().padLeft(2, '0')}";
+                  return Row(
+                    children: [
+                      const Icon(Icons.cloud_done_outlined, size: 12, color: _green),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Auto-saved at $timeStr',
+                        style: const TextStyle(
+                          fontSize: 10.5,
+                          color: Color(0xFF347151),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  );
+                }
+                return const Text(
+                  'Create new member enrollment with KYC verification',
+                  style: TextStyle(fontSize: 10.5, color: Color(0xFF347151)),
+                );
+              }),
             ],
           ),
         ),
         IconButton(
-          onPressed: () => Navigator.maybePop(context),
+          onPressed: () {
+            controller.saveDraft(silent: true);
+            Navigator.maybePop(context);
+          },
           icon: const Icon(Icons.close, size: 19, color: Color(0xFF286044)),
         ),
       ],

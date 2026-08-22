@@ -45,14 +45,27 @@ class GroupAssignmentController extends GetxController {
   final Map<String, RxList<dynamic>> rowGroups = {};
   final Map<String, RxBool> rowSubmitting = {};
 
+  String? _parseId(dynamic directId, dynamic nestedObj) {
+    if (directId != null && directId.toString().isNotEmpty) {
+      return directId.toString();
+    }
+    if (nestedObj is Map && nestedObj['id'] != null) {
+      return nestedObj['id'].toString();
+    }
+    return null;
+  }
+
   void _ensureRowState(String clientDbId, Map<String, dynamic> client) {
+    final reqCenterId = _parseId(client['requestedCenterId'], client['requestedCenter']);
+    final reqGroupId = _parseId(client['requestedGroupId'], client['requestedGroup']);
+
     rowCenterId.putIfAbsent(
       clientDbId,
-      () => Rxn<String>(client['requestedCenterId']?.toString()),
+      () => Rxn<String>(reqCenterId),
     );
     rowGroupId.putIfAbsent(
       clientDbId,
-      () => Rxn<String>(client['requestedGroupId']?.toString()),
+      () => Rxn<String>(reqGroupId),
     );
     rowGroups.putIfAbsent(clientDbId, () => <dynamic>[].obs);
     rowSubmitting.putIfAbsent(clientDbId, () => false.obs);
@@ -72,9 +85,14 @@ class GroupAssignmentController extends GetxController {
         // Prefill the row's group dropdown if the FDO's requested center is
         // already known, matching the web app's default-then-overridable
         // behavior.
-        final requestedCenterId = client['requestedCenterId']?.toString();
-        if (requestedCenterId != null && rowGroups[clientDbId]!.isEmpty) {
-          unawaited(onRowCenterChanged(clientDbId, requestedCenterId));
+        final reqCenterId = rowCenterId[clientDbId]?.value;
+        final reqGroupId = rowGroupId[clientDbId]?.value;
+        if (reqCenterId != null && reqCenterId.isNotEmpty) {
+          unawaited(onRowCenterChanged(
+            clientDbId,
+            reqCenterId,
+            preserveGroupId: reqGroupId,
+          ));
         }
       }
     } catch (e) {
@@ -89,14 +107,21 @@ class GroupAssignmentController extends GetxController {
     }
   }
 
-  Future<void> onRowCenterChanged(String clientDbId, String? centerId) async {
+  Future<void> onRowCenterChanged(
+    String clientDbId,
+    String? centerId, {
+    String? preserveGroupId,
+  }) async {
     rowCenterId[clientDbId]?.value = centerId;
-    rowGroupId[clientDbId]?.value = null;
+    rowGroupId[clientDbId]?.value = preserveGroupId;
     rowGroups[clientDbId]?.clear();
     if (centerId == null || centerId.isEmpty) return;
     try {
       final groups = await api.getGroupsForCenter(centerId);
       rowGroups[clientDbId]?.assignAll(groups);
+      if (preserveGroupId != null && preserveGroupId.isNotEmpty) {
+        rowGroupId[clientDbId]?.value = preserveGroupId;
+      }
     } catch (e) {
       debugPrint('Failed to load groups for row $clientDbId: $e');
     }

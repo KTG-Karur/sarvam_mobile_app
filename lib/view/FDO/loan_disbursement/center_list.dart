@@ -100,10 +100,13 @@ class _CenterListState extends State<CenterList>
   String _meetingInfo(Map center) {
     final day = _field(center, 'meetingDay', '');
     final time = _field(center, 'meetingTime', '');
-    if (day.isEmpty && time.isEmpty) return '—';
-    if (time.isEmpty) return day;
-    if (day.isEmpty) return time;
-    return '$day  $time';
+    final place = _field(center, 'meetingPlace', '');
+    final parts = <String>[];
+    if (day.isNotEmpty) parts.add(day);
+    if (time.isNotEmpty) parts.add(time);
+    if (place.isNotEmpty) parts.add(place);
+    if (parts.isEmpty) return '—';
+    return parts.join(' • ');
   }
 
   List<dynamic> get _filteredCenters {
@@ -118,6 +121,7 @@ class _CenterListState extends State<CenterList>
         _fdoName(center),
         _field(center, 'contactPerson', ''),
         _field(center, 'contactNumber', ''),
+        _field(center, 'meetingPlace', ''),
       ].join(' ').toLowerCase();
       return haystack.contains(_search);
     }).toList();
