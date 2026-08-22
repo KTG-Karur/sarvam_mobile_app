@@ -6,8 +6,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/view/auth/login_screen.dart';
-
-import 'package:sarvam/view/auth/set_mpin_screen.dart';
 import 'package:sarvam/view/auth/mpin_login_screen.dart';
 import 'package:sarvam/view/auth/face_training_screen.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
