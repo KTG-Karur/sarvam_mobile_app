@@ -97,10 +97,9 @@ class MemberIndividualDetailController extends GetxController {
   bool get houseHoldVisitComplete => houseHoldVisit['completedAt'] != null;
   bool get grtComplete => grt['completedAt'] != null;
 
-  /// Out of the 3 per-loan tabs (GRT is filled center-wide on a separate,
-  /// web-only screen — it's surfaced here as an info banner, not a 4th tab).
+  /// Out of the 4 tabs (Cash Flow, Loan Appraisal, House Hold Visit, GRT).
   int get completedTabsCount =>
-      [cashFlowComplete, loanAppraisalComplete, houseHoldVisitComplete]
+      [cashFlowComplete, loanAppraisalComplete, houseHoldVisitComplete, grtComplete]
           .where((v) => v)
           .length;
 

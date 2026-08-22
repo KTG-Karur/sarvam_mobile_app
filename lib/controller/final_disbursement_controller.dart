@@ -35,6 +35,8 @@ class FinalDisbursementController extends GetxController {
 
   final Rxn<Map<String, dynamic>> selectedIndex = Rxn<Map<String, dynamic>>();
   final attendanceMap = <String, String>{}.obs;
+  final admissionFeeMap = <String, double>{}.obs;
+  final memberFunderMap = <String, String>{}.obs;
 
   String? _branchId;
 
@@ -107,6 +109,17 @@ class FinalDisbursementController extends GetxController {
   void clearSelection() {
     selectedIndex.value = null;
     attendanceMap.clear();
+    admissionFeeMap.clear();
+    memberFunderMap.clear();
+  }
+
+  void setBulkFunder(String? newFunderId) {
+    funderId.value = newFunderId;
+    if (newFunderId != null && newFunderId.isNotEmpty) {
+      for (final loanId in memberFunderMap.keys.toList()) {
+        memberFunderMap[loanId] = newFunderId;
+      }
+    }
   }
 
   void selectIndex(Map<String, dynamic> idx) {
@@ -121,17 +134,47 @@ class FinalDisbursementController extends GetxController {
     }
     selectedIndex.value = idx;
     final loans = idx['loans'];
-    final newMap = <String, String>{};
+    final newAttendance = <String, String>{};
+    final newFee = <String, double>{};
+    final newFunder = <String, String>{};
+    final bulkFunder = funderId.value ?? '';
+
     if (loans is List) {
       for (final l in loans) {
-        if (l is Map && l['id'] != null) newMap[l['id'].toString()] = 'PRESENT';
+        if (l is Map && l['id'] != null) {
+          final loanId = l['id'].toString();
+          newAttendance[loanId] = 'PRESENT';
+
+          double fee = 0.0;
+          if (l['admissionFee'] is num) {
+            fee = (l['admissionFee'] as num).toDouble();
+          } else if (l['client'] is Map && l['client']['admissionFees'] is num) {
+            fee = (l['client']['admissionFees'] as num).toDouble();
+          } else if (l['isNewClient'] == true) {
+            fee = 100.0;
+          }
+          newFee[loanId] = fee;
+
+          final fId = l['funderId']?.toString() ?? bulkFunder;
+          newFunder[loanId] = fId;
+        }
       }
     }
-    attendanceMap.assignAll(newMap);
+    attendanceMap.assignAll(newAttendance);
+    admissionFeeMap.assignAll(newFee);
+    memberFunderMap.assignAll(newFunder);
   }
 
   void setAttendance(String loanId, String status) {
     attendanceMap[loanId] = status;
+  }
+
+  void setAdmissionFee(String loanId, double fee) {
+    admissionFeeMap[loanId] = fee;
+  }
+
+  void setMemberFunder(String loanId, String selectedFunderId) {
+    memberFunderMap[loanId] = selectedFunderId;
   }
 
   void setAttendanceForAll(String status) {
@@ -178,23 +221,47 @@ class FinalDisbursementController extends GetxController {
   Future<bool> disburse() async {
     final idx = selectedIndex.value;
     final fId = funderId.value;
-    if (idx == null || fId == null || !canConfirmDisburse) return false;
+    if (idx == null || fId == null || fId.isEmpty || !canConfirmDisburse) return false;
+
+    final centerId = idx['centerId']?.toString() ?? '';
+    final indexId = idx['id']?.toString() ?? '';
+
+    if (centerId.isEmpty || indexId.isEmpty) {
+      Get.snackbar(
+        'Validation Error',
+        'Missing Center ID or Index ID on selected batch.',
+        backgroundColor: Colors.redAccent,
+        colorText: Colors.white,
+      );
+      return false;
+    }
 
     final disbursements = selectedLoans.map((loan) {
       final loanMap = loan as Map;
-      return {
-        'loanId': loanMap['id'].toString(),
-        'attendanceStatus': attendanceMap[loanMap['id'].toString()],
-        'admissionFee': 0,
-        'isNewClient': false,
+      final loanId = loanMap['id'].toString();
+      final fee = admissionFeeMap[loanId] ?? 0.0;
+      final sanitizedFee = (fee.isNaN || fee < 0) ? 0.0 : fee;
+      final mFunder = memberFunderMap[loanId]?.trim() ?? '';
+      final isNew = loanMap['isNewClient'] == true || sanitizedFee > 0;
+
+      final item = <String, dynamic>{
+        'loanId': loanId,
+        'attendanceStatus': attendanceMap[loanId] == 'ABSENT' ? 'ABSENT' : 'PRESENT',
+        'admissionFee': sanitizedFee,
+        'isNewClient': isNew,
       };
+
+      if (mFunder.isNotEmpty && mFunder != fId) {
+        item['funderId'] = mFunder;
+      }
+      return item;
     }).toList();
 
     isSubmitting.value = true;
     try {
       await api.bmDisburse(
-        centerId: idx['centerId'].toString(),
-        indexId: idx['id'].toString(),
+        centerId: centerId,
+        indexId: indexId,
         funderId: fId,
         disbursements: disbursements,
       );

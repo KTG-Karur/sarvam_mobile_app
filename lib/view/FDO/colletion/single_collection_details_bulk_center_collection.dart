@@ -3,7 +3,9 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/bulk_centre_collection_controller.dart';
+import 'package:sarvam/controller/live_collection_controller.dart';
 import 'package:sarvam/view/FDO/colletion/demand_collection.dart'
     show ClientCollectionDetailsPage;
 import 'package:sarvam/view/FDO/colletion/single_collection_controller.dart';
@@ -59,6 +61,23 @@ class _SingleCollectionDetailsBulkCenterCollectionState
     _controller.clientsList.clear();
     _controller.singleCollectionData.clear();
     _bulkController.demandSheet.clear();
+    _loadEodWorkingDate();
+  }
+
+  Future<void> _loadEodWorkingDate() async {
+    final prefs = await SharedPreferences.getInstance();
+    final branchId = prefs.getString('branchId') ?? '';
+    if (branchId.isNotEmpty) {
+      final liveCtrl = Get.isRegistered<LiveCollectionController>()
+          ? Get.find<LiveCollectionController>()
+          : Get.put(LiveCollectionController());
+      final eodDate = await liveCtrl.fetchEodWorkingDate(branchId);
+      if (eodDate != null && mounted) {
+        setState(() {
+          _collectionDate = eodDate;
+        });
+      }
+    }
   }
 
   @override

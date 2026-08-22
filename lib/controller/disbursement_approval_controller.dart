@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/services/api_client.dart';
 import 'package:sarvam/services/disbursement_api_service.dart';
 
@@ -45,7 +46,21 @@ class DisbursementApprovalController extends GetxController {
   Future<void> _loadBranches() async {
     isLoadingBranches.value = true;
     try {
-      branches.assignAll(await api.getBranches());
+      final prefs = await SharedPreferences.getInstance();
+      final savedBranchId = prefs.getString('branchId');
+      final result = await api.getBranches();
+      branches.assignAll(result);
+
+      if (savedBranchId != null && savedBranchId.isNotEmpty) {
+        final hasSaved = branches.any((b) => b is Map && b['id']?.toString() == savedBranchId);
+        if (hasSaved) {
+          branchId.value = savedBranchId;
+        }
+      }
+      if (branchId.value == null && branches.isNotEmpty && branches.first is Map && branches.first['id'] != null) {
+        branchId.value = branches.first['id'].toString();
+      }
+      await fetchPending();
     } catch (e) {
       debugPrint('Failed to load branches: $e');
       Get.snackbar(
@@ -66,22 +81,16 @@ class DisbursementApprovalController extends GetxController {
 
   Future<void> onFromDateChanged(String value) async {
     fromDate.value = value;
-    if (branchId.value != null) await fetchPending();
+    await fetchPending();
   }
 
   Future<void> onToDateChanged(String value) async {
     toDate.value = value;
-    if (branchId.value != null) await fetchPending();
+    await fetchPending();
   }
 
   Future<void> fetchPending() async {
-    final branch = branchId.value;
-    if (branch == null || branch.isEmpty) {
-      pendingIndexes.clear();
-      stats.value = {'totalClients': 0, 'totalAmount': 0};
-      return;
-    }
-
+    final branch = branchId.value ?? '';
     isFetchingPending.value = true;
     try {
       final result = await api.getPendingLevel2Details(
@@ -101,7 +110,7 @@ class DisbursementApprovalController extends GetxController {
       debugPrint('Failed to load pending Level 2 details: $e');
       Get.snackbar(
         'Error',
-        'Failed to load pending loans for this branch: $e',
+        'Failed to load pending loans: $e',
         backgroundColor: Colors.redAccent,
         colorText: Colors.white,
       );

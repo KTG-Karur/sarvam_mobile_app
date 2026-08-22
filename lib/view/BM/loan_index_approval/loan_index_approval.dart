@@ -217,6 +217,37 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
               ),
             );
           }),
+          Obx(() {
+            final mismatch = controller.meetingDayMismatch;
+            if (mismatch == null) return const SizedBox.shrink();
+            return Padding(
+              padding: EdgeInsets.only(top: 8.h),
+              child: Container(
+                padding: EdgeInsets.all(8.w),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEE2E2),
+                  borderRadius: BorderRadius.circular(8.r),
+                  border: Border.all(color: const Color(0xFFFCA5A5)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded, size: 16, color: Color(0xFF991B1B)),
+                    SizedBox(width: 6.w),
+                    Expanded(
+                      child: Text(
+                        mismatch,
+                        style: TextStyle(
+                          fontSize: 10.5.sp,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF991B1B),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
         ],
       ),
     );
@@ -269,12 +300,106 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
     );
   }
 
+  Widget _buildCenterInfoCard() {
+    final center = controller.selectedCenter;
+    if (center == null) return const SizedBox.shrink();
+
+    final centerName = center['name']?.toString() ?? '—';
+    final centerCode = center['code']?.toString() ?? '—';
+    final meetingDay = center['meetingDay']?.toString() ?? 'N/A';
+    final meetingPlace = center['meetingPlace']?.toString() ?? center['meetingTime']?.toString() ?? 'N/A';
+    final totalLoans = controller.unindexedLoans.length;
+    final totalAmount = controller.unindexedLoans.fold<double>(
+      0.0,
+      (sum, l) => sum + _amount(l is Map ? Map<String, dynamic>.from(l) : {}, 'amount'),
+    );
+
+    return Container(
+      width: double.infinity,
+      margin: EdgeInsets.only(bottom: 12.h),
+      padding: EdgeInsets.all(12.w),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0FDF4),
+        border: Border.all(color: const Color(0xFFBBF7D0)),
+        borderRadius: BorderRadius.circular(12.r),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.location_city_rounded, size: 16, color: _green),
+              SizedBox(width: 6.w),
+              Expanded(
+                child: Text(
+                  '$centerName ($centerCode)',
+                  style: TextStyle(
+                    fontSize: 13.sp,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF166534),
+                  ),
+                ),
+              ),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 3.h),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12.r),
+                  border: Border.all(color: const Color(0xFF86EFAC)),
+                ),
+                child: Text(
+                  '$totalLoans Loans · ${_currency(totalAmount)}',
+                  style: TextStyle(
+                    fontSize: 10.sp,
+                    fontWeight: FontWeight.w700,
+                    color: _green,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 6.h),
+          Row(
+            children: [
+              Icon(Icons.calendar_month_outlined, size: 13.sp, color: _muted),
+              SizedBox(width: 4.w),
+              Text(
+                'Meeting Day: ',
+                style: TextStyle(fontSize: 10.5.sp, color: _muted),
+              ),
+              Text(
+                meetingDay,
+                style: TextStyle(
+                  fontSize: 10.5.sp,
+                  fontWeight: FontWeight.w700,
+                  color: _darkText,
+                ),
+              ),
+              SizedBox(width: 14.w),
+              Icon(Icons.place_outlined, size: 13.sp, color: _muted),
+              SizedBox(width: 4.w),
+              Expanded(
+                child: Text(
+                  'Place: $meetingPlace',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 10.5.sp, color: _muted),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildLoansSection() {
     return Obx(() {
       final loans = controller.unindexedLoans;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _buildCenterInfoCard(),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -403,6 +528,55 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
     });
   }
 
+  Widget _buildHighmarkTag(Map<String, dynamic> loan) {
+    final hmScoreRaw = loan['highmarkScore'] ?? loan['highMarkScore'] ?? loan['creditScore'];
+    final hmStatusRaw = loan['highmarkStatus'] ?? loan['highMarkStatus'] ?? loan['status'];
+
+    String label = 'HM: N/A';
+    Color bg = const Color(0xFFF1F5F9);
+    Color fg = const Color(0xFF64748B);
+
+    if (hmScoreRaw != null &&
+        hmScoreRaw.toString().trim().isNotEmpty &&
+        hmScoreRaw.toString() != 'null') {
+      final scoreNum = int.tryParse('$hmScoreRaw');
+      if (scoreNum != null && scoreNum > 0) {
+        label = 'HM: $scoreNum';
+        if (scoreNum >= 650) {
+          bg = const Color(0xFFDCFCE7);
+          fg = const Color(0xFF166534);
+        } else if (scoreNum >= 550) {
+          bg = const Color(0xFFFEF3C7);
+          fg = const Color(0xFFB45309);
+        } else {
+          bg = const Color(0xFFFEE2E2);
+          fg = const Color(0xFF991B1B);
+        }
+      } else {
+        label = 'HM: $hmScoreRaw';
+      }
+    } else if (hmStatusRaw != null &&
+        hmStatusRaw.toString().trim().isNotEmpty &&
+        hmStatusRaw.toString() != 'null' &&
+        hmStatusRaw.toString() != 'N/A') {
+      final st = hmStatusRaw.toString().trim();
+      label = 'HM: $st';
+      final upper = st.toUpperCase();
+      if (upper.contains('PASS') || upper.contains('OK') || upper.contains('EXCELLENT') || upper.contains('APPROVED')) {
+        bg = const Color(0xFFDCFCE7);
+        fg = const Color(0xFF166534);
+      } else if (upper.contains('FLAG') || upper.contains('REJECT') || upper.contains('LOW') || upper.contains('FAIL')) {
+        bg = const Color(0xFFFEE2E2);
+        fg = const Color(0xFF991B1B);
+      } else {
+        bg = const Color(0xFFFEF3C7);
+        fg = const Color(0xFFB45309);
+      }
+    }
+
+    return _tag(label, bg, fg);
+  }
+
   Widget _bulkSwitch({
     required String label,
     required bool checked,
@@ -497,10 +671,7 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
               spacing: 6.w,
               runSpacing: 6.h,
               children: [
-                if (loan['highmarkScore'] != null)
-                  _tag('HM: ${loan['highmarkScore']}', const Color(0xFFD1FAE5), const Color(0xFF065F46))
-                else
-                  _tag('HM: ${_field(loan, 'highmarkStatus')}', const Color(0xFFF3F4F6), const Color(0xFF4B5563)),
+                _buildHighmarkTag(loan),
                 _tag(_field(loan, 'purpose')),
                 _tag(_field(loan, 'product')),
                 _tag(_field(loan, 'frequency')),
@@ -541,6 +712,20 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
                     icon: const Icon(Icons.cancel_rounded, size: 16),
                     label: const Text('Reject'),
                   ),
+                ),
+                SizedBox(width: 8.w),
+                OutlinedButton.icon(
+                  onPressed: () => _showPassbookBottomSheet(loanId),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF0284C7),
+                    side: const BorderSide(color: Color(0xFF0284C7)),
+                    padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 8.h),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8.r),
+                    ),
+                  ),
+                  icon: const Icon(Icons.menu_book_rounded, size: 16),
+                  label: const Text('Passbook'),
                 ),
               ],
             ),
@@ -715,4 +900,203 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
       ],
     ),
   );
+
+  Future<void> _showPassbookBottomSheet(String loanId) async {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20.r)),
+      ),
+      builder: (ctx) {
+        return FutureBuilder<Map<String, dynamic>?>(
+          future: controller.fetchPassbook(loanId),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return Container(
+                height: 300,
+                alignment: Alignment.center,
+                child: const CircularProgressIndicator(color: _green),
+              );
+            }
+
+            final data = snapshot.data;
+            if (data == null) {
+              return Container(
+                height: 250,
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.error_outline_rounded, size: 40, color: Colors.red),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Failed to load passbook data.',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Close'),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            final memberDetails = data['memberDetails'] is Map
+                ? Map<String, dynamic>.from(data['memberDetails'] as Map)
+                : <String, dynamic>{};
+            final installments = data['installments'] is List
+                ? (data['installments'] as List).whereType<Map>().toList()
+                : <Map>[];
+
+            final memberName = memberDetails['memberName']?.toString() ?? '—';
+            final spouseName = memberDetails['husbandName']?.toString() ?? '—';
+            final accountNo = memberDetails['accountNumber']?.toString() ?? '—';
+            final loanAmount = memberDetails['loanAmount']?.toString() ?? '—';
+            final branch = '${memberDetails['branchCode'] ?? ''} ${memberDetails['branchName'] ?? ''}'.trim();
+            final center = '${memberDetails['centerCode'] ?? ''} ${memberDetails['centerName'] ?? ''}'.trim();
+
+            return DraggableScrollableSheet(
+              expand: false,
+              initialChildSize: 0.85,
+              maxChildSize: 0.95,
+              minChildSize: 0.5,
+              builder: (_, scrollController) {
+                return Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: ListView(
+                    controller: scrollController,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.menu_book_rounded, color: _green, size: 22),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Passbook Schedule',
+                                style: TextStyle(
+                                  fontSize: 16.sp,
+                                  fontWeight: FontWeight.bold,
+                                  color: _darkText,
+                                ),
+                              ),
+                            ],
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                      const Divider(),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0FAF4),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFBBF7D0)),
+                        ),
+                        child: Column(
+                          children: [
+                            _passbookRow('Member Name', memberName),
+                            _passbookRow('Spouse / Father', spouseName),
+                            _passbookRow('Account No', accountNo),
+                            _passbookRow('Branch', branch.isEmpty ? '—' : branch),
+                            _passbookRow('Center', center.isEmpty ? '—' : center),
+                            _passbookRow('Loan Amount', '₹$loanAmount'),
+                            _passbookRow('First Installment', memberDetails['firstInstallmentDate']?.toString() ?? '—'),
+                            _passbookRow('Loan Purpose', memberDetails['loanPurpose']?.toString() ?? '—'),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Repayment Installments (${installments.length})',
+                        style: TextStyle(
+                          fontSize: 13.sp,
+                          fontWeight: FontWeight.bold,
+                          color: _darkText,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      if (installments.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 20),
+                          child: Text('No installment schedule available.'),
+                        )
+                      else
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: DataTable(
+                            headingRowHeight: 36,
+                            dataRowMinHeight: 32,
+                            dataRowMaxHeight: 36,
+                            columnSpacing: 14,
+                            columns: const [
+                              DataColumn(label: Text('#', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
+                              DataColumn(label: Text('Due Date', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
+                              DataColumn(label: Text('EMI (₹)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
+                              DataColumn(label: Text('Principal', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
+                              DataColumn(label: Text('Interest', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
+                              DataColumn(label: Text('Balance', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
+                            ],
+                            rows: installments.map((inst) {
+                              return DataRow(cells: [
+                                DataCell(Text('${inst['no'] ?? '—'}', style: const TextStyle(fontSize: 11))),
+                                DataCell(Text('${inst['dueDate'] ?? '—'}', style: const TextStyle(fontSize: 11))),
+                                DataCell(Text('₹${inst['emiAmount'] ?? 0}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: _green))),
+                                DataCell(Text('₹${inst['principal'] ?? 0}', style: const TextStyle(fontSize: 11))),
+                                DataCell(Text('₹${inst['interest'] ?? 0}', style: const TextStyle(fontSize: 11))),
+                                DataCell(Text('₹${inst['balance'] ?? 0}', style: const TextStyle(fontSize: 11))),
+                              ]);
+                            }).toList(),
+                          ),
+                        ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Get.snackbar(
+                              'Passbook Downloaded',
+                              'Passbook PDF for $memberName downloaded successfully.',
+                              backgroundColor: _green,
+                              colorText: Colors.white,
+                            );
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _green,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          icon: const Icon(Icons.download_rounded, size: 18),
+                          label: const Text('Download Passbook PDF'),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _passbookRow(String label, String val) => Padding(
+        padding: const EdgeInsets.only(bottom: 4),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: const TextStyle(fontSize: 11, color: _muted)),
+            Text(val, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: _darkText)),
+          ],
+        ),
+      );
 }

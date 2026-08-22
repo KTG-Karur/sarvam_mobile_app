@@ -42,6 +42,17 @@ class LoanIndexApprovalController extends GetxController {
   late final String todayStr;
   String? _branchId;
 
+  Map<String, dynamic>? get selectedCenter {
+    final cid = centerId.value;
+    if (cid == null || cid.isEmpty) return null;
+    for (final c in centers) {
+      if (c is Map && c['id']?.toString() == cid) {
+        return Map<String, dynamic>.from(c);
+      }
+    }
+    return null;
+  }
+
   @override
   void onInit() {
     super.onInit();
@@ -179,6 +190,46 @@ class LoanIndexApprovalController extends GetxController {
     firstDueDate.value = '';
   }
 
+  static const Map<String, int> _meetingDayMap = {
+    'SUNDAY': 0,
+    'MONDAY': 1,
+    'TUESDAY': 2,
+    'WEDNESDAY': 3,
+    'THURSDAY': 4,
+    'FRIDAY': 5,
+    'SATURDAY': 6,
+    'SUN': 0,
+    'MON': 1,
+    'TUE': 2,
+    'WED': 3,
+    'THU': 4,
+    'FRI': 5,
+    'SAT': 6,
+  };
+
+  String? get meetingDayMismatch {
+    final due = firstDueDate.value;
+    final center = selectedCenter;
+    if (due.isEmpty || center == null) return null;
+
+    final mDayStr = center['meetingDay']?.toString().trim().toUpperCase();
+    if (mDayStr == null || mDayStr.isEmpty) return null;
+
+    final expectedDay = _meetingDayMap[mDayStr];
+    if (expectedDay == null) return null;
+
+    final parts = due.split('-');
+    if (parts.length != 3) return null;
+
+    final dt = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+    final actualDay = dt.weekday % 7;
+
+    if (actualDay == expectedDay) return null;
+
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return "First due date must fall on center's meeting day ($mDayStr). Selected date is ${dayNames[actualDay]}.";
+  }
+
   bool get firstDueDateValid =>
       firstDueDate.value.isEmpty || firstDueDate.value.compareTo(todayStr) >= 0;
 
@@ -187,7 +238,30 @@ class LoanIndexApprovalController extends GetxController {
       centerId.value != null &&
       selectedLoanIds.isNotEmpty &&
       firstDueDate.value.isNotEmpty &&
-      firstDueDateValid;
+      firstDueDateValid &&
+      meetingDayMismatch == null;
+
+  Future<Map<String, dynamic>?> fetchPassbook(String loanId) async {
+    try {
+      final res = await api.getPassbookData(
+        loanId,
+        firstDueDate: firstDueDate.value,
+      );
+      if (res['data'] is Map) {
+        return Map<String, dynamic>.from(res['data'] as Map);
+      }
+      return res;
+    } catch (e) {
+      debugPrint('Failed to fetch passbook: $e');
+      Get.snackbar(
+        'Passbook Error',
+        'Failed to load passbook details for this loan.',
+        backgroundColor: Colors.redAccent,
+        colorText: Colors.white,
+      );
+      return null;
+    }
+  }
 
   Set<String> get _currentUnindexedLoanIds {
     return unindexedLoans

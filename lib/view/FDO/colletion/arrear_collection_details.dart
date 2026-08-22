@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:get/get.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/arrear_collection_controller.dart';
+import 'package:sarvam/controller/live_collection_controller.dart';
 import 'package:sarvam/view/FDO/colletion/arrear_collection_client_details.dart';
 import 'package:sarvam/utils/center_formatter.dart';
 
@@ -35,9 +37,26 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
   @override
   void initState() {
     super.initState();
-    _date = DateTime(2026, 7, 17);
+    _date = DateTime.now();
     _controller.arrearCollections.clear();
     _loaded = false;
+    _loadEodWorkingDate();
+  }
+
+  Future<void> _loadEodWorkingDate() async {
+    final prefs = await SharedPreferences.getInstance();
+    final branchId = prefs.getString('branchId') ?? '';
+    if (branchId.isNotEmpty) {
+      final liveCtrl = Get.isRegistered<LiveCollectionController>()
+          ? Get.find<LiveCollectionController>()
+          : Get.put(LiveCollectionController());
+      final eodDate = await liveCtrl.fetchEodWorkingDate(branchId);
+      if (eodDate != null && mounted) {
+        setState(() {
+          _date = eodDate;
+        });
+      }
+    }
   }
 
   String _clientKey(Map<String, dynamic> item, int index) =>

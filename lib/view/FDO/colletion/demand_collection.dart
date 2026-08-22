@@ -523,7 +523,8 @@ class _ClientCollectionEditPanelState extends State<ClientCollectionEditPanel> {
   );
 
   bool get _isCollected =>
-      widget.client['status']?.toString().toUpperCase() == 'COLLECTED';
+      widget.client['status']?.toString().toUpperCase() == 'SUBMITTED' ||
+      widget.client['status']?.toString().toUpperCase() == 'POSTED';
 
   Widget _amountField(
     String label,
@@ -1580,6 +1581,106 @@ class _DemandCollectionState extends State<DemandCollection> {
                   ),
                 ),
               ],
+              SizedBox(height: 10.h),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Collected Amount (₹)',
+                          style: TextStyle(
+                            fontSize: 10.sp,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF4B8A68),
+                          ),
+                        ),
+                        SizedBox(height: 4.h),
+                        TextFormField(
+                          key: ValueKey('coll_${item['clientId']}_${item['loanNumber']}'),
+                          initialValue: (item['collectedAmount'] ?? item['totalDemand'] ?? 0).toString(),
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          style: TextStyle(
+                            fontSize: 12.sp,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF10472A),
+                          ),
+                          decoration: InputDecoration(
+                            isDense: true,
+                            prefixText: '₹ ',
+                            contentPadding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 8.h),
+                            filled: true,
+                            fillColor: const Color(0xFFF4FAF6),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8.r),
+                              borderSide: const BorderSide(color: Color(0xFFD2E9DB)),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8.r),
+                              borderSide: const BorderSide(color: Color(0xFF008A3D), width: 1.5),
+                            ),
+                          ),
+                          onChanged: (val) {
+                            final parsed = double.tryParse(val.trim());
+                            setState(() {
+                              item['collectedAmount'] = parsed ?? 0;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(width: 10.w),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Loan Adv Collect (₹)',
+                          style: TextStyle(
+                            fontSize: 10.sp,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF4B8A68),
+                          ),
+                        ),
+                        SizedBox(height: 4.h),
+                        TextFormField(
+                          key: ValueKey('adv_${item['clientId']}_${item['loanNumber']}'),
+                          initialValue: (item['loanAdvanceCollectedToday'] ?? 0).toString(),
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          style: TextStyle(
+                            fontSize: 12.sp,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF10472A),
+                          ),
+                          decoration: InputDecoration(
+                            isDense: true,
+                            prefixText: '₹ ',
+                            contentPadding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 8.h),
+                            filled: true,
+                            fillColor: const Color(0xFFF4FAF6),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8.r),
+                              borderSide: const BorderSide(color: Color(0xFFD2E9DB)),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8.r),
+                              borderSide: const BorderSide(color: Color(0xFF008A3D), width: 1.5),
+                            ),
+                          ),
+                          onChanged: (val) {
+                            final parsed = double.tryParse(val.trim());
+                            setState(() {
+                              item['loanAdvanceCollectedToday'] = parsed ?? 0;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
               SizedBox(height: 10.h),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,

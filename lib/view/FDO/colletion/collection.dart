@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
+import 'package:sarvam/controller/live_collection_controller.dart';
 import 'package:sarvam/services/offline_collection_service.dart';
 import 'package:sarvam/view/FDO/colletion/arrear_collection_details.dart';
 import 'package:sarvam/view/FDO/colletion/demand_collection.dart';
@@ -19,8 +20,20 @@ class _CollectionState extends State<Collection> {
   @override
   void initState() {
     super.initState();
-    // Default to the current system date
     _selectedDate = DateTime.now();
+    _loadEodWorkingDate();
+  }
+
+  Future<void> _loadEodWorkingDate() async {
+    final liveCtrl = Get.isRegistered<LiveCollectionController>()
+        ? Get.find<LiveCollectionController>()
+        : Get.put(LiveCollectionController());
+    final date = await liveCtrl.fetchEodWorkingDate();
+    if (date != null && mounted) {
+      setState(() {
+        _selectedDate = date;
+      });
+    }
   }
 
   String get _monthYearText {

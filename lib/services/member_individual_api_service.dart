@@ -101,8 +101,7 @@ class MemberIndividualApiService {
   ) => _patchMap("${Api.memberIndividualUrl}/$loanId/cash-flow", payload);
 
   /// `PATCH /api/member-individual/{loanId}/loan-appraisal/complete` —
-  /// marks the Loan Appraisal tab reviewed (product change is a web-only
-  /// action for now).
+  /// marks the Loan Appraisal tab reviewed.
   Future<Map<String, dynamic>> completeLoanAppraisal(String loanId) =>
       _patchMap("${Api.memberIndividualUrl}/$loanId/loan-appraisal/complete", {});
 

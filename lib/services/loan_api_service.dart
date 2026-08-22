@@ -223,4 +223,16 @@ class LoanApiService {
     final data = _unwrap(response);
     return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
   }
+
+  /// `GET /api/loans/{loanId}/passbook?firstDueDate=` — passbook details
+  /// and installment schedule preview.
+  Future<Map<String, dynamic>> getPassbookData(
+    String loanId, {
+    String? firstDueDate,
+  }) async {
+    final query = firstDueDate != null && firstDueDate.isNotEmpty
+        ? '?firstDueDate=$firstDueDate'
+        : '';
+    return _getMap("${Api.loansUrl}/$loanId/passbook$query");
+  }
 }

@@ -42,11 +42,26 @@ class DisbursementApiService {
     if (body is Map && body['success'] == true) {
       return body['data'];
     }
-    final message = (body is Map ? (body['message'] ?? body['error']) : null);
-    throw DisbursementApiException(
-      message?.toString() ??
-          'Request failed${response.statusCode != null ? ' (${response.statusCode})' : ''}',
-    );
+    String message =
+        'Request failed${response.statusCode != null ? ' (${response.statusCode})' : ''}';
+    if (body is Map) {
+      final msg = body['message'] ?? body['error'];
+      final details = body['details'];
+      if (details is List && details.isNotEmpty) {
+        final detailMsgs = details
+            .map(
+              (d) => d is Map
+                  ? (d['message'] ?? (d['path'] is List ? d['path'].join('.') : ''))
+                  : d.toString(),
+            )
+            .where((s) => s.toString().trim().isNotEmpty)
+            .join('; ');
+        message = '${msg ?? 'Validation Failed'}: $detailMsgs';
+      } else if (msg != null) {
+        message = msg.toString();
+      }
+    }
+    throw DisbursementApiException(message);
   }
 
   /// `GET /api/branches?includeInactive=false` — not role-scoped server-side;

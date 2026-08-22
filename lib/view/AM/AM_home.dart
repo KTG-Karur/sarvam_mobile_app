@@ -16,6 +16,7 @@ import 'package:sarvam/view/ADMIN/users/user_list.dart';
 import 'package:sarvam/view/BM/correct_collection_entry.dart';
 import 'package:sarvam/view/BM/correct_single_collection.dart';
 import 'package:sarvam/view/BM/centre_approval.dart';
+import 'package:sarvam/view/BM/collection_approval/collection_approval.dart';
 import 'package:sarvam/view/BM/member_approval.dart';
 import 'package:sarvam/view/BM/member_individual/member_individual.dart';
 import 'package:sarvam/view/FDO/client_loan_tracker/client_loan_tracker.dart';
@@ -462,6 +463,16 @@ class _AmHomeState extends State<AmHome> with SingleTickerProviderStateMixin {
           _moduleSection(
             title: 'COLLECTIONS & FORECLOSURE',
             items: [
+              _ModuleItem(
+                icon: Icons.check_circle_outline_rounded,
+                title: 'Collection Approval',
+                subtitle: 'Review & authorize collections submitted by Field Officers',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const CollectionApproval(),
+                  ),
+                ),
+              ),
               _ModuleItem(
                 icon: Icons.visibility_rounded,
                 title: 'View Collections',

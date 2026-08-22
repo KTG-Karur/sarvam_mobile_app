@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/controller/member_individual_detail_controller.dart';
 
 const _green = Color(0xFF0D6842);
@@ -33,7 +34,7 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
   // which sits *above* DefaultTabController in the tree (it's created
   // inside build()), so DefaultTabController.of(context) can't find it.
   late final TabController _tabController = TabController(
-    length: 3,
+    length: 4,
     vsync: this,
   );
 
@@ -114,6 +115,7 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
                       _buildCashFlowTab(),
                       _buildLoanAppraisalTab(),
                       _buildHouseholdVisitTab(),
+                      _buildGrtTab(),
                     ],
                   ),
                 ),
@@ -202,7 +204,7 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
           Row(
             children: [
               _heroBadge(
-                '${controller.completedTabsCount}/3 tabs complete',
+                '${controller.completedTabsCount}/4 tabs complete',
                 background: Colors.white.withValues(alpha: 0.15),
                 textColor: Colors.white,
               ),
@@ -307,6 +309,7 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
           Tab(text: 'Cash Flow'),
           Tab(text: 'Appraisal'),
           Tab(text: 'House Visit'),
+          Tab(text: 'GRT'),
         ],
       ),
     );
@@ -708,11 +711,12 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
 
     final loan = controller.loan;
     final currentProductId = loan['loanProductId']?.toString() ?? '';
-    final maxAllowedAmount = double.tryParse('${loan['indexedAmount'] ?? loan['appliedAmount'] ?? loan['amount']}') ?? 0.0;
 
-    String? selectedTypeId;
-    String? selectedFrequency;
-    String? selectedProductId;
+    final selectedTypeId = RxnString();
+    final selectedFrequency = RxnString();
+    final selectedProductId = RxnString();
+
+    bool initialized = false;
 
     showModalBottomSheet(
       context: context,
@@ -722,250 +726,240 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
         borderRadius: BorderRadius.vertical(top: Radius.circular(20.r)),
       ),
       builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Obx(() {
-              if (controller.isLoadingProductData.value) {
-                return Container(
-                  height: 250.h,
-                  alignment: Alignment.center,
-                  child: const CircularProgressIndicator(color: _green),
-                );
-              }
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            16.w,
+            16.h,
+            16.w,
+            24.h + MediaQuery.of(ctx).viewInsets.bottom,
+          ),
+          child: Obx(() {
+            if (controller.isLoadingProductData.value) {
+              return Container(
+                height: 250.h,
+                alignment: Alignment.center,
+                child: const CircularProgressIndicator(color: _green),
+              );
+            }
 
-              final types = controller.productTypes;
-              final products = controller.allProducts;
+            final types = controller.productTypes;
+            final products = controller.allProducts;
 
-              if (selectedProductId == null && currentProductId.isNotEmpty && products.isNotEmpty) {
-                final curr = products.cast<Map<String, dynamic>?>().firstWhere(
-                  (p) => p?['id']?.toString() == currentProductId,
-                  orElse: () => null,
-                );
-                if (curr != null) {
-                  selectedTypeId = curr['loanProductTypeId']?.toString();
-                  selectedFrequency = curr['frequency']?.toString().toLowerCase();
-                  selectedProductId = curr['id']?.toString();
-                }
-              }
-
-              final typeProducts = products.where((p) {
-                if (p is! Map) return false;
-                final pTypeId = p['loanProductTypeId']?.toString();
-                final pAmount = double.tryParse('${p['loanAmount']}') ?? 0.0;
-                return pTypeId == selectedTypeId && (maxAllowedAmount <= 0 || pAmount <= maxAllowedAmount);
-              }).toList();
-
-              final availableFreqs = typeProducts
-                  .map((p) => p['frequency']?.toString().toLowerCase() ?? '')
-                  .where((f) => f.isNotEmpty)
-                  .toSet()
-                  .toList();
-
-              final filteredProducts = typeProducts.where((p) {
-                final f = p['frequency']?.toString().toLowerCase();
-                return f == selectedFrequency;
-              }).toList();
-
-              final selectedProduct = filteredProducts.cast<Map<String, dynamic>?>().firstWhere(
-                (p) => p?['id']?.toString() == selectedProductId,
+            if (!initialized && products.isNotEmpty) {
+              initialized = true;
+              final curr = products.cast<Map<String, dynamic>?>().firstWhere(
+                (p) => p?['id']?.toString() == currentProductId,
                 orElse: () => null,
               );
+              if (curr != null) {
+                selectedTypeId.value = curr['loanProductTypeId']?.toString();
+                selectedFrequency.value = curr['frequency']?.toString().toLowerCase();
+                selectedProductId.value = curr['id']?.toString();
+              }
+            }
 
-              return Padding(
-                padding: EdgeInsets.only(
-                  left: 16.w,
-                  right: 16.w,
-                  top: 16.h,
-                  bottom: MediaQuery.of(context).viewInsets.bottom + 20.h,
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            final typeProducts = products.where((p) {
+              if (p is! Map) return false;
+              if (selectedTypeId.value == null || selectedTypeId.value!.isEmpty) return true;
+              return p['loanProductTypeId']?.toString() == selectedTypeId.value;
+            }).toList();
+
+            final availableFreqs = typeProducts
+                .map((p) => p['frequency']?.toString().toLowerCase() ?? '')
+                .where((f) => f.isNotEmpty)
+                .toSet()
+                .toList();
+
+            final filteredProducts = typeProducts.where((p) {
+              if (selectedFrequency.value == null || selectedFrequency.value!.isEmpty) return true;
+              return p['frequency']?.toString().toLowerCase() == selectedFrequency.value;
+            }).toList();
+
+            final selectedProduct = filteredProducts.cast<Map<String, dynamic>?>().firstWhere(
+              (p) => p?['id']?.toString() == selectedProductId.value,
+              orElse: () => null,
+            );
+
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Edit Loan Product',
-                          style: TextStyle(
-                            fontSize: 16.sp,
-                            fontWeight: FontWeight.w800,
-                            color: _darkText,
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: () => Navigator.pop(context),
-                          icon: const Icon(Icons.close_rounded, color: _muted),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 12.h),
-
                     Text(
-                      'Loan Product Type',
-                      style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700, color: _darkText),
-                    ),
-                    SizedBox(height: 6.h),
-                    DropdownButtonFormField<String>(
-                      initialValue: selectedTypeId,
-                      decoration: InputDecoration(
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10.r)),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10.r),
-                          borderSide: const BorderSide(color: _green, width: 1.4),
-                        ),
+                      'Edit Loan Product',
+                      style: TextStyle(
+                        fontSize: 16.sp,
+                        fontWeight: FontWeight.w800,
+                        color: _darkText,
                       ),
-                      hint: const Text('Select Product Type'),
-                      items: types.map<DropdownMenuItem<String>>((t) {
-                        return DropdownMenuItem<String>(
-                          value: t['id']?.toString(),
-                          child: Text('${t['name']}', style: TextStyle(fontSize: 12.5.sp)),
-                        );
-                      }).toList(),
-                      onChanged: (val) {
-                        setModalState(() {
-                          selectedTypeId = val;
-                          selectedFrequency = null;
-                          selectedProductId = null;
-                        });
-                      },
                     ),
-                    SizedBox(height: 12.h),
-
-                    Text(
-                      'Frequency',
-                      style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700, color: _darkText),
-                    ),
-                    SizedBox(height: 6.h),
-                    DropdownButtonFormField<String>(
-                      initialValue: selectedFrequency,
-                      decoration: InputDecoration(
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10.r)),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10.r),
-                          borderSide: const BorderSide(color: _green, width: 1.4),
-                        ),
-                      ),
-                      hint: const Text('Select Frequency'),
-                      items: availableFreqs.map<DropdownMenuItem<String>>((f) {
-                        final label = f.isEmpty ? f : '${f[0].toUpperCase()}${f.substring(1)}';
-                        return DropdownMenuItem<String>(
-                          value: f,
-                          child: Text(label, style: TextStyle(fontSize: 12.5.sp)),
-                        );
-                      }).toList(),
-                      onChanged: (val) {
-                        setModalState(() {
-                          selectedFrequency = val;
-                          selectedProductId = null;
-                        });
-                      },
-                    ),
-                    SizedBox(height: 12.h),
-
-                    Text(
-                      'Loan Product',
-                      style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700, color: _darkText),
-                    ),
-                    SizedBox(height: 6.h),
-                    DropdownButtonFormField<String>(
-                      initialValue: selectedProductId,
-                      decoration: InputDecoration(
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10.r)),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10.r),
-                          borderSide: const BorderSide(color: _green, width: 1.4),
-                        ),
-                      ),
-                      hint: const Text('Select Loan Product'),
-                      items: filteredProducts.map<DropdownMenuItem<String>>((p) {
-                        final amount = _currency(_amount(p, 'loanAmount'));
-                        return DropdownMenuItem<String>(
-                          value: p['id']?.toString(),
-                          child: Text('${p['productName']} ($amount)', style: TextStyle(fontSize: 12.5.sp)),
-                        );
-                      }).toList(),
-                      onChanged: (val) {
-                        setModalState(() {
-                          selectedProductId = val;
-                        });
-                      },
-                    ),
-                    SizedBox(height: 16.h),
-
-                    if (selectedProduct != null)
-                      Container(
-                        padding: EdgeInsets.all(12.w),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF0FAF4),
-                          borderRadius: BorderRadius.circular(10.r),
-                          border: Border.all(color: const Color(0xFFE1EAE4)),
-                        ),
-                        child: Column(
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text('New Amount:', style: TextStyle(fontSize: 11.sp, color: _muted)),
-                                Text(_currency(_amount(selectedProduct, 'loanAmount')), style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w800, color: _green)),
-                              ],
-                            ),
-                            SizedBox(height: 4.h),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text('Interest Rate:', style: TextStyle(fontSize: 11.sp, color: _muted)),
-                                Text('${_amount(selectedProduct, 'interestRate')}%', style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700, color: _darkText)),
-                              ],
-                            ),
-                            SizedBox(height: 4.h),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text('Dues / Tenure:', style: TextStyle(fontSize: 11.sp, color: _muted)),
-                                Text('${selectedProduct['numberOfDues']} dues', style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700, color: _darkText)),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-
-                    SizedBox(height: 18.h),
-
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: selectedProductId == null || controller.isUpdatingProduct.value
-                            ? null
-                            : () async {
-                                final ok = await controller.updateLoanProduct(selectedProductId!);
-                                if (ok && context.mounted) {
-                                  Navigator.pop(context);
-                                }
-                              },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _green,
-                          foregroundColor: Colors.white,
-                          padding: EdgeInsets.symmetric(vertical: 13.h),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.r)),
-                        ),
-                        child: controller.isUpdatingProduct.value
-                            ? SizedBox(
-                                width: 16.sp,
-                                height: 16.sp,
-                                child: const CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                              )
-                            : Text('Update Product', style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w700)),
-                      ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, color: _muted),
                     ),
                   ],
                 ),
-              );
-            });
-          },
+                SizedBox(height: 12.h),
+
+                Text(
+                  'Loan Product Type',
+                  style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700, color: _darkText),
+                ),
+                SizedBox(height: 6.h),
+                DropdownButtonFormField<String>(
+                  initialValue: selectedTypeId.value,
+                  decoration: InputDecoration(
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10.r)),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10.r),
+                      borderSide: const BorderSide(color: _green, width: 1.4),
+                    ),
+                  ),
+                  hint: const Text('Select Product Type'),
+                  items: types.map<DropdownMenuItem<String>>((t) {
+                    return DropdownMenuItem<String>(
+                      value: t['id']?.toString(),
+                      child: Text('${t['name']}', style: TextStyle(fontSize: 12.5.sp)),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    selectedTypeId.value = val;
+                    selectedFrequency.value = null;
+                    selectedProductId.value = null;
+                  },
+                ),
+                SizedBox(height: 12.h),
+
+                Text(
+                  'Frequency',
+                  style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700, color: _darkText),
+                ),
+                SizedBox(height: 6.h),
+                DropdownButtonFormField<String>(
+                  initialValue: selectedFrequency.value,
+                  decoration: InputDecoration(
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10.r)),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10.r),
+                      borderSide: const BorderSide(color: _green, width: 1.4),
+                    ),
+                  ),
+                  hint: const Text('Select Frequency'),
+                  items: availableFreqs.map<DropdownMenuItem<String>>((f) {
+                    final label = f.isEmpty ? f : '${f[0].toUpperCase()}${f.substring(1)}';
+                    return DropdownMenuItem<String>(
+                      value: f,
+                      child: Text(label, style: TextStyle(fontSize: 12.5.sp)),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    selectedFrequency.value = val;
+                    selectedProductId.value = null;
+                  },
+                ),
+                SizedBox(height: 12.h),
+
+                Text(
+                  'Loan Product',
+                  style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700, color: _darkText),
+                ),
+                SizedBox(height: 6.h),
+                DropdownButtonFormField<String>(
+                  initialValue: selectedProductId.value,
+                  decoration: InputDecoration(
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10.r)),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10.r),
+                      borderSide: const BorderSide(color: _green, width: 1.4),
+                    ),
+                  ),
+                  hint: const Text('Select Loan Product'),
+                  items: filteredProducts.map<DropdownMenuItem<String>>((p) {
+                    final amount = _currency(_amount(p, 'loanAmount'));
+                    return DropdownMenuItem<String>(
+                      value: p['id']?.toString(),
+                      child: Text('${p['productName']} ($amount)', style: TextStyle(fontSize: 12.5.sp)),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    selectedProductId.value = val;
+                  },
+                ),
+                SizedBox(height: 16.h),
+
+                if (selectedProduct != null)
+                  Container(
+                    padding: EdgeInsets.all(12.w),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FAF4),
+                      borderRadius: BorderRadius.circular(10.r),
+                      border: Border.all(color: const Color(0xFFE1EAE4)),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('New Amount:', style: TextStyle(fontSize: 11.sp, color: _muted)),
+                            Text(_currency(_amount(selectedProduct, 'loanAmount')), style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w800, color: _green)),
+                          ],
+                        ),
+                        SizedBox(height: 4.h),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('Interest Rate:', style: TextStyle(fontSize: 11.sp, color: _muted)),
+                            Text('${_amount(selectedProduct, 'interestRate')}%', style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700, color: _darkText)),
+                          ],
+                        ),
+                        SizedBox(height: 4.h),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('Dues / Tenure:', style: TextStyle(fontSize: 11.sp, color: _muted)),
+                            Text('${selectedProduct['numberOfDues']} dues', style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700, color: _darkText)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                SizedBox(height: 18.h),
+
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: selectedProductId.value == null || controller.isUpdatingProduct.value
+                        ? null
+                        : () async {
+                            final ok = await controller.updateLoanProduct(selectedProductId.value!);
+                            if (ok && ctx.mounted) {
+                              Navigator.pop(ctx);
+                            }
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _green,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(vertical: 13.h),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.r)),
+                    ),
+                    child: controller.isUpdatingProduct.value
+                        ? SizedBox(
+                            width: 16.sp,
+                            height: 16.sp,
+                            child: const CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : Text('Update Product', style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ],
+            );
+          }),
         );
       },
     );
@@ -1022,6 +1016,137 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
     );
   }
 
+  Widget _distanceChip({
+    required String label,
+    required dynamic distanceMeters,
+    double? maxRadiusMeters,
+  }) {
+    if (distanceMeters == null) return const SizedBox.shrink();
+    final meters = (distanceMeters is num)
+        ? distanceMeters.toDouble()
+        : (double.tryParse('$distanceMeters') ?? 0.0);
+    final isKm = meters >= 1000;
+    final displayDist = isKm
+        ? '${(meters / 1000).toStringAsFixed(2)} km'
+        : '${meters.round()} m';
+
+    final outOfRange = maxRadiusMeters != null && meters > maxRadiusMeters;
+    final bgColor = outOfRange ? const Color(0xFFFEE2E2) : const Color(0xFFE6F5EC);
+    final textColor = outOfRange ? const Color(0xFF991B1B) : const Color(0xFF065F46);
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(6.r),
+        border: Border.all(color: outOfRange ? const Color(0xFFFCA5A5) : const Color(0xFFA7F3D0)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            outOfRange ? Icons.warning_amber_rounded : Icons.location_on_rounded,
+            size: 11.sp,
+            color: textColor,
+          ),
+          SizedBox(width: 4.w),
+          Text(
+            '$label: $displayDist',
+            style: TextStyle(
+              fontSize: 10.sp,
+              fontWeight: FontWeight.w700,
+              color: textColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFdoHouseImageCard(Map<String, dynamic>? fdoHouseImage) {
+    if (fdoHouseImage == null || fdoHouseImage['photoUrl'] == null) {
+      return Container(
+        width: double.infinity,
+        padding: EdgeInsets.all(10.w),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFFBEB),
+          border: Border.all(color: const Color(0xFFFDE68A)),
+          borderRadius: BorderRadius.circular(10.r),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.info_outline, size: 16.sp, color: const Color(0xFFB45309)),
+            SizedBox(width: 8.w),
+            Expanded(
+              child: Text(
+                'FDO did not upload a house image at enrollment.',
+                style: TextStyle(fontSize: 11.sp, color: const Color(0xFFB45309)),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    String url = fdoHouseImage['photoUrl'].toString();
+    if (!url.startsWith('http')) {
+      url = '${Api.baseUrl}$url';
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(12.w),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE1EAE4)),
+        borderRadius: BorderRadius.circular(12.r),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.home_work_rounded, size: 15.sp, color: _green),
+              SizedBox(width: 6.w),
+              Text(
+                'FDO Uploaded House Image (at enrollment)',
+                style: TextStyle(
+                  fontSize: 11.5.sp,
+                  fontWeight: FontWeight.w700,
+                  color: _darkText,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 10.h),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10.r),
+            child: Image.network(
+              url,
+              width: double.infinity,
+              height: 160.h,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(
+                height: 120.h,
+                color: const Color(0xFFF1F5F9),
+                alignment: Alignment.center,
+                child: const Text('Unable to load FDO House Image'),
+              ),
+            ),
+          ),
+          if (fdoHouseImage['uploadedByName'] != null) ...[
+            SizedBox(height: 6.h),
+            Text(
+              'Uploaded by: ${fdoHouseImage['uploadedByName']}'
+              '${fdoHouseImage['createdAt'] != null ? ' · ${_formatDateTime(fdoHouseImage['createdAt'])}' : ''}',
+              style: TextStyle(fontSize: 10.sp, color: _muted),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   // -------------------------------------------------------------------
   // House Hold Visit
   // -------------------------------------------------------------------
@@ -1029,6 +1154,9 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
   Widget _buildHouseholdVisitTab() {
     return Obx(() {
       final photos = controller.photos;
+      final fdoHouseImage = controller.houseHoldVisit['fdoHouseImage'];
+      final fdoMap = fdoHouseImage is Map ? Map<String, dynamic>.from(fdoHouseImage) : null;
+
       return SingleChildScrollView(
         padding: EdgeInsets.all(16.w),
         child: Column(
@@ -1039,6 +1167,8 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
                 'House Hold Visit completed on ${_formatDateTime(controller.houseHoldVisit['completedAt'])}',
               ),
             SizedBox(height: 10.h),
+            _buildFdoHouseImageCard(fdoMap),
+            SizedBox(height: 14.h),
             Container(
               padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 8.h),
               decoration: BoxDecoration(
@@ -1069,7 +1199,7 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
             ),
             SizedBox(height: 14.h),
             Text(
-              'Photos',
+              'BM Verification Photos',
               style: TextStyle(
                 fontSize: 13.sp,
                 fontWeight: FontWeight.w800,
@@ -1078,7 +1208,7 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
             ),
             SizedBox(height: 10.h),
             if (photos.isEmpty)
-              _emptyState('No photos captured yet.')
+              _emptyState('No verification photos captured yet.')
             else
               ListView.separated(
                 shrinkWrap: true,
@@ -1174,10 +1304,17 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
 
   Widget _photoCard(Map<String, dynamic> photo) {
     final isMandatory = photo['isMandatory'] == true;
-    final distanceMeters = photo['distanceMeters'];
+    final distanceCenter = photo['distanceMeters'];
+    final distanceBranch = photo['distanceFromBranchMeters'];
+    final distanceFdo = photo['distanceFromClientMeters'];
     final photoId = photo['id']?.toString() ?? '';
     final outOfRange =
-        isMandatory && distanceMeters is num && distanceMeters > 500;
+        isMandatory && distanceCenter is num && distanceCenter > 500;
+
+    String photoUrl = photo['photoUrl']?.toString() ?? '';
+    if (photoUrl.isNotEmpty && !photoUrl.startsWith('http')) {
+      photoUrl = '${Api.baseUrl}$photoUrl';
+    }
 
     return Obx(() {
       final deleting = controller.deletingPhotoId.value == photoId;
@@ -1192,81 +1329,98 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
           ),
           borderRadius: BorderRadius.circular(10.r),
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8.r),
-              child: photo['photoUrl'] != null
-                  ? Image.network(
-                      photo['photoUrl'].toString(),
-                      width: 48.w,
-                      height: 48.w,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                        width: 48.w,
-                        height: 48.w,
-                        color: const Color(0xFFEFF3F1),
-                        child: Icon(
-                          Icons.image_outlined,
-                          color: _muted,
-                          size: 20.sp,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8.r),
+                  child: photoUrl.isNotEmpty
+                      ? Image.network(
+                          photoUrl,
+                          width: 60.w,
+                          height: 60.w,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            width: 60.w,
+                            height: 60.w,
+                            color: const Color(0xFFEFF3F1),
+                            child: Icon(
+                              Icons.image_outlined,
+                              color: _muted,
+                              size: 24.sp,
+                            ),
+                          ),
+                        )
+                      : Container(
+                          width: 60.w,
+                          height: 60.w,
+                          color: const Color(0xFFEFF3F1),
+                          child: Icon(
+                            Icons.image_outlined,
+                            color: _muted,
+                            size: 24.sp,
+                          ),
                         ),
-                      ),
-                    )
-                  : Container(
-                      width: 48.w,
-                      height: 48.w,
-                      color: const Color(0xFFEFF3F1),
-                      child: Icon(
-                        Icons.image_outlined,
-                        color: _muted,
-                        size: 20.sp,
-                      ),
-                    ),
-            ),
-            SizedBox(width: 10.w),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+                ),
+                SizedBox(width: 10.w),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        isMandatory ? 'Mandatory' : 'Optional',
-                        style: TextStyle(
-                          fontSize: 10.5.sp,
-                          fontWeight: FontWeight.w700,
-                          color: isMandatory ? _green : _muted,
-                        ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            isMandatory ? 'Mandatory Photo' : 'Optional Photo',
+                            style: TextStyle(
+                              fontSize: 11.sp,
+                              fontWeight: FontWeight.w800,
+                              color: isMandatory ? _green : _darkText,
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: deleting
+                                ? null
+                                : () => controller.deletePhoto(photoId),
+                            icon: deleting
+                                ? SizedBox(
+                                    width: 14.sp,
+                                    height: 14.sp,
+                                    child: const CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.redAccent,
+                                    ),
+                                  )
+                                : Icon(
+                                    Icons.delete_outline_rounded,
+                                    color: Colors.redAccent,
+                                    size: 18.sp,
+                                  ),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 6.h),
+                      Wrap(
+                        spacing: 6.w,
+                        runSpacing: 4.h,
+                        children: [
+                          if (distanceBranch != null)
+                            _distanceChip(label: 'Branch', distanceMeters: distanceBranch),
+                          if (distanceCenter != null)
+                            _distanceChip(label: 'Center', distanceMeters: distanceCenter, maxRadiusMeters: isMandatory ? 500 : null),
+                          if (distanceFdo != null)
+                            _distanceChip(label: 'FDO', distanceMeters: distanceFdo, maxRadiusMeters: isMandatory ? 100 : null),
+                        ],
                       ),
                     ],
                   ),
-                  if (distanceMeters != null)
-                    Text(
-                      '${(distanceMeters as num).round()}m from center',
-                      style: TextStyle(
-                        fontSize: 10.sp,
-                        color: outOfRange ? Colors.red : _muted,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            IconButton(
-              onPressed: deleting
-                  ? null
-                  : () => controller.deletePhoto(photoId),
-              icon: deleting
-                  ? SizedBox(
-                      width: 16.sp,
-                      height: 16.sp,
-                      child: const CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Icon(
-                      Icons.delete_outline_rounded,
-                      color: Colors.red,
-                      size: 20.sp,
-                    ),
+                ),
+              ],
             ),
           ],
         ),
@@ -1318,4 +1472,276 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
       ],
     ),
   );
+
+  // -------------------------------------------------------------------
+  // GRT (Group Readiness Test)
+  // -------------------------------------------------------------------
+
+  Widget _buildGrtTab() {
+    return Obx(() {
+      final grt = controller.grt;
+      final isComplete = controller.grtComplete;
+      final questions = grt['questions'] is List ? (grt['questions'] as List) : <dynamic>[];
+      final sessionPhotos = grt['sessionPhotos'] is List ? (grt['sessionPhotos'] as List) : <dynamic>[];
+
+      return SingleChildScrollView(
+        padding: EdgeInsets.all(16.w),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (isComplete) ...[
+              _completeBanner(
+                'GRT completed for Session ${_field(grt, 'completedSessionId')}'
+                '${grt['completedAt'] != null ? ' on ${_formatDateTime(grt['completedAt'])}' : ''}',
+              ),
+              SizedBox(height: 12.h),
+              if (_field(grt, 'questionnaireTitle').isNotEmpty) ...[
+                Text(
+                  _field(grt, 'questionnaireTitle'),
+                  style: TextStyle(
+                    fontSize: 14.sp,
+                    fontWeight: FontWeight.w800,
+                    color: _darkText,
+                  ),
+                ),
+                SizedBox(height: 10.h),
+              ],
+              if (questions.isNotEmpty) ...[
+                Text(
+                  'Questions & Answers',
+                  style: TextStyle(
+                    fontSize: 12.5.sp,
+                    fontWeight: FontWeight.w700,
+                    color: _muted,
+                  ),
+                ),
+                SizedBox(height: 8.h),
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: questions.length,
+                  separatorBuilder: (_, __) => SizedBox(height: 10.h),
+                  itemBuilder: (_, idx) {
+                    final q = Map<String, dynamic>.from(questions[idx]);
+                    final qText = _field(q, 'question');
+                    final answerBool = q['answerBool'];
+                    final answerText = q['answerText']?.toString() ?? '';
+                    final qPhotos = q['photos'] is List ? (q['photos'] as List) : <dynamic>[];
+
+                    return Container(
+                      padding: EdgeInsets.all(12.w),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        border: Border.all(color: const Color(0xFFE1EAE4)),
+                        borderRadius: BorderRadius.circular(10.r),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              CircleAvatar(
+                                radius: 11.r,
+                                backgroundColor: const Color(0xFFE6F5EC),
+                                child: Text(
+                                  '${idx + 1}',
+                                  style: TextStyle(
+                                    fontSize: 10.sp,
+                                    fontWeight: FontWeight.w800,
+                                    color: _green,
+                                  ),
+                                ),
+                              ),
+                              SizedBox(width: 8.w),
+                              Expanded(
+                                child: Text(
+                                  qText,
+                                  style: TextStyle(
+                                    fontSize: 12.sp,
+                                    fontWeight: FontWeight.w700,
+                                    color: _darkText,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: 8.h),
+                          Padding(
+                            padding: EdgeInsets.only(left: 30.w),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (answerBool is bool)
+                                  Container(
+                                    padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
+                                    decoration: BoxDecoration(
+                                      color: answerBool ? const Color(0xFFDCFCE7) : const Color(0xFFFEE2E2),
+                                      borderRadius: BorderRadius.circular(6.r),
+                                      border: Border.all(
+                                        color: answerBool ? const Color(0xFF86EFAC) : const Color(0xFFFCA5A5),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          answerBool ? Icons.check_circle_rounded : Icons.cancel_rounded,
+                                          size: 13.sp,
+                                          color: answerBool ? const Color(0xFF15803D) : const Color(0xFFB91C1C),
+                                        ),
+                                        SizedBox(width: 4.w),
+                                        Text(
+                                          answerBool ? 'Yes' : 'No',
+                                          style: TextStyle(
+                                            fontSize: 11.sp,
+                                            fontWeight: FontWeight.w700,
+                                            color: answerBool ? const Color(0xFF15803D) : const Color(0xFFB91C1C),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                if (answerText.isNotEmpty) ...[
+                                  if (answerBool is bool) SizedBox(height: 4.h),
+                                  Text(
+                                    'Answer: $answerText',
+                                    style: TextStyle(
+                                      fontSize: 11.5.sp,
+                                      fontWeight: FontWeight.w600,
+                                      color: _darkText,
+                                    ),
+                                  ),
+                                ],
+                                if (qPhotos.isNotEmpty) ...[
+                                  SizedBox(height: 8.h),
+                                  SizedBox(
+                                    height: 60.h,
+                                    child: ListView.separated(
+                                      scrollDirection: Axis.horizontal,
+                                      itemCount: qPhotos.length,
+                                      separatorBuilder: (_, __) => SizedBox(width: 6.w),
+                                      itemBuilder: (_, pIdx) {
+                                        final photo = Map<String, dynamic>.from(qPhotos[pIdx]);
+                                        String pUrl = photo['photoUrl']?.toString() ?? '';
+                                        if (pUrl.isNotEmpty && !pUrl.startsWith('http')) {
+                                          pUrl = '${Api.baseUrl}$pUrl';
+                                        }
+                                        return ClipRRect(
+                                          borderRadius: BorderRadius.circular(6.r),
+                                          child: Image.network(
+                                            pUrl,
+                                            width: 60.h,
+                                            height: 60.h,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (_, __, ___) => Container(
+                                              width: 60.h,
+                                              height: 60.h,
+                                              color: const Color(0xFFEFF3F1),
+                                              child: Icon(Icons.image_outlined, size: 18.sp, color: _muted),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+                SizedBox(height: 14.h),
+              ],
+              if (sessionPhotos.isNotEmpty) ...[
+                Text(
+                  'Session Photos',
+                  style: TextStyle(
+                    fontSize: 12.5.sp,
+                    fontWeight: FontWeight.w700,
+                    color: _muted,
+                  ),
+                ),
+                SizedBox(height: 8.h),
+                SizedBox(
+                  height: 90.h,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: sessionPhotos.length,
+                    separatorBuilder: (_, __) => SizedBox(width: 8.w),
+                    itemBuilder: (_, pIdx) {
+                      final photo = Map<String, dynamic>.from(sessionPhotos[pIdx]);
+                      String pUrl = photo['photoUrl']?.toString() ?? '';
+                      if (pUrl.isNotEmpty && !pUrl.startsWith('http')) {
+                        pUrl = '${Api.baseUrl}$pUrl';
+                      }
+                      return ClipRRect(
+                        borderRadius: BorderRadius.circular(8.r),
+                        child: Image.network(
+                          pUrl,
+                          width: 90.h,
+                          height: 90.h,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            width: 90.h,
+                            height: 90.h,
+                            color: const Color(0xFFEFF3F1),
+                            child: Icon(Icons.image_outlined, size: 24.sp, color: _muted),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ] else ...[
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.all(16.w),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF8E1),
+                  border: Border.all(color: const Color(0xFFF5DD9E)),
+                  borderRadius: BorderRadius.circular(12.r),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.access_time_rounded, size: 24.sp, color: const Color(0xFF9A6B00)),
+                    SizedBox(width: 12.w),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'GRT Session Pending',
+                            style: TextStyle(
+                              fontSize: 13.sp,
+                              fontWeight: FontWeight.w800,
+                              color: const Color(0xFF9A6B00),
+                            ),
+                          ),
+                          SizedBox(height: 4.h),
+                          Text(
+                            'Group Readiness Test (GRT) has not been completed for this member/center yet.',
+                            style: TextStyle(
+                              fontSize: 11.sp,
+                              color: const Color(0xFF9A6B00),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(height: 30.h),
+              _emptyState('GRT session details will appear here once completed.'),
+            ],
+          ],
+        ),
+      );
+    });
+  }
 }

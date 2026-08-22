@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/controller/disbursement_approval_controller.dart';
+import 'package:sarvam/services/api_client.dart';
+import 'package:sarvam/services/member_individual_api_service.dart';
 import 'package:sarvam/view/BM/group_assignment/widgets/id_dropdown.dart';
 
 const _green = Color(0xFF0D6842);
@@ -113,9 +116,9 @@ class _DisbursementApprovalState extends State<DisbursementApproval> {
                   children: [
                     _buildFilterCard(),
                     SizedBox(height: 14.h),
-                    if (controller.branchId.value != null) _buildStatsRow(),
+                    _buildStatsRow(),
                     SizedBox(height: 14.h),
-                    if (controller.branchId.value != null) _buildBatches(),
+                    _buildBatches(),
                   ],
                 ),
               ),
@@ -490,8 +493,30 @@ class _DisbursementApprovalState extends State<DisbursementApproval> {
     });
   }
 
+  void _showMemberVerificationBottomSheet(
+    BuildContext context,
+    String loanId,
+    String clientName,
+    String clientId,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _MemberVerificationBottomSheet(
+        loanId: loanId,
+        clientName: clientName,
+        clientId: clientId,
+      ),
+    );
+  }
+
   Widget _loanRow(Map<String, dynamic> loan, String centerName) {
     final verified = loan['isVerified'] == true;
+    final loanId = loan['id']?.toString() ?? '';
+    final clientName = _field(loan, 'clientName');
+    final clientId = _field(loan, 'clientId');
+
     return Container(
       margin: EdgeInsets.only(bottom: 6.h),
       padding: EdgeInsets.all(10.w),
@@ -509,7 +534,7 @@ class _DisbursementApprovalState extends State<DisbursementApproval> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      _field(loan, 'clientId'),
+                      clientId,
                       style: TextStyle(
                         fontSize: 11.5.sp,
                         fontWeight: FontWeight.w800,
@@ -517,7 +542,7 @@ class _DisbursementApprovalState extends State<DisbursementApproval> {
                       ),
                     ),
                     Text(
-                      _field(loan, 'clientName'),
+                      clientName,
                       style: TextStyle(fontSize: 10.sp, color: _muted),
                     ),
                   ],
@@ -567,6 +592,31 @@ class _DisbursementApprovalState extends State<DisbursementApproval> {
                 ),
               ),
             ],
+          ),
+          SizedBox(height: 8.h),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => _showMemberVerificationBottomSheet(
+                context,
+                loanId,
+                clientName,
+                clientId,
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _green,
+                side: const BorderSide(color: _green),
+                padding: EdgeInsets.symmetric(vertical: 6.h),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8.r),
+                ),
+              ),
+              icon: Icon(Icons.photo_library_outlined, size: 14.sp),
+              label: Text(
+                'View Photos & Verification',
+                style: TextStyle(fontSize: 10.5.sp, fontWeight: FontWeight.w700),
+              ),
+            ),
           ),
         ],
       ),
@@ -707,4 +757,530 @@ class _DisbursementApprovalState extends State<DisbursementApproval> {
       ],
     ),
   );
+}
+
+class _MemberVerificationBottomSheet extends StatefulWidget {
+  const _MemberVerificationBottomSheet({
+    required this.loanId,
+    required this.clientName,
+    required this.clientId,
+  });
+
+  final String loanId;
+  final String clientName;
+  final String clientId;
+
+  @override
+  State<_MemberVerificationBottomSheet> createState() =>
+      _MemberVerificationBottomSheetState();
+}
+
+class _MemberVerificationBottomSheetState
+    extends State<_MemberVerificationBottomSheet> {
+  bool _isLoading = true;
+  String? _errorMessage;
+  Map<String, dynamic>? _data;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchDetails();
+  }
+
+  Future<void> _fetchDetails() async {
+    try {
+      final api = MemberIndividualApiService(Get.find<ApiClient>());
+      final result = await api.getMemberIndividual(widget.loanId);
+      if (mounted) {
+        setState(() {
+          _data = result;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  void _showFullImage(String url, String title, String uploader, String date) {
+    String fullUrl = url;
+    if (fullUrl.isNotEmpty && !fullUrl.startsWith('http')) {
+      fullUrl = '${Api.baseUrl}$fullUrl';
+    }
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: EdgeInsets.all(12.w),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              title: Text(title, style: TextStyle(fontSize: 14.sp, color: Colors.white)),
+              leading: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () => Navigator.of(ctx).pop(),
+              ),
+            ),
+            Flexible(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8.r),
+                child: Image.network(
+                  fullUrl,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Center(
+                    child: Text('Failed to load image', style: TextStyle(color: Colors.white70)),
+                  ),
+                ),
+              ),
+            ),
+            if (uploader.isNotEmpty) ...[
+              Padding(
+                padding: EdgeInsets.all(12.w),
+                child: Text(
+                  'Uploaded by: $uploader ${date.isNotEmpty ? '• $date' : ''}',
+                  style: TextStyle(fontSize: 11.sp, color: Colors.white70),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _distanceBadge(String label, dynamic distanceMeters, {double? radius}) {
+    if (distanceMeters == null) return const SizedBox.shrink();
+    final meters = (distanceMeters is num)
+        ? distanceMeters.toDouble()
+        : (double.tryParse('$distanceMeters') ?? 0.0);
+    final isKm = meters >= 1000;
+    final displayDist = isKm
+        ? '${(meters / 1000).toStringAsFixed(2)} km'
+        : '${meters.round()} m';
+
+    final outOfRange = radius != null && meters > radius;
+    final bgColor = outOfRange ? const Color(0xFFFEE2E2) : const Color(0xFFE6F5EC);
+    final textColor = outOfRange ? const Color(0xFF991B1B) : const Color(0xFF065F46);
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(6.r),
+        border: Border.all(color: outOfRange ? const Color(0xFFFCA5A5) : const Color(0xFFA7F3D0)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            outOfRange ? Icons.warning_amber_rounded : Icons.location_on_rounded,
+            size: 11.sp,
+            color: textColor,
+          ),
+          SizedBox(width: 4.w),
+          Text(
+            '$label: $displayDist${radius != null ? (outOfRange ? ' (Out of ${radius.round()}m range)' : ' ✓') : ''}',
+            style: TextStyle(
+              fontSize: 10.sp,
+              fontWeight: FontWeight.w700,
+              color: textColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20.r)),
+      ),
+      child: Column(
+        children: [
+          Container(
+            margin: EdgeInsets.only(top: 8.h, bottom: 4.h),
+            width: 40.w,
+            height: 4.h,
+            decoration: BoxDecoration(
+              color: const Color(0xFFCBD5E1),
+              borderRadius: BorderRadius.circular(2.r),
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Client Photos & Verification',
+                        style: TextStyle(
+                          fontSize: 15.sp,
+                          fontWeight: FontWeight.w800,
+                          color: _darkText,
+                        ),
+                      ),
+                      Text(
+                        '${widget.clientId} • ${widget.clientName}',
+                        style: TextStyle(fontSize: 11.sp, color: _muted),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator(color: _green))
+                : _errorMessage != null
+                    ? Center(
+                        child: Text(
+                          _errorMessage!,
+                          style: TextStyle(color: Colors.red, fontSize: 12.sp),
+                        ),
+                      )
+                    : _buildContent(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContent() {
+    final d = _data!;
+    final center = d['center'] is Map ? Map<String, dynamic>.from(d['center']) : {};
+    final houseHoldVisit = d['houseHoldVisit'] is Map ? Map<String, dynamic>.from(d['houseHoldVisit']) : {};
+    final fdoHouseImage = houseHoldVisit['fdoHouseImage'] is Map ? Map<String, dynamic>.from(houseHoldVisit['fdoHouseImage']) : null;
+    final photos = houseHoldVisit['photos'] is List ? (houseHoldVisit['photos'] as List) : [];
+    final grt = d['grt'] is Map ? Map<String, dynamic>.from(d['grt']) : {};
+    final grtQuestions = grt['questions'] is List ? (grt['questions'] as List) : [];
+    final grtSessionPhotos = grt['sessionPhotos'] is List ? (grt['sessionPhotos'] as List) : [];
+    final client = d['client'] is Map ? Map<String, dynamic>.from(d['client']) : {};
+
+    final mandatoryPhoto = photos.firstWhereOrNull((p) => p['isMandatory'] == true);
+    final optionalPhotos = photos.where((p) => p['isMandatory'] != true).toList();
+
+    return SingleChildScrollView(
+      padding: EdgeInsets.all(16.w),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (center['name'] != null) ...[
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.all(10.w),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F5F4),
+                borderRadius: BorderRadius.circular(10.r),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.storefront_rounded, size: 16.sp, color: _green),
+                  SizedBox(width: 8.w),
+                  Text(
+                    'Center: ${center['name']}${center['code'] != null ? ' (${center['code']})' : ''}',
+                    style: TextStyle(
+                      fontSize: 12.sp,
+                      fontWeight: FontWeight.w700,
+                      color: _darkText,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(height: 14.h),
+          ],
+
+          _sectionHeader('FDO Enrollment House Image', Icons.home_rounded),
+          SizedBox(height: 8.h),
+          if (fdoHouseImage != null && fdoHouseImage['photoUrl'] != null) ...[
+            _photoTile(
+              url: fdoHouseImage['photoUrl'].toString(),
+              title: 'FDO House Image',
+              uploadedBy: fdoHouseImage['uploadedByName']?.toString() ?? 'FDO',
+              createdAt: fdoHouseImage['createdAt']?.toString() ?? '',
+            ),
+          ] else ...[
+            _noPhotoCard('No house photo uploaded by FDO during enrollment.'),
+          ],
+          if (client['latitude'] != null && client['longitude'] != null) ...[
+            SizedBox(height: 6.h),
+            Row(
+              children: [
+                Icon(Icons.pin_drop_rounded, size: 13.sp, color: _muted),
+                SizedBox(width: 4.w),
+                Text(
+                  'FDO GPS: ${client['latitude']}, ${client['longitude']}',
+                  style: TextStyle(fontSize: 10.5.sp, color: _muted),
+                ),
+              ],
+            ),
+          ],
+
+          SizedBox(height: 16.h),
+          const Divider(),
+
+          _sectionHeader('BM Verification Photos (House Assessment)', Icons.verified_user_rounded),
+          SizedBox(height: 8.h),
+          if (mandatoryPhoto != null) ...[
+            _photoTile(
+              url: mandatoryPhoto['photoUrl'].toString(),
+              title: 'BM Mandatory Photo',
+              uploadedBy: mandatoryPhoto['uploadedByName']?.toString() ?? 'BM',
+              createdAt: mandatoryPhoto['createdAt']?.toString() ?? '',
+              badges: [
+                if (mandatoryPhoto['distanceFromBranchMeters'] != null)
+                  _distanceBadge('Branch', mandatoryPhoto['distanceFromBranchMeters']),
+                if (mandatoryPhoto['distanceMeters'] != null)
+                  _distanceBadge('Center', mandatoryPhoto['distanceMeters'], radius: 500),
+                if (mandatoryPhoto['distanceFromClientMeters'] != null)
+                  _distanceBadge('FDO', mandatoryPhoto['distanceFromClientMeters'], radius: 100),
+              ],
+            ),
+          ] else ...[
+            _noPhotoCard('No BM mandatory verification photo captured yet.'),
+          ],
+          if (optionalPhotos.isNotEmpty) ...[
+            SizedBox(height: 10.h),
+            Text(
+              'Additional House Photos:',
+              style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700, color: _muted),
+            ),
+            SizedBox(height: 6.h),
+            Wrap(
+              spacing: 8.w,
+              runSpacing: 8.h,
+              children: optionalPhotos.map((p) {
+                final photoMap = Map<String, dynamic>.from(p);
+                return _photoTile(
+                  url: photoMap['photoUrl'].toString(),
+                  title: 'Additional Photo',
+                  uploadedBy: photoMap['uploadedByName']?.toString() ?? '',
+                  createdAt: photoMap['createdAt']?.toString() ?? '',
+                  isThumbnail: true,
+                );
+              }).toList(),
+            ),
+          ],
+
+          SizedBox(height: 16.h),
+          const Divider(),
+
+          _sectionHeader('GRT Session Photos', Icons.fact_check_rounded),
+          SizedBox(height: 8.h),
+          if (grt['completedSessionId'] != null) ...[
+            Text(
+              'Session ID: ${grt['completedSessionId']}',
+              style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700, color: _green),
+            ),
+            SizedBox(height: 8.h),
+          ],
+          if (grtQuestions.any((q) => q['photos'] is List && (q['photos'] as List).isNotEmpty)) ...[
+            Text(
+              'Questionnaire Photos:',
+              style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700, color: _muted),
+            ),
+            SizedBox(height: 6.h),
+            Wrap(
+              spacing: 8.w,
+              runSpacing: 8.h,
+              children: grtQuestions.expand((q) {
+                final qList = q['photos'] is List ? (q['photos'] as List) : [];
+                return qList.map((p) {
+                  final pMap = Map<String, dynamic>.from(p);
+                  return _photoTile(
+                    url: pMap['photoUrl'].toString(),
+                    title: q['question']?.toString() ?? 'GRT Photo',
+                    uploadedBy: pMap['uploadedByName']?.toString() ?? '',
+                    createdAt: pMap['createdAt']?.toString() ?? '',
+                    isThumbnail: true,
+                  );
+                });
+              }).toList(),
+            ),
+            SizedBox(height: 10.h),
+          ],
+          if (grtSessionPhotos.isNotEmpty) ...[
+            Text(
+              'Center Session Photos:',
+              style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700, color: _muted),
+            ),
+            SizedBox(height: 6.h),
+            Wrap(
+              spacing: 8.w,
+              runSpacing: 8.h,
+              children: grtSessionPhotos.map((p) {
+                final pMap = Map<String, dynamic>.from(p);
+                return _photoTile(
+                  url: pMap['photoUrl'].toString(),
+                  title: 'GRT Session Photo',
+                  uploadedBy: pMap['uploadedByName']?.toString() ?? '',
+                  createdAt: pMap['createdAt']?.toString() ?? '',
+                  isThumbnail: true,
+                );
+              }).toList(),
+            ),
+          ] else if (!grtQuestions.any((q) => q['photos'] is List && (q['photos'] as List).isNotEmpty)) ...[
+            _noPhotoCard('No GRT session photos uploaded.'),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionHeader(String title, IconData icon) {
+    return Row(
+      children: [
+        Icon(icon, size: 16.sp, color: _green),
+        SizedBox(width: 6.w),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 13.sp,
+            fontWeight: FontWeight.w800,
+            color: _darkText,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _noPhotoCard(String message) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(10.w),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        borderRadius: BorderRadius.circular(8.r),
+      ),
+      child: Text(
+        message,
+        style: TextStyle(fontSize: 11.sp, color: _muted),
+      ),
+    );
+  }
+
+  Widget _photoTile({
+    required String url,
+    required String title,
+    required String uploadedBy,
+    required String createdAt,
+    List<Widget>? badges,
+    bool isThumbnail = false,
+  }) {
+    String fullUrl = url;
+    if (fullUrl.isNotEmpty && !fullUrl.startsWith('http')) {
+      fullUrl = '${Api.baseUrl}$fullUrl';
+    }
+
+    if (isThumbnail) {
+      return GestureDetector(
+        onTap: () => _showFullImage(url, title, uploadedBy, createdAt),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8.r),
+          child: Image.network(
+            fullUrl,
+            width: 70.w,
+            height: 70.w,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => Container(
+              width: 70.w,
+              height: 70.w,
+              color: const Color(0xFFEFF3F1),
+              child: Icon(Icons.image_outlined, size: 20.sp, color: _muted),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return GestureDetector(
+      onTap: () => _showFullImage(url, title, uploadedBy, createdAt),
+      child: Container(
+        padding: EdgeInsets.all(10.w),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: const Color(0xFFE1EAE4)),
+          borderRadius: BorderRadius.circular(10.r),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8.r),
+                  child: Image.network(
+                    fullUrl,
+                    width: 90.w,
+                    height: 70.h,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      width: 90.w,
+                      height: 70.h,
+                      color: const Color(0xFFEFF3F1),
+                      child: Icon(Icons.image_outlined, size: 24.sp, color: _muted),
+                    ),
+                  ),
+                ),
+                SizedBox(width: 12.w),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 11.5.sp,
+                          fontWeight: FontWeight.w700,
+                          color: _darkText,
+                        ),
+                      ),
+                      if (uploadedBy.isNotEmpty) ...[
+                        SizedBox(height: 3.h),
+                        Text(
+                          'Uploaded by: $uploadedBy',
+                          style: TextStyle(fontSize: 10.sp, color: _muted),
+                        ),
+                      ],
+                      if (badges != null && badges.isNotEmpty) ...[
+                        SizedBox(height: 6.h),
+                        Wrap(
+                          spacing: 4.w,
+                          runSpacing: 4.h,
+                          children: badges,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

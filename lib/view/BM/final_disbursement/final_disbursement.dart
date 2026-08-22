@@ -156,7 +156,7 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
               value: controller.funderId.value,
               items: controller.funders,
               labelBuilder: _funderLabel,
-              onChanged: (v) => controller.funderId.value = v,
+              onChanged: (v) => controller.setBulkFunder(v),
             ),
           ),
           Obx(
@@ -482,6 +482,9 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
     final loanId = loan['id'].toString();
     return Obx(() {
       final status = controller.attendanceMap[loanId];
+      final fee = controller.admissionFeeMap[loanId] ?? 0.0;
+      final selectedFunder = controller.memberFunderMap[loanId] ?? controller.funderId.value;
+
       return Container(
         margin: EdgeInsets.only(bottom: 8.h),
         padding: EdgeInsets.all(10.w),
@@ -523,6 +526,61 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
               ],
             ),
             SizedBox(height: 8.h),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Admission Fee (₹)',
+                        style: TextStyle(fontSize: 10.sp, fontWeight: FontWeight.w700, color: _muted),
+                      ),
+                      SizedBox(height: 4.h),
+                      TextFormField(
+                        initialValue: fee > 0 ? fee.toStringAsFixed(0) : '0',
+                        keyboardType: TextInputType.number,
+                        style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700),
+                        decoration: InputDecoration(
+                          isDense: true,
+                          prefixText: '₹ ',
+                          contentPadding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 8.h),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(6.r),
+                            borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+                          ),
+                        ),
+                        onChanged: (v) => controller.setAdmissionFee(loanId, double.tryParse(v) ?? 0.0),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(width: 8.w),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Fund Allocation',
+                        style: TextStyle(fontSize: 10.sp, fontWeight: FontWeight.w700, color: _muted),
+                      ),
+                      SizedBox(height: 4.h),
+                      IdDropdown(
+                        label: 'Fund Allocation',
+                        value: selectedFunder,
+                        items: controller.funders,
+                        labelBuilder: _funderLabel,
+                        onChanged: (v) {
+                          if (v != null) controller.setMemberFunder(loanId, v);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 10.h),
             Row(
               children: [
                 Expanded(
