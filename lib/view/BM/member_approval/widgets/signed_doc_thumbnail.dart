@@ -69,6 +69,14 @@ class _SignedDocThumbnailState extends State<SignedDocThumbnail> {
     }
   }
 
+  @override
+  void didUpdateWidget(covariant SignedDocThumbnail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.fileKey.isNotEmpty && widget.fileKey != oldWidget.fileKey) {
+      widget.controller.resolveSignedUrl(widget.fileKey);
+    }
+  }
+
   bool get _isImage =>
       widget.mimeType == null || widget.mimeType!.startsWith('image/');
 

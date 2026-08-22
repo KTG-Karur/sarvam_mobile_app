@@ -185,6 +185,28 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
 
     final detail = controller.clientDetail.value ?? {};
     final hasCenter = detail['centerId'] != null;
+    final kycDocuments = detail['kycDocuments'] is List
+        ? (detail['kycDocuments'] as List)
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList()
+        : <Map<String, dynamic>>[];
+    final unreviewedDocsCount = kycDocuments
+        .where((d) => _isAM
+            ? (d['amDecision'] == null || d['amDecision'] == 'PENDING')
+            : (d['bmDecision'] == null || d['bmDecision'] == 'PENDING'))
+        .length;
+
+    if ((action == 'BM_SUBMIT_TO_AM' || action == 'AM_APPROVE') && unreviewedDocsCount > 0) {
+      Get.snackbar(
+        'Document Verification Required',
+        '$unreviewedDocsCount document(s) have not been verified yet. Please review and verify each document individually above before approving.',
+        backgroundColor: Colors.orange.shade800,
+        colorText: Colors.white,
+        duration: const Duration(seconds: 4),
+      );
+      return;
+    }
 
     if (action == 'BM_SUBMIT_TO_AM' && !hasCenter) {
       Get.snackbar(
@@ -304,6 +326,11 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
     final retakeFlaggedCount = kycDocuments
         .where((d) => d['bmDecision'] == 'RETAKE_REQUIRED')
         .length;
+    final unreviewedDocsCount = kycDocuments
+        .where((d) => _isAM
+            ? (d['amDecision'] == null || d['amDecision'] == 'PENDING')
+            : (d['bmDecision'] == null || d['bmDecision'] == 'PENDING'))
+        .length;
     final approvalStatus = detail['approvalStatus']?.toString() ?? '';
     final canAct =
         (_isBM &&
@@ -416,27 +443,71 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
           _checklistSection(),
           if (canAct) ...[
             const SizedBox(height: 12),
-            if (!hasCenter || !hasGroup || retakeFlaggedCount > 0)
+            if (unreviewedDocsCount > 0 || !hasCenter || !hasGroup || retakeFlaggedCount > 0)
               Container(
                 width: double.infinity,
                 margin: const EdgeInsets.only(bottom: 10),
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFEF3C7),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: const Color(0xFFFDE68A)),
                 ),
-                child: Text(
-                  [
-                    if (!hasCenter) 'Center is not assigned yet.',
-                    if (!hasGroup) 'Group is not assigned yet.',
-                    if (retakeFlaggedCount > 0)
-                      '$retakeFlaggedCount document(s) still pending retake.',
-                  ].join(' '),
-                  style: const TextStyle(
-                    fontSize: 11.5,
-                    color: Color(0xFF92400E),
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (unreviewedDocsCount > 0) ...[
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.warning_amber_rounded,
+                            color: Color(0xFFD97706),
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Individual Document Verification Required ($unreviewedDocsCount Pending)',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF92400E),
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                const Text(
+                                  'All KYC documents must be explicitly inspected and verified individually above before approving the member application.',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Color(0xFFB45309),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (!hasCenter || !hasGroup || retakeFlaggedCount > 0)
+                        const Divider(height: 12, color: Color(0xFFFCD34D)),
+                    ],
+                    if (!hasCenter || !hasGroup || retakeFlaggedCount > 0)
+                      Text(
+                        [
+                          if (!hasCenter) 'Center is not assigned yet.',
+                          if (!hasGroup) 'Group is not assigned yet.',
+                          if (retakeFlaggedCount > 0)
+                            '$retakeFlaggedCount document(s) still pending retake.',
+                        ].join(' '),
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: Color(0xFF92400E),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             _sectionCard('Remarks & Action', Icons.rate_review_outlined, [
@@ -458,7 +529,7 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(
-                        onPressed: submitting
+                        onPressed: (submitting || unreviewedDocsCount > 0)
                             ? null
                             : () => _act(
                                   _isAM ? 'AM_APPROVE' : 'BM_SUBMIT_TO_AM',
@@ -856,7 +927,11 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
             children: [
               SignedDocThumbnail(
                 controller: controller,
-                fileKey: doc['fileUrl']?.toString() ?? '',
+                fileKey: doc['fileUrl']?.toString() ??
+                    doc['fileKey']?.toString() ??
+                    doc['url']?.toString() ??
+                    doc['path']?.toString() ??
+                    '',
                 label: label,
                 mimeType: doc['mimeType']?.toString(),
               ),

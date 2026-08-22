@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sarvam/constant/api.dart';
+import 'package:sarvam/constant/roles.dart';
 import 'package:sarvam/services/api_client.dart';
 import 'package:sarvam/services/enrollment_api_service.dart';
-import 'package:sarvam/constant/roles.dart';
 
 /// Drives the BM-only "Member Approval" screen — a Flutter port of the web
 /// app's `ApprovalWorkbenchClient.tsx` (Tab 1: client enrollment approval
@@ -346,10 +347,28 @@ class MemberApprovalController extends GetxController {
         _resolvingKeys.contains(key)) {
       return;
     }
+
+    if (key.startsWith('http://') ||
+        key.startsWith('https://') ||
+        key.startsWith('data:')) {
+      signedUrlCache[key] = key;
+      return;
+    }
+    if (key.startsWith('/')) {
+      signedUrlCache[key] = '${Api.baseUrl}$key';
+      return;
+    }
+
     _resolvingKeys.add(key);
     try {
-      final url = await api.getSignedUrl(key);
-      if (url != null) signedUrlCache[key] = url;
+      final rawUrl = await api.getSignedUrl(key);
+      if (rawUrl != null && rawUrl.isNotEmpty) {
+        String finalUrl = rawUrl;
+        if (finalUrl.startsWith('/')) {
+          finalUrl = '${Api.baseUrl}$finalUrl';
+        }
+        signedUrlCache[key] = finalUrl;
+      }
     } catch (e) {
       debugPrint('Failed to resolve signed URL for $key: $e');
     } finally {

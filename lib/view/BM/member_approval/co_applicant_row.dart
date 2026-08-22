@@ -204,7 +204,11 @@ class _CoApplicantRowState extends State<CoApplicantRow> {
                           .map(
                             (doc) => SignedDocThumbnail(
                               controller: widget.controller,
-                              fileKey: doc['fileUrl']?.toString() ?? '',
+                              fileKey: doc['fileUrl']?.toString() ??
+                                  doc['fileKey']?.toString() ??
+                                  doc['url']?.toString() ??
+                                  doc['path']?.toString() ??
+                                  '',
                               label: kycDocTypeLabel(doc['documentType']?.toString() ?? ''),
                             ),
                           )
