@@ -197,15 +197,31 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
             : (d['bmDecision'] == null || d['bmDecision'] == 'PENDING'))
         .length;
 
-    if ((action == 'BM_SUBMIT_TO_AM' || action == 'AM_APPROVE') && unreviewedDocsCount > 0) {
-      Get.snackbar(
-        'Document Verification Required',
-        '$unreviewedDocsCount document(s) have not been verified yet. Please review and verify each document individually above before approving.',
-        backgroundColor: Colors.orange.shade800,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 4),
-      );
-      return;
+    final retakeFlaggedCount = kycDocuments
+        .where((d) => d['bmDecision'] == 'RETAKE_REQUIRED' || d['amDecision'] == 'RETAKE_REQUIRED')
+        .length;
+
+    if (action == 'BM_SUBMIT_TO_AM' || action == 'AM_APPROVE') {
+      if (unreviewedDocsCount > 0) {
+        Get.snackbar(
+          'Document Verification Required',
+          '$unreviewedDocsCount document(s) have not been verified yet. Please review and verify each document individually above before approving.',
+          backgroundColor: Colors.orange.shade800,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 4),
+        );
+        return;
+      }
+      if (retakeFlaggedCount > 0) {
+        Get.snackbar(
+          'Retake Flagged Documents Exist',
+          '$retakeFlaggedCount document(s) are flagged for retake. Use "Request Retake" to send the application back to FDO.',
+          backgroundColor: Colors.orange.shade800,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 4),
+        );
+        return;
+      }
     }
 
     if (action == 'BM_SUBMIT_TO_AM' && !hasCenter) {
@@ -341,6 +357,10 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
                 approvalStatus.contains('PENDING_AM') ||
                 approvalStatus == 'APPROVAL_QUEUE'));
 
+    final approvalHistory = detail['approvalHistory'] is List
+        ? (detail['approvalHistory'] as List)
+        : const [];
+
     return RefreshIndicator(
       color: _green,
       onRefresh: () => controller.loadClientDetail(widget.clientId),
@@ -348,6 +368,7 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
         controller: _scrollController,
         padding: const EdgeInsets.all(14),
         children: [
+          _workflowStepperCard(approvalStatus),
           _sectionCard('Overview', Icons.badge_outlined, [
             _row('Client ID', _f(detail, 'clientId')),
             _row(
@@ -441,6 +462,7 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
           ),
           const SizedBox(height: 12),
           _checklistSection(),
+          _approvalHistorySection(approvalHistory),
           if (canAct) ...[
             const SizedBox(height: 12),
             if (unreviewedDocsCount > 0 || !hasCenter || !hasGroup || retakeFlaggedCount > 0)
@@ -529,7 +551,11 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(
-                        onPressed: (submitting || unreviewedDocsCount > 0)
+                        onPressed: (submitting ||
+                                unreviewedDocsCount > 0 ||
+                                retakeFlaggedCount > 0 ||
+                                !hasCenter ||
+                                !hasGroup)
                             ? null
                             : () => _act(
                                   _isAM ? 'AM_APPROVE' : 'BM_SUBMIT_TO_AM',
@@ -545,6 +571,34 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
                       ),
                     ),
                     const SizedBox(height: 8),
+                    if (retakeFlaggedCount > 0) ...[
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: submitting
+                              ? null
+                              : () {
+                                  if (_remarksCtrl.text.trim().isEmpty) {
+                                    _remarksCtrl.text =
+                                        '$retakeFlaggedCount document(s) flagged for retake. Please re-upload required KYC documents.';
+                                  }
+                                  _act(
+                                    _isAM ? 'AM_RETAKE' : 'BM_RETAKE',
+                                    needsRemarks: true,
+                                  );
+                                },
+                          icon: const Icon(Icons.rotate_right_rounded, size: 18),
+                          label: Text(
+                            'Request Retake ($retakeFlaggedCount Flagged)',
+                          ),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFD97706),
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
                     Row(
                       children: [
                         Expanded(
@@ -1148,4 +1202,222 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
       ],
     ),
   );
+
+  Widget _workflowStepperCard(String status) {
+    int activeIndex = 1;
+    if (status == 'SUBMITTED' || status == 'PENDING_BM_REVIEW' || status == 'BM_RETAKE_REQUIRED') {
+      activeIndex = 1;
+    } else if (status == 'PENDING_AM_REVIEW' || status == 'AM_RETAKE_REQUIRED') {
+      activeIndex = 2;
+    } else if (status == 'PENDING_QC_VERIFICATION' || status == 'QC_VERIFICATION_RETAKE_REQUIRED') {
+      activeIndex = 3;
+    } else if (status == 'PENDING_FINAL_REVIEW' || status == 'FINAL_RETAKE_REQUIRED') {
+      activeIndex = 4;
+    } else if (status == 'APPROVED') {
+      activeIndex = 5;
+    } else if (status == 'REJECTED') {
+      activeIndex = -1;
+    }
+
+    final stages = [
+      {'key': 'FDO', 'label': 'FDO'},
+      {'key': 'BM', 'label': 'BM'},
+      {'key': 'AM', 'label': 'AM'},
+      {'key': 'QC', 'label': 'QC'},
+      {'key': 'FINAL', 'label': 'Admin'},
+    ];
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 1,
+      surfaceTintColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.account_tree_outlined, size: 16, color: _green),
+                const SizedBox(width: 8),
+                const Text(
+                  'Approval Workflow Stage',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5),
+                ),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: activeIndex == 5
+                        ? const Color(0xFFE8F5E9)
+                        : (activeIndex == -1 ? Colors.red.shade50 : const Color(0xFFFEF3C7)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    status.replaceAll('_', ' '),
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: activeIndex == 5
+                          ? _green
+                          : (activeIndex == -1 ? Colors.red.shade700 : const Color(0xFFB45309)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: List.generate(stages.length * 2 - 1, (i) {
+                if (i.isOdd) {
+                  final prevIdx = i ~/ 2;
+                  final isDone = activeIndex > prevIdx + 1;
+                  return Expanded(
+                    child: Container(
+                      height: 2,
+                      color: isDone ? _green : const Color(0xFFCBD5E1),
+                    ),
+                  );
+                }
+                final stageIdx = i ~/ 2;
+                final isDone = activeIndex > stageIdx;
+                final isActive = activeIndex == stageIdx;
+                final isRejected = activeIndex == -1;
+
+                final bg = isDone
+                    ? _green
+                    : (isActive
+                        ? const Color(0xFF0284C7)
+                        : (isRejected ? Colors.red : const Color(0xFFE2E8F0)));
+                final fg = (isDone || isActive || isRejected) ? Colors.white : const Color(0xFF64748B);
+
+                return Column(
+                  children: [
+                    Container(
+                      width: 26,
+                      height: 26,
+                      decoration: BoxDecoration(
+                        color: bg,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: isDone
+                            ? const Icon(Icons.check, size: 14, color: Colors.white)
+                            : Text(
+                                '${stageIdx + 1}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: fg,
+                                ),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      stages[stageIdx]['label']!,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: isActive ? FontWeight.w800 : FontWeight.w500,
+                        color: isActive ? _green : const Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                );
+              }),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _approvalHistorySection(List<dynamic> history) {
+    if (history.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: _sectionCard('Approval History & Audit Trail', Icons.history_rounded, [
+        ...history.map((item) {
+          if (item is! Map) return const SizedBox.shrink();
+          final action = item['action']?.toString() ?? '—';
+          final remarks = item['remarks']?.toString();
+          final dateStr = item['createdAt']?.toString();
+          final parsedDate = dateStr != null ? DateTime.tryParse(dateStr) : null;
+          final formattedDate = parsedDate != null
+              ? '${parsedDate.day}/${parsedDate.month}/${parsedDate.year} ${parsedDate.hour.toString().padLeft(2, '0')}:${parsedDate.minute.toString().padLeft(2, '0')}'
+              : dateStr ?? '—';
+
+          final performedBy = item['performedBy'] is Map ? item['performedBy'] as Map : {};
+          final name = '${performedBy['firstName'] ?? ''} ${performedBy['lastName'] ?? ''}'.trim();
+          final role = performedBy['role']?.toString() ?? '';
+          final empId = performedBy['employeeId']?.toString();
+
+          final actorLine = [
+            if (name.isNotEmpty) name,
+            if (role.isNotEmpty) '($role)',
+            if (empId != null && empId.isNotEmpty) '· $empId',
+          ].join(' ');
+
+          return Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.check_circle_outline, size: 14, color: _green),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        action.replaceAll('_', ' '),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                    ),
+                    Text(
+                      formattedDate,
+                      style: const TextStyle(fontSize: 10, color: _muted),
+                    ),
+                  ],
+                ),
+                if (actorLine.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    actorLine,
+                    style: const TextStyle(fontSize: 11, color: Color(0xFF475569)),
+                  ),
+                ],
+                if (remarks != null && remarks.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFF6FF),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      'Remark: $remarks',
+                      style: const TextStyle(fontSize: 10.5, color: Color(0xFF1E40AF)),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          );
+        }),
+      ]),
+    );
+  }
 }
