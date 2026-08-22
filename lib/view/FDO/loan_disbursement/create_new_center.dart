@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/controller/centre_controller.dart';
 import 'package:sarvam/services/api_client.dart';
+import 'package:sarvam/services/secure_session_service.dart';
 
 class CreateNewCenter extends StatefulWidget {
   const CreateNewCenter({super.key});
@@ -52,6 +53,7 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
 
   String _fdoName = '';
   bool _locating = false;
+  bool _isCalculatingKm = false;
 
   @override
   void initState() {
@@ -73,8 +75,24 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
   Future<void> _loadBranchLocation() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final branchId = prefs.getString('branchId') ?? '';
+      var branchId = prefs.getString('branchId') ?? '';
       final token = prefs.getString('accessToken') ?? '';
+
+      // Self-heal: branchId is cached at login time, but a same-day MPIN
+      // app-resume unlock deliberately doesn't re-send it (see mpin/verify's
+      // dual-purpose doc comment), and a logout cycle in between wipes the
+      // cache without a fresh full login to repopulate it. The access token
+      // itself already carries branchId as a JWT claim, so decode it locally
+      // as a fallback rather than leaving the branch lookup permanently
+      // stuck once the cache goes stale.
+      if (branchId.isEmpty && token.isNotEmpty) {
+        final claims = SecureSessionService.decodeJwtPayload(token);
+        final claimedBranchId = claims?['branchId']?.toString();
+        if (claimedBranchId != null && claimedBranchId.isNotEmpty) {
+          branchId = claimedBranchId;
+          await prefs.setString('branchId', branchId);
+        }
+      }
       if (branchId.isEmpty) return;
 
       final response = await ApiClient().get(
@@ -93,7 +111,7 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
             final cLat = double.tryParse(_latitudeController.text);
             final cLng = double.tryParse(_longitudeController.text);
             if (cLat != null && cLng != null) {
-              _autoCalculateKmFromBranch(cLat, cLng);
+              await _autoCalculateKmFromBranch(cLat, cLng);
             }
           }
         }
@@ -146,14 +164,65 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
     return R * c;
   }
 
-  void _autoCalculateKmFromBranch(double centerLat, double centerLng) {
-    if (_branchLat != null && _branchLng != null) {
+  /// Matches the web Center form's applyAutoKm(): fetches actual road
+  /// (driving) distance from the backend — the same number the same two
+  /// points would show as driving distance on Google Maps — rather than a
+  /// straight-line estimate. Falls back to local straight-line (haversine)
+  /// distance if the routing lookup fails, and flags that to the user so
+  /// the number isn't silently a different kind of measurement than usual.
+  Future<void> _autoCalculateKmFromBranch(double centerLat, double centerLng) async {
+    if (_branchLat == null || _branchLng == null) return;
+    if (mounted) setState(() => _isCalculatingKm = true);
+
+    void notifyStraightLineFallback() => Get.snackbar(
+          'Road distance unavailable',
+          'Could not reach the routing service — showing straight-line distance instead.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.orange,
+          colorText: Colors.white,
+        );
+
+    // Only used when the API call itself failed (network error, non-200,
+    // unparseable body) — if the API responded but had to fall back
+    // server-side, its own distanceKm is used as-is instead of recomputing.
+    void computeLocalFallback() {
       final distance = _haversineKm(_branchLat!, _branchLng!, centerLat, centerLng);
-      if (mounted) {
-        setState(() {
-          _kmFromBranchController.text = distance.toStringAsFixed(2);
-        });
+      if (!mounted) return;
+      setState(() => _kmFromBranchController.text = distance.toStringAsFixed(2));
+      notifyStraightLineFallback();
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('accessToken') ?? '';
+      final uri = Uri.parse(Api.geoDrivingDistanceUrl).replace(queryParameters: {
+        'fromLat': '$_branchLat',
+        'fromLng': '$_branchLng',
+        'toLat': '$centerLat',
+        'toLng': '$centerLng',
+      });
+      final response = await ApiClient().get(
+        uri.toString(),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (!mounted) return;
+      dynamic data;
+      if (response.statusCode == 200 && response.body != null) {
+        data = response.body['data'];
       }
+      final distanceKm = data is Map ? double.tryParse('${data['distanceKm']}') : null;
+      if (distanceKm != null) {
+        setState(() => _kmFromBranchController.text = distanceKm.toStringAsFixed(2));
+        if (data['source'] == 'straight-line') {
+          notifyStraightLineFallback();
+        }
+      } else {
+        computeLocalFallback();
+      }
+    } catch (_) {
+      computeLocalFallback();
+    } finally {
+      if (mounted) setState(() => _isCalculatingKm = false);
     }
   }
 
@@ -200,7 +269,24 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
         _latitudeController.text = position.latitude.toStringAsFixed(6);
         _longitudeController.text = position.longitude.toStringAsFixed(6);
       });
-      _autoCalculateKmFromBranch(position.latitude, position.longitude);
+
+      // _loadBranchLocation() is fired-and-forgotten from initState() and can
+      // still be in flight (or may have failed) by the time the user taps
+      // "Locate Center" — previously that left _branchLat/_branchLng null and
+      // _autoCalculateKmFromBranch() silently did nothing, so the read-only
+      // KM field just stayed blank with no explanation. Retry once here and
+      // surface a clear error if branch coordinates still aren't available.
+      if (_branchLat == null || _branchLng == null) {
+        await _loadBranchLocation();
+      }
+      if (!mounted) return;
+      if (_branchLat != null && _branchLng != null) {
+        await _autoCalculateKmFromBranch(position.latitude, position.longitude);
+      } else {
+        _showLocationError(
+          'Could not load this branch\'s location, so the distance could not be calculated. Check your connection and try "Locate Center" again.',
+        );
+      }
     } catch (_) {
       _showLocationError('Unable to fetch your current location.');
     } finally {
@@ -252,7 +338,6 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
                       'Center address',
                       'Enter center address',
                       controller: _addressController,
-                      required: true,
                     ),
                     const SizedBox(height: 12),
                     _textField(
@@ -318,6 +403,7 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
                         _meetingPlaceController.text = value ?? '';
                       }),
                       allowCustom: true,
+                      required: false,
                     ),
                     const SizedBox(height: 20),
                     _section('Contact & Location'),
@@ -373,11 +459,21 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
                       'KM From Branch',
                       'Auto-calculated when location is captured',
                       controller: _kmFromBranchController,
-                      helper: '(Auto-Calculated)',
+                      helper: _isCalculatingKm
+                          ? '(calculating road distance…)'
+                          : '(Auto-Calculated)',
                       readOnly: true,
+                      required: true,
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
+                      validator: (value) {
+                        final km = double.tryParse(value?.trim() ?? '');
+                        if (km == null || km <= 0) {
+                          return '';
+                        }
+                        return null;
+                      },
                     ),
                     const SizedBox(height: 12),
                     Row(
@@ -388,6 +484,11 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
                             'Enter contact person name',
                             controller: _contactPersonController,
                             required: true,
+                            validator: (value) {
+                              final trimmed = value?.trim() ?? '';
+                              if (trimmed.length < 3) return '';
+                              return null;
+                            },
                           ),
                         ),
                         const SizedBox(width: 13),
@@ -398,6 +499,11 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
                             controller: _contactNumberController,
                             required: true,
                             keyboardType: TextInputType.phone,
+                            validator: (value) {
+                              final digits = value?.trim() ?? '';
+                              if (!RegExp(r'^\d{10}$').hasMatch(digits)) return '';
+                              return null;
+                            },
                           ),
                         ),
                       ],
@@ -478,6 +584,7 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
     bool readOnly = false,
     bool autofocus = false,
     TextInputType? keyboardType,
+    String? Function(String?)? validator,
   }) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
@@ -490,9 +597,10 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
           autofocus: autofocus,
           readOnly: readOnly,
           keyboardType: keyboardType,
-          validator: required
-              ? (value) => value == null || value.trim().isEmpty ? '' : null
-              : null,
+          validator: validator ??
+              (required
+                  ? (value) => value == null || value.trim().isEmpty ? '' : null
+                  : null),
           style: const TextStyle(fontSize: 13, color: Color(0xFF073E23)),
           decoration: _decoration(hint),
         ),
@@ -506,6 +614,7 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
     List<String> items,
     ValueChanged<String?> onChanged, {
     bool allowCustom = false,
+    bool required = true,
   }) {
     final validValue = (value != null && items.contains(value)) ? value : value;
     final displayText = validValue ?? '';
@@ -514,7 +623,7 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _label(label, required: true),
+        _label(label, required: required),
         const SizedBox(height: 5),
         InkWell(
           onTap: () => _openSearchableBottomSheet(
@@ -805,20 +914,21 @@ class _CreateNewCenterState extends State<CreateNewCenter> {
       return;
     }
 
+    // Meeting Place is optional (matches the web Center form) — no
+    // required-field check here, unlike Meeting Day above.
     final meetingPlace = _selectedMeetingPlace ?? _meetingPlaceController.text.trim();
-    if (meetingPlace.isEmpty) {
-      Get.snackbar(
-        'Meeting Place required',
-        'Please select a meeting place.',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.redAccent,
-        colorText: Colors.white,
-      );
-      return;
-    }
 
     final prefs = await SharedPreferences.getInstance();
-    final branchId = prefs.getString('branchId') ?? '';
+    var branchId = prefs.getString('branchId') ?? '';
+    if (branchId.isEmpty) {
+      final token = prefs.getString('accessToken') ?? '';
+      final claims = token.isEmpty ? null : SecureSessionService.decodeJwtPayload(token);
+      final claimedBranchId = claims?['branchId']?.toString();
+      if (claimedBranchId != null && claimedBranchId.isNotEmpty) {
+        branchId = claimedBranchId;
+        await prefs.setString('branchId', branchId);
+      }
+    }
 
     final body = <String, dynamic>{
       'name': _nameController.text.trim(),

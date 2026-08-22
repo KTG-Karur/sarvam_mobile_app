@@ -438,7 +438,12 @@ class FaceBiometricService {
         );
       } else {
         final data = response.body.isEmpty ? <String, dynamic>{} : jsonDecode(response.body) as Map<String, dynamic>;
-        return FaceUploadResult(success: false, message: data['message']?.toString() ?? 'Face registration was rejected. Please try again.');
+        // Same `error`-vs-`message` field mismatch as verifyFace() above —
+        // errorResponse() on the backend sends the reason under `error`.
+        return FaceUploadResult(
+          success: false,
+          message: data['message']?.toString() ?? data['error']?.toString() ?? 'Face registration was rejected. Please try again.',
+        );
       }
     } catch (e) {
       if (kDebugMode) print('Face registration API error: $e');
@@ -529,10 +534,16 @@ class FaceBiometricService {
         );
       } else if (response.statusCode == 409) {
           final resData = jsonDecode(response.body);
+          // The backend sends the reason under `error`, not `message` (see
+          // errorResponse() in api-utils.ts) — a 409 here can mean the face
+          // truly isn't enrolled, but just as often means "already punched
+          // in/out today". Falling back to a hardcoded "not enrolled" string
+          // previously masked the real reason and wrongly sent an already-
+          // matched, already-enrolled user back through face registration.
           return FaceMatchResult(
             isMatch: false,
             scorePercent: 0.0,
-            message: resData['message'] ?? 'Face not enrolled. Please complete face registration first.',
+            message: resData['message'] ?? resData['error'] ?? 'Face verification failed.',
           );
       } else if (response.statusCode == 400 || response.statusCode == 401) {
           final resData = jsonDecode(response.body);

@@ -211,12 +211,17 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
         return;
       }
       if (punchedOutToday) {
-        _showError('You have already punched out today.');
+        // Punch-out is already done for today — this isn't a failure the
+        // user needs to retry, just stale navigation. Take them onward
+        // instead of leaving them stuck on the camera screen.
+        await _showInfoAndContinue('You have already punched out today.');
         return;
       }
     } else {
       if (punchedInToday) {
-        _showError('You have already punched in today.');
+        // Same as above but for punch-in: the face is presumably fine,
+        // there's simply nothing left to do here today.
+        await _showInfoAndContinue('You have already punched in today.');
         return;
       }
     }
@@ -237,8 +242,19 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
       );
 
       if (!matchResult.isMatch) {
+        final lowerMessage = matchResult.message.toLowerCase();
+        final bool alreadyDone = lowerMessage.contains('already punched in') ||
+            lowerMessage.contains('already punched out');
+        if (alreadyDone) {
+          // The face matched fine server-side too — this 409 just means our
+          // local punch state was stale (e.g. a retried request). Nothing
+          // to fix by recapturing or re-enrolling, so move on instead of
+          // showing a dead-end error.
+          await _showInfoAndContinue(matchResult.message);
+          return;
+        }
         _showError(matchResult.message);
-        if (matchResult.message.toLowerCase().contains('not enrolled')) {
+        if (lowerMessage.contains('not enrolled')) {
           Future.delayed(const Duration(milliseconds: 800), () {
             Get.off(() => const FaceTrainingScreen(autoStart: true));
           });
@@ -285,6 +301,29 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
       Get.offAll(() => homeScreen);
     } finally {
       if (mounted) setState(() => _isVerifying = false);
+    }
+  }
+
+  /// Shown when the attendance action for today is already done (punched
+  /// in/out already) — informational, not an error, so it takes the user
+  /// onward to where a successful action would have, rather than leaving
+  /// them stuck on the camera screen or bouncing them into re-registration.
+  Future<void> _showInfoAndContinue(String message) async {
+    Get.snackbar(
+      widget.isPunchOut ? 'Punch Out' : 'Punch In',
+      message,
+      snackPosition: SnackPosition.BOTTOM,
+      backgroundColor: const Color(0xFF008A3D),
+      colorText: Colors.white,
+      margin: EdgeInsets.all(16.w),
+      borderRadius: 8.r,
+    );
+    if (widget.isPunchOut) {
+      Get.offAll(() => const MpinLoginScreen());
+    } else {
+      final homeScreen = await resolveHomeScreen();
+      if (!mounted) return;
+      Get.offAll(() => homeScreen);
     }
   }
 

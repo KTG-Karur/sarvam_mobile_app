@@ -137,7 +137,8 @@ class _FrontCameraCaptureScreenState extends State<FrontCameraCaptureScreen>
   }
 
   Future<void> _capturePhoto() async {
-    if (_controller == null ||
+    if (!mounted ||
+        _controller == null ||
         !_controller!.value.isInitialized ||
         _isCapturing) {
       return;

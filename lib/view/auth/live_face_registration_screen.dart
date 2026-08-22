@@ -9,7 +9,9 @@ import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:lottie/lottie.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
+import 'package:sarvam/view/auth/face_verification_screen.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 
 /// Screen for Real-Time Live Face Registration with anti-spoofing liveness detection,
@@ -328,8 +330,20 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
       _isUploading = true;
     });
 
+    // The 4 captured samples are, in order, lookStraight / turnLeft /
+    // turnRight / finalCenter — turnLeft and turnRight exist purely as a
+    // liveness gesture challenge (proving a live 3D head, not a photo).
+    // Their geometric ratios differ substantially from a frontal pose
+    // (eye-to-mouth/nose/ear distances shrink under yaw relative to
+    // inter-eye distance), so averaging them into the matching template
+    // biases it away from every future straight-on verification capture.
+    // Only the frontal samples go into the template used for matching.
+    final frontalSamples = <List<double>>[
+      if (_capturedFeatureSamples.isNotEmpty) _capturedFeatureSamples[0],
+      if (_capturedFeatureSamples.length > 3) _capturedFeatureSamples[3],
+    ];
     final masterVector = FaceBiometricService.aggregateTemplateVector(
-      _capturedFeatureSamples,
+      frontalSamples.isNotEmpty ? frontalSamples : _capturedFeatureSamples,
     );
 
     final encryptedPayload = FaceBiometricService.encryptTemplatePayload(
@@ -413,8 +427,16 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
                   if (widget.onRegistrationComplete != null) {
                     widget.onRegistrationComplete!();
                   } else {
-                    final homeScreen = await resolveHomeScreen();
-                    Get.offAll(() => homeScreen);
+                    final prefs = await SharedPreferences.getInstance();
+                    if (hasPunchedInToday(prefs)) {
+                      final homeScreen = await resolveHomeScreen();
+                      Get.offAll(() => homeScreen);
+                    } else {
+                      // First registration (or re-enrollment) still owes today's
+                      // Punch-In before landing on the dashboard, same as the
+                      // daily MPIN-login path.
+                      Get.offAll(() => const FaceVerificationScreen());
+                    }
                   }
                 },
                 child: Text(

@@ -426,6 +426,40 @@ class AuthController extends GetxController {
           if (data != null && data['refreshToken'] != null) {
             await SecureSessionService.saveTokens(refreshToken: data['refreshToken'].toString());
           }
+          // On the login-completion call (fresh credential login, not a same-
+          // day app-resume unlock) the backend's issueMobileSession() also
+          // returns the full user + branch objects — previously only the
+          // tokens were read here, so branchId/userId/role etc. were never
+          // persisted. Every screen that reads prefs.getString('branchId')
+          // (e.g. center creation, branch-location lookups) silently got an
+          // empty string as a result.
+          if (data != null) {
+            final user = data['user'];
+            if (user is Map) {
+              if (user['id'] != null) await prefs.setString('userId', user['id'].toString());
+              if (user['employeeId'] != null) await prefs.setString('employeeId', user['employeeId'].toString());
+              if (user['mobileNumber'] != null) await prefs.setString('mobileNumber', user['mobileNumber'].toString());
+              if (user['email'] != null) await prefs.setString('email', user['email'].toString());
+              if (user['firstName'] != null) await prefs.setString('firstName', user['firstName'].toString());
+              if (user['lastName'] != null) await prefs.setString('lastName', user['lastName'].toString());
+              if (user['role'] != null) await prefs.setString('role', user['role'].toString());
+              if (user['rbacRoleName'] != null) await prefs.setString('rbacRoleName', user['rbacRoleName'].toString());
+
+              final assignedBranchIds = user['assignedBranchIds'];
+              if (assignedBranchIds is List && assignedBranchIds.isNotEmpty) {
+                await prefs.setStringList(
+                  'assignedBranchIds',
+                  assignedBranchIds.map((e) => e.toString()).toList(),
+                );
+              }
+            }
+            final branch = data['branch'];
+            if (branch is Map) {
+              if (branch['id'] != null) await prefs.setString('branchId', branch['id'].toString());
+              if (branch['name'] != null) await prefs.setString('branchName', branch['name'].toString());
+              if (branch['code'] != null) await prefs.setString('branchCode', branch['code'].toString());
+            }
+          }
           await SecureSessionService.clearPendingToken();
           return true;
         }
