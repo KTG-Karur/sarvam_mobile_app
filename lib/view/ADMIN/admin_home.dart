@@ -3688,11 +3688,11 @@ class _AdminHomeState extends State<AdminHome>
     }
   }
 
-  Future<void> _logout() async {
+  void _logout() {
     final AuthController authController = Get.isRegistered<AuthController>()
         ? Get.find<AuthController>()
         : Get.put(AuthController());
-    await authController.logout();
+    authController.confirmLogout(context);
   }
 }
 

@@ -65,10 +65,20 @@ class _MpinLoginScreenState extends State<MpinLoginScreen> {
       if (!faceEnrolled) {
         Get.offAll(() => const FaceTrainingScreen(autoStart: true));
       } else if (hasPunchedInToday(prefs)) {
-        // Already face-verified for today's shift — reopening the app
-        // shouldn't ask again, only the first punch-in of the day should.
+        // Already punched in today — reopening the app goes directly to Dashboard!
         final homeScreen = await resolveHomeScreen();
         Get.offAll(() => homeScreen);
+      } else if (hasPunchedOutToday(prefs)) {
+        // Already completed shift today — navigate to Dashboard with notification
+        final homeScreen = await resolveHomeScreen();
+        Get.offAll(() => homeScreen);
+        Get.snackbar(
+          'Shift Completed',
+          'You have already completed your punch-out for today.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: const Color(0xFF0D6842),
+          colorText: Colors.white,
+        );
       } else {
         Get.offAll(() => const FaceVerificationScreen());
       }

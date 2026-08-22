@@ -17,9 +17,17 @@ String todayDateKey() {
 }
 
 /// True if [FaceVerificationScreen] already recorded a successful punch-in
-/// for today via `lastPunchInDate` in prefs.
+/// for today via `lastPunchInDate` in prefs and user has not punched out yet.
 bool hasPunchedInToday(SharedPreferences prefs) {
-  return prefs.getString('lastPunchInDate') == todayDateKey();
+  final today = todayDateKey();
+  final lastPunchIn = prefs.getString('lastPunchInDate');
+  final lastPunchOut = prefs.getString('lastPunchOutDate');
+  return lastPunchIn == today && lastPunchOut != today;
+}
+
+/// True if user recorded a successful punch-out for today.
+bool hasPunchedOutToday(SharedPreferences prefs) {
+  return prefs.getString('lastPunchOutDate') == todayDateKey();
 }
 
 /// Resolves which dashboard to land on after login/MPIN, based on the

@@ -347,6 +347,18 @@ class _CentreApprovalState extends State<CentreApproval> {
     }
   }
 
+  String _meetingInfo(Map center) {
+    final day = _field(center, 'meetingDay', '');
+    final time = _field(center, 'meetingTime', '');
+    final place = _field(center, 'meetingPlace', '');
+    final parts = <String>[];
+    if (day.isNotEmpty) parts.add(day);
+    if (time.isNotEmpty) parts.add(time);
+    if (place.isNotEmpty) parts.add(place);
+    if (parts.isEmpty) return '—';
+    return parts.join(' • ');
+  }
+
   List<dynamic> get _filteredCenters {
     return _controller.centersList.where((raw) {
       final center = raw as Map;
@@ -359,6 +371,7 @@ class _CentreApprovalState extends State<CentreApproval> {
         _fdoName(center),
         _branchName(center),
         _field(center, 'contactPerson', ''),
+        _field(center, 'meetingPlace', ''),
       ].join(' ').toLowerCase();
       return haystack.contains(_search);
     }).toList();
@@ -701,6 +714,7 @@ class _CentreApprovalState extends State<CentreApproval> {
         ? '${center['kmFromBranch']} KM'
         : '—';
     final created = _formatDate(center['createdAt']);
+    final meeting = _meetingInfo(center);
     final isPending = status == 'PENDING_APPROVAL';
     final index = _filteredCenters.indexOf(center) + 1;
 
@@ -846,6 +860,21 @@ class _CentreApprovalState extends State<CentreApproval> {
               SizedBox(height: 10.h),
               const Divider(height: 1, color: Color(0xFFF1F5F9)),
               SizedBox(height: 10.h),
+              Row(
+                children: [
+                  Icon(Icons.event_outlined, size: 13.sp, color: _green),
+                  SizedBox(width: 5.w),
+                  Expanded(
+                    child: Text(
+                      'Meeting: $meeting',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 10.5.sp, color: _darkText),
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: 6.h),
               Row(
                 children: [
                   Icon(Icons.call_outlined, size: 13.sp, color: _green),

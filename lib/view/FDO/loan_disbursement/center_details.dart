@@ -198,9 +198,15 @@ class _CenterDetailsState extends State<CenterDetails> {
         final nextMeetingDate = _formatDateOnly(
           detail['nextMeetingDate']?.toString(),
         );
-        final meetingDay = "${detail['meetingDay'] ?? '—'}";
-        final meetingTime = "${detail['meetingTime'] ?? '—'}";
-        final meetingPlace = "${detail['meetingPlace'] ?? '—'}";
+        final meetingDay = (detail['meetingDay']?.toString().trim().isNotEmpty == true && detail['meetingDay'].toString().trim() != 'null')
+            ? detail['meetingDay'].toString().trim()
+            : '—';
+        final meetingTime = (detail['meetingTime']?.toString().trim().isNotEmpty == true && detail['meetingTime'].toString().trim() != 'null')
+            ? detail['meetingTime'].toString().trim()
+            : '—';
+        final meetingPlace = (detail['meetingPlace']?.toString().trim().isNotEmpty == true && detail['meetingPlace'].toString().trim() != 'null')
+            ? detail['meetingPlace'].toString().trim()
+            : '—';
 
         final createdByRaw = detail['createdBy'];
         final createdBy = createdByRaw is Map

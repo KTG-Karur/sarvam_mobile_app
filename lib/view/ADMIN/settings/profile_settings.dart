@@ -3,7 +3,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sarvam/view/auth/login_screen.dart';
+import 'package:sarvam/controller/auth_controller.dart';
 
 class ProfileSettings extends StatefulWidget {
   const ProfileSettings({super.key});
@@ -234,10 +234,11 @@ class _ProfileSettingsState extends State<ProfileSettings> {
       width: double.infinity,
       height: 48.h,
       child: OutlinedButton.icon(
-        onPressed: () async {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.clear();
-          Get.offAll(() => const LoginScreen());
+        onPressed: () {
+          final AuthController authController = Get.isRegistered<AuthController>()
+              ? Get.find<AuthController>()
+              : Get.put(AuthController());
+          authController.confirmLogout(context);
         },
         icon: const Icon(Icons.logout_rounded, color: Color(0xFFDC2626)),
         label: Text(
