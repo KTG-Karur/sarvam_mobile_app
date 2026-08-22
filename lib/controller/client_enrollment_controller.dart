@@ -280,6 +280,7 @@ class ClientEnrollmentController extends GetxController
     currentBranchId().then((branchId) {
       if (branchId.isNotEmpty) loadProductsForBranch(branchId);
     });
+    startAutoSaveListeners();
   }
 
   void validateMobileNumber(String value, Rxn<String> errorState) {
@@ -534,6 +535,7 @@ class ClientEnrollmentController extends GetxController
     caOtherIdNoCtrl.dispose();
     caOtherIdNoFocus.dispose();
 
+    cancelAutoSaveTimers();
     super.onClose();
   }
 }

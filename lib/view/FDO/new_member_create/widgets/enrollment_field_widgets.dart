@@ -310,6 +310,7 @@ class EnrollmentSelectField extends StatelessWidget {
         enrollmentLabel(label, required: required, helper: helper),
         SizedBox(height: 6.h),
         DropdownButtonFormField<String>(
+          key: ValueKey('${label}_${value}_${options.length}'),
           initialValue: options.contains(value) ? value : null,
           hint: Text(
             '-- SELECT --',
