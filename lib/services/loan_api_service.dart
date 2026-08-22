@@ -1,4 +1,8 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:get/get.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/services/api_client.dart';
@@ -235,4 +239,72 @@ class LoanApiService {
         : '';
     return _getMap("${Api.loansUrl}/$loanId/passbook$query");
   }
+
+  Future<Map<String, dynamic>> _patchMap(
+    String url,
+    Map<String, dynamic> payload,
+  ) async {
+    final token = await _authToken();
+    _client.timeout = const Duration(seconds: 30);
+    final response = await _client.patch(
+      url,
+      payload,
+      headers: _authHeaders(token),
+    );
+    final data = _unwrap(response);
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+  }
+
+  /// `POST /api/generate-passbook` — renders the two-page Tamil passbook PDF
+  /// server-side (Puppeteer) and returns it as raw bytes, not JSON, so this
+  /// bypasses `_unwrap`/GetConnect and uses `package:http` directly — mirrors
+  /// `LoanPassbookDialog.tsx`'s `handleDownloadPDF` on the web app exactly,
+  /// including the `loanAmount`-as-string and installment-fields-as-number
+  /// conversions the backend's `PassbookSchema` requires.
+  Future<Uint8List> generatePassbookPdf({
+    required Map<String, dynamic> memberDetails,
+    required List<Map<String, dynamic>> installments,
+  }) async {
+    final token = await _authToken();
+    final response = await http
+        .post(
+          Uri.parse(Api.generatePassbookUrl),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode({
+            'memberDetails': memberDetails,
+            'installments': installments,
+          }),
+        )
+        .timeout(const Duration(seconds: 60));
+
+    if (response.statusCode == 200) {
+      return response.bodyBytes;
+    }
+
+    String message = 'Failed to generate passbook PDF';
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map) {
+        message = (decoded['message'] ?? decoded['error'] ?? message).toString();
+      }
+    } catch (_) {
+      // Non-JSON error body — fall back to the generic message.
+    }
+    throw LoanApiException(message);
+  }
+
+  /// `PATCH /api/loans/{loanId}/update-product` — the BM/pre-index path
+  /// (mirrors `LoanProductEditModal`'s `role="BM"` case on the web app).
+  /// Only valid while the loan hasn't been added to a loan index yet
+  /// (`indexId == null`) — i.e. any loan still on the unindexed-loans list,
+  /// exactly what Loan Index Approval shows.
+  Future<Map<String, dynamic>> updateLoanProduct(
+    String loanId,
+    String loanProductId,
+  ) => _patchMap("${Api.loansUrl}/$loanId/update-product", {
+    'loanProductId': loanProductId,
+  });
 }

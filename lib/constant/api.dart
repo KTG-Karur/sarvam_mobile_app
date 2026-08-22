@@ -48,6 +48,7 @@ class Api {
   static const String kycUploadUrl = "$baseUrl/api/kyc/aadhaar/upload";
   static const String highmarkCheckUrl = "$baseUrl/api/highmark/check";
   static const String highmarkLatestUrl = "$baseUrl/api/highmark/latest";
+  static const String highmarkHistoryUrl = "$baseUrl/api/highmark/history";
   static const String groupsUrl = "$baseUrl/api/groups";
   static const String loanProductTypesUrl = "$baseUrl/api/loan-product-types";
   static const String productsUrl = "$baseUrl/api/products";
@@ -62,6 +63,8 @@ class Api {
   static const String geoDrivingDistanceUrl = "$baseUrl/api/geo/driving-distance";
 
   static const String pincodeLookupUrl = "https://api.postalpincode.in/pincode";
+
+  static const String generatePassbookUrl = "$baseUrl/api/generate-passbook";
 
   static const String centerGroupAssignUrl =
       "$baseUrl/api/client-operations/center-group-assign";

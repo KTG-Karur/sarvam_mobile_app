@@ -1,9 +1,19 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/loan_index_approval_controller.dart';
+import 'package:sarvam/services/api_client.dart';
+import 'package:sarvam/services/enrollment_api_service.dart';
+import 'package:sarvam/services/loan_api_service.dart';
 import 'package:sarvam/view/BM/group_assignment/widgets/id_dropdown.dart';
+import 'package:sarvam/view/shared/highmark_report_sheet.dart';
 
 const _green = Color(0xFF0D6842);
 const _darkText = Color(0xFF172033);
@@ -26,6 +36,7 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
       Get.isRegistered<LoanIndexApprovalController>()
       ? Get.find<LoanIndexApprovalController>()
       : Get.put(LoanIndexApprovalController());
+  final EnrollmentApiService _highmarkApi = EnrollmentApiService(ApiClient());
 
   String _field(Map data, String key, [String fallback = 'N/A']) {
     final v = data[key];
@@ -514,11 +525,11 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
                 ),
               ],
             ),
-            if (!controller.firstDueDateValid)
+            if (controller.submitBlockedReason != null)
               Padding(
                 padding: EdgeInsets.only(top: 8.h),
                 child: Text(
-                  'First due date must be today or later.',
+                  controller.submitBlockedReason!,
                   style: TextStyle(fontSize: 10.5.sp, color: Colors.red),
                 ),
               ),
@@ -656,6 +667,42 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
                     ],
                   ),
                 ),
+                InkWell(
+                  onTap: () {
+                    final clientDbId = loan['clientId']?.toString() ?? '';
+                    if (clientDbId.isEmpty) return;
+                    showHighmarkReport(
+                      context,
+                      api: _highmarkApi,
+                      clientDbId: clientDbId,
+                      clientName: _field(loan, 'clientName'),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(20.r),
+                  child: Container(
+                    padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF3E8FF),
+                      borderRadius: BorderRadius.circular(20.r),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.shield_outlined, size: 13, color: Color(0xFF7C3AED)),
+                        SizedBox(width: 3.w),
+                        Text(
+                          'Highmark',
+                          style: TextStyle(
+                            fontSize: 9.5.sp,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF7C3AED),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                SizedBox(width: 8.w),
                 Text(
                   _currency(_amount(loan, 'amount')),
                   style: TextStyle(
@@ -670,11 +717,25 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
             Wrap(
               spacing: 6.w,
               runSpacing: 6.h,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 _buildHighmarkTag(loan),
                 _tag(_field(loan, 'purpose')),
                 _tag(_field(loan, 'product')),
                 _tag(_field(loan, 'frequency')),
+                InkWell(
+                  onTap: () => _showEditProductSheet(loan),
+                  borderRadius: BorderRadius.circular(20.r),
+                  child: Container(
+                    padding: EdgeInsets.all(4.w),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FAF4),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: const Color(0xFFBBE5CE)),
+                    ),
+                    child: Icon(Icons.edit_outlined, size: 12.sp, color: _green),
+                  ),
+                ),
               ],
             ),
             SizedBox(height: 10.h),
@@ -750,6 +811,449 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
       ),
     ),
   );
+
+  /// "Edit Loan Product" — Product Type → Frequency → Product, filtered to
+  /// this loan's applied amount, matching the web app's
+  /// `LoanProductEditModal` (`role="BM"` case). Only valid pre-index (every
+  /// loan on this screen qualifies, per `PATCH /api/loans/{id}/update-product`'s
+  /// own server-side check), so — unlike `member_individual_detail.dart`'s
+  /// AM-side copy of this sheet — no `stage`/`isIndexed` is ever sent.
+  Future<void> _showEditProductSheet(Map<String, dynamic> loan) async {
+    final loanId = loan['id']?.toString() ?? '';
+    if (loanId.isEmpty) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final branchId = prefs.getString('branchId') ?? '';
+    if (!mounted) return;
+    if (branchId.isEmpty) {
+      Get.snackbar(
+        'Error',
+        'No branch found for this account. Please sign in again.',
+        backgroundColor: Colors.redAccent,
+        colorText: Colors.white,
+      );
+      return;
+    }
+
+    final currentProductId = loan['loanProductId']?.toString() ?? '';
+    final maxAmount = _amount(loan, 'appliedAmount') > 0
+        ? _amount(loan, 'appliedAmount')
+        : _amount(loan, 'amount');
+
+    final selectedTypeId = RxnString();
+    final selectedFrequency = RxnString();
+    final selectedProductId = RxnString(
+      currentProductId.isEmpty ? null : currentProductId,
+    );
+    final isLoading = true.obs;
+    final isSaving = false.obs;
+    final productTypes = <dynamic>[].obs;
+    final allProducts = <dynamic>[].obs;
+    bool initialized = false;
+
+    Future<void> load() async {
+      isLoading.value = true;
+      try {
+        final types = await controller.api.getLoanProductTypes();
+        final prods = await controller.api.getProducts(branchId);
+        productTypes.assignAll(types);
+        allProducts.assignAll(prods);
+      } catch (e) {
+        Get.snackbar(
+          'Error',
+          'Failed to load loan products: $e',
+          backgroundColor: Colors.redAccent,
+          colorText: Colors.white,
+        );
+      } finally {
+        isLoading.value = false;
+      }
+    }
+
+    unawaited(load());
+
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20.r)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            16.w,
+            16.h,
+            16.w,
+            24.h + MediaQuery.of(ctx).viewInsets.bottom,
+          ),
+          child: Obx(() {
+            if (isLoading.value) {
+              return Container(
+                height: 250.h,
+                alignment: Alignment.center,
+                child: const CircularProgressIndicator(color: _green),
+              );
+            }
+
+            final types = productTypes;
+            // Web mirrors the backend's own hard check
+            // (`product.loanAmount > appliedAmount` → 400) by filtering the
+            // Loan Product dropdown to amounts within what the client
+            // applied for — do the same here instead of only discovering
+            // the mismatch after a failed save.
+            final eligibleProducts = allProducts.where((p) {
+              if (p is! Map) return false;
+              if (maxAmount <= 0) return true;
+              return _amount(Map<String, dynamic>.from(p), 'loanAmount') <=
+                  maxAmount;
+            }).toList();
+
+            if (!initialized && eligibleProducts.isNotEmpty) {
+              initialized = true;
+              final curr = eligibleProducts.cast<Map?>().firstWhere(
+                (p) => p?['id']?.toString() == currentProductId,
+                orElse: () => null,
+              );
+              if (curr != null) {
+                selectedTypeId.value = curr['loanProductTypeId']?.toString();
+                selectedFrequency.value = curr['frequency']
+                    ?.toString()
+                    .toLowerCase();
+              }
+            }
+
+            final typeProducts = eligibleProducts.where((p) {
+              if (p is! Map) return false;
+              if (selectedTypeId.value == null ||
+                  selectedTypeId.value!.isEmpty) {
+                return true;
+              }
+              return p['loanProductTypeId']?.toString() ==
+                  selectedTypeId.value;
+            }).toList();
+
+            final availableFreqs = typeProducts
+                .map((p) => (p as Map)['frequency']?.toString().toLowerCase() ?? '')
+                .where((f) => f.isNotEmpty)
+                .toSet()
+                .toList();
+
+            final filteredProducts = typeProducts.where((p) {
+              if (selectedFrequency.value == null ||
+                  selectedFrequency.value!.isEmpty) {
+                return true;
+              }
+              return (p as Map)['frequency']?.toString().toLowerCase() ==
+                  selectedFrequency.value;
+            }).toList();
+
+            final selectedProduct = filteredProducts.cast<Map?>().firstWhere(
+              (p) => p?['id']?.toString() == selectedProductId.value,
+              orElse: () => null,
+            );
+
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Edit Loan Product',
+                      style: TextStyle(
+                        fontSize: 16.sp,
+                        fontWeight: FontWeight.w800,
+                        color: _darkText,
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, color: _muted),
+                    ),
+                  ],
+                ),
+                Text(
+                  'Max amount: ${_currency(maxAmount)} (this client\'s applied amount)',
+                  style: TextStyle(fontSize: 10.5.sp, color: _muted),
+                ),
+                SizedBox(height: 12.h),
+
+                Text(
+                  'Loan Product Type',
+                  style: TextStyle(
+                    fontSize: 11.sp,
+                    fontWeight: FontWeight.w700,
+                    color: _darkText,
+                  ),
+                ),
+                SizedBox(height: 6.h),
+                DropdownButtonFormField<String>(
+                  initialValue: selectedTypeId.value,
+                  decoration: InputDecoration(
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12.w,
+                      vertical: 10.h,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10.r),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10.r),
+                      borderSide: const BorderSide(color: _green, width: 1.4),
+                    ),
+                  ),
+                  hint: const Text('Select Product Type'),
+                  items: types.map<DropdownMenuItem<String>>((t) {
+                    return DropdownMenuItem<String>(
+                      value: (t as Map)['id']?.toString(),
+                      child: Text(
+                        '${t['name']}',
+                        style: TextStyle(fontSize: 12.5.sp),
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    selectedTypeId.value = val;
+                    selectedFrequency.value = null;
+                    selectedProductId.value = null;
+                  },
+                ),
+                SizedBox(height: 12.h),
+
+                Text(
+                  'Frequency',
+                  style: TextStyle(
+                    fontSize: 11.sp,
+                    fontWeight: FontWeight.w700,
+                    color: _darkText,
+                  ),
+                ),
+                SizedBox(height: 6.h),
+                DropdownButtonFormField<String>(
+                  initialValue: selectedFrequency.value,
+                  decoration: InputDecoration(
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12.w,
+                      vertical: 10.h,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10.r),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10.r),
+                      borderSide: const BorderSide(color: _green, width: 1.4),
+                    ),
+                  ),
+                  hint: const Text('Select Frequency'),
+                  items: availableFreqs.map<DropdownMenuItem<String>>((f) {
+                    final label = f.isEmpty
+                        ? f
+                        : '${f[0].toUpperCase()}${f.substring(1)}';
+                    return DropdownMenuItem<String>(
+                      value: f,
+                      child: Text(label, style: TextStyle(fontSize: 12.5.sp)),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    selectedFrequency.value = val;
+                    selectedProductId.value = null;
+                  },
+                ),
+                SizedBox(height: 12.h),
+
+                Text(
+                  'Loan Product',
+                  style: TextStyle(
+                    fontSize: 11.sp,
+                    fontWeight: FontWeight.w700,
+                    color: _darkText,
+                  ),
+                ),
+                SizedBox(height: 6.h),
+                DropdownButtonFormField<String>(
+                  initialValue: selectedProductId.value,
+                  decoration: InputDecoration(
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12.w,
+                      vertical: 10.h,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10.r),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10.r),
+                      borderSide: const BorderSide(color: _green, width: 1.4),
+                    ),
+                  ),
+                  hint: const Text('Select Loan Product'),
+                  items: filteredProducts.map<DropdownMenuItem<String>>((p) {
+                    final map = p as Map;
+                    final amount = _currency(
+                      _amount(Map<String, dynamic>.from(map), 'loanAmount'),
+                    );
+                    return DropdownMenuItem<String>(
+                      value: map['id']?.toString(),
+                      child: Text(
+                        '${map['productName']} ($amount)',
+                        style: TextStyle(fontSize: 12.5.sp),
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (val) => selectedProductId.value = val,
+                ),
+                SizedBox(height: 16.h),
+
+                if (selectedProduct != null)
+                  Container(
+                    padding: EdgeInsets.all(12.w),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FAF4),
+                      borderRadius: BorderRadius.circular(10.r),
+                      border: Border.all(color: const Color(0xFFE1EAE4)),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'New Amount:',
+                              style: TextStyle(fontSize: 11.sp, color: _muted),
+                            ),
+                            Text(
+                              _currency(
+                                _amount(
+                                  Map<String, dynamic>.from(selectedProduct),
+                                  'loanAmount',
+                                ),
+                              ),
+                              style: TextStyle(
+                                fontSize: 12.sp,
+                                fontWeight: FontWeight.w800,
+                                color: _green,
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: 4.h),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Interest Rate:',
+                              style: TextStyle(fontSize: 11.sp, color: _muted),
+                            ),
+                            Text(
+                              '${_amount(Map<String, dynamic>.from(selectedProduct), 'interestRate')}%',
+                              style: TextStyle(
+                                fontSize: 12.sp,
+                                fontWeight: FontWeight.w700,
+                                color: _darkText,
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: 4.h),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Dues / Tenure:',
+                              style: TextStyle(fontSize: 11.sp, color: _muted),
+                            ),
+                            Text(
+                              '${selectedProduct['numberOfDues']} dues',
+                              style: TextStyle(
+                                fontSize: 12.sp,
+                                fontWeight: FontWeight.w700,
+                                color: _darkText,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                SizedBox(height: 18.h),
+
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed:
+                        selectedProductId.value == null || isSaving.value
+                        ? null
+                        : () async {
+                            isSaving.value = true;
+                            try {
+                              final updated = await controller.api
+                                  .updateLoanProduct(
+                                    loanId,
+                                    selectedProductId.value!,
+                                  );
+                              final idx = controller.unindexedLoans.indexWhere(
+                                (l) => l is Map && l['id']?.toString() == loanId,
+                              );
+                              if (idx != -1) {
+                                final merged = Map<String, dynamic>.from(
+                                  controller.unindexedLoans[idx] as Map,
+                                )..addAll(updated);
+                                controller.unindexedLoans[idx] = merged;
+                              }
+                              Get.snackbar(
+                                'Product Updated',
+                                'Loan product updated successfully.',
+                                backgroundColor: const Color(0xFF00843D),
+                                colorText: Colors.white,
+                              );
+                              if (ctx.mounted) Navigator.pop(ctx);
+                            } catch (e) {
+                              Get.snackbar(
+                                'Error',
+                                'Failed to update loan product: $e',
+                                backgroundColor: Colors.redAccent,
+                                colorText: Colors.white,
+                              );
+                            } finally {
+                              isSaving.value = false;
+                            }
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _green,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(vertical: 13.h),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10.r),
+                      ),
+                    ),
+                    child: isSaving.value
+                        ? SizedBox(
+                            width: 16.sp,
+                            height: 16.sp,
+                            child: const CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Text(
+                            'Update Product',
+                            style: TextStyle(
+                              fontSize: 13.sp,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                  ),
+                ),
+              ],
+            );
+          }),
+        );
+      },
+    );
+  }
 
   Widget _buildRecordsSection() {
     return Obx(() {
@@ -901,7 +1405,93 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
     ),
   );
 
+  /// Builds the exact `{memberDetails, installments}` shape the backend's
+  /// `PassbookSchema` requires (`loanAmount` as a string, installment
+  /// amounts as numbers) — mirrors `LoanPassbookDialog.tsx`'s
+  /// `handleDownloadPDF` payload construction on the web app.
+  Future<void> _downloadPassbookPdf(
+    Map<String, dynamic> memberDetails,
+    List<Map> installments,
+  ) async {
+    final memberName = memberDetails['memberName']?.toString() ?? 'member';
+    try {
+      final payload = <String, dynamic>{
+        'loanAmount': memberDetails['loanAmount']?.toString() ?? '0',
+        'upiNumber': memberDetails['upiNumber']?.toString() ?? '',
+        'accountNumber': memberDetails['accountNumber']?.toString() ?? '',
+        'branchCode': memberDetails['branchCode']?.toString() ?? '',
+        'branchName': memberDetails['branchName']?.toString() ?? '',
+        'memberName': memberName,
+        'disbursementDate': memberDetails['disbursementDate']?.toString() ?? '',
+        'loanPurpose': memberDetails['loanPurpose']?.toString() ?? '',
+        'centerCode': memberDetails['centerCode']?.toString() ?? '',
+        'centerName': memberDetails['centerName']?.toString() ?? '',
+        'centerMemberNo': memberDetails['centerMemberNo']?.toString() ?? '',
+        'husbandName': memberDetails['husbandName']?.toString() ?? '',
+        'loanType': memberDetails['loanType']?.toString() ?? '',
+        'firstInstallmentDate': memberDetails['firstInstallmentDate']?.toString() ?? '',
+        'memberPhone': memberDetails['memberPhone']?.toString() ?? '',
+        'clientPhotoUrl': memberDetails['clientPhotoUrl']?.toString(),
+      };
+      final installmentPayload = installments
+          .map(
+            (inst) => {
+              'no': int.tryParse('${inst['no']}') ?? 0,
+              'date': inst['date']?.toString() ?? '',
+              'principal': double.tryParse('${inst['principal']}') ?? 0,
+              'interest': double.tryParse('${inst['interest']}') ?? 0,
+              'balance': double.tryParse('${inst['balance']}') ?? 0,
+            },
+          )
+          .toList();
+
+      final bytes = await controller.api.generatePassbookPdf(
+        memberDetails: payload,
+        installments: installmentPayload,
+      );
+
+      final safeName = memberName.replaceAll(RegExp(r'[^\w]'), '_');
+      Directory? targetDir;
+      if (Platform.isAndroid) {
+        final publicDownload = Directory('/storage/emulated/0/Download');
+        targetDir = await publicDownload.exists()
+            ? publicDownload
+            : await getExternalStorageDirectory();
+      }
+      targetDir ??= await getApplicationDocumentsDirectory();
+      final filePath = '${targetDir.path}/passbook_$safeName.pdf';
+      await File(filePath).writeAsBytes(bytes);
+
+      Get.snackbar(
+        'Passbook Downloaded',
+        'Saved passbook_$safeName.pdf to Download folder.',
+        backgroundColor: _green,
+        colorText: Colors.white,
+        duration: const Duration(seconds: 6),
+        mainButton: TextButton(
+          onPressed: () => OpenFilex.open(filePath),
+          child: const Text('OPEN', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        ),
+      );
+    } on LoanApiException catch (e) {
+      Get.snackbar(
+        'Download Failed',
+        e.message,
+        backgroundColor: Colors.redAccent,
+        colorText: Colors.white,
+      );
+    } catch (e) {
+      Get.snackbar(
+        'Download Failed',
+        'Unable to generate passbook PDF: $e',
+        backgroundColor: Colors.redAccent,
+        colorText: Colors.white,
+      );
+    }
+  }
+
   Future<void> _showPassbookBottomSheet(String loanId) async {
+    final isGeneratingPdf = false.obs;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1046,10 +1636,13 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
                               DataColumn(label: Text('Balance', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
                             ],
                             rows: installments.map((inst) {
+                              final principal = double.tryParse('${inst['principal']}') ?? 0;
+                              final interest = double.tryParse('${inst['interest']}') ?? 0;
+                              final emi = principal + interest;
                               return DataRow(cells: [
                                 DataCell(Text('${inst['no'] ?? '—'}', style: const TextStyle(fontSize: 11))),
-                                DataCell(Text('${inst['dueDate'] ?? '—'}', style: const TextStyle(fontSize: 11))),
-                                DataCell(Text('₹${inst['emiAmount'] ?? 0}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: _green))),
+                                DataCell(Text('${inst['date'] ?? '—'}', style: const TextStyle(fontSize: 11))),
+                                DataCell(Text('₹${emi.toStringAsFixed(2)}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: _green))),
                                 DataCell(Text('₹${inst['principal'] ?? 0}', style: const TextStyle(fontSize: 11))),
                                 DataCell(Text('₹${inst['interest'] ?? 0}', style: const TextStyle(fontSize: 11))),
                                 DataCell(Text('₹${inst['balance'] ?? 0}', style: const TextStyle(fontSize: 11))),
@@ -1058,24 +1651,41 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
                           ),
                         ),
                       const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            Get.snackbar(
-                              'Passbook Downloaded',
-                              'Passbook PDF for $memberName downloaded successfully.',
+                      Obx(
+                        () => SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: installments.isEmpty || isGeneratingPdf.value
+                                ? null
+                                : () async {
+                                    isGeneratingPdf.value = true;
+                                    await _downloadPassbookPdf(
+                                      memberDetails,
+                                      installments,
+                                    );
+                                    isGeneratingPdf.value = false;
+                                  },
+                            style: ElevatedButton.styleFrom(
                               backgroundColor: _green,
-                              colorText: Colors.white,
-                            );
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _green,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            icon: isGeneratingPdf.value
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(Icons.download_rounded, size: 18),
+                            label: Text(
+                              isGeneratingPdf.value
+                                  ? 'Generating…'
+                                  : 'Download Passbook PDF',
+                            ),
                           ),
-                          icon: const Icon(Icons.download_rounded, size: 18),
-                          label: const Text('Download Passbook PDF'),
                         ),
                       ),
                     ],

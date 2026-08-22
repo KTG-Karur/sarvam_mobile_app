@@ -241,6 +241,28 @@ class LoanIndexApprovalController extends GetxController {
       firstDueDateValid &&
       meetingDayMismatch == null;
 
+  /// Why the Save button is currently disabled, or null if it isn't.
+  /// Previously the UI only ever explained the "due date is in the past"
+  /// case — tapping "Approve" on a loan only *selects* it locally (same as
+  /// the web app's per-row toggle); Save is the only action that actually
+  /// submits, and if it's silently disabled for any of the other reasons
+  /// below (most commonly: no First Due Date set yet), nothing visibly
+  /// happens when tapped, which reads as "approving doesn't work."
+  String? get submitBlockedReason {
+    if (isSaving.value) return null;
+    if (centerId.value == null) return 'Select a center first.';
+    if (selectedLoanIds.isEmpty) {
+      return 'Tap "Approve" on at least one loan below before saving.';
+    }
+    if (firstDueDate.value.isEmpty) {
+      return 'Set the First Due Date above to enable Save.';
+    }
+    if (!firstDueDateValid) {
+      return 'First due date must be today or later.';
+    }
+    return meetingDayMismatch;
+  }
+
   Future<Map<String, dynamic>?> fetchPassbook(String loanId) async {
     try {
       final res = await api.getPassbookData(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sarvam/constant/roles.dart';
 import 'package:sarvam/services/api_client.dart';
 import 'package:sarvam/services/disbursement_api_service.dart';
 
@@ -49,7 +50,38 @@ class DisbursementApprovalController extends GetxController {
       final prefs = await SharedPreferences.getInstance();
       final savedBranchId = prefs.getString('branchId');
       final result = await api.getBranches();
-      branches.assignAll(result);
+
+      // GET /branches isn't role-scoped server-side — an Area Manager sees
+      // every branch in the system there. The web app (DisbursementClient's
+      // fetchBranches) filters that list down to the AM's own
+      // `assignedBranchIds` before ever picking a default, otherwise the
+      // screen can default to (or only offer) a branch the AM isn't even
+      // assigned to — one with no PENDING_LEVEL2 loans — which reads as
+      // "approved on mobile but never reached AM approval" when the loan is
+      // sitting, correctly, under a branch this screen never queried.
+      final role = prefs.getString('role') ?? '';
+      final rbacRoleName = prefs.getString('rbacRoleName') ?? '';
+      if (RoleScope.isAreaManager(role) || RoleScope.isAreaManager(rbacRoleName)) {
+        final assignedBranchIds = List<String>.from(
+          prefs.getStringList('assignedBranchIds') ?? [],
+        );
+        if (savedBranchId != null &&
+            savedBranchId.isNotEmpty &&
+            !assignedBranchIds.contains(savedBranchId)) {
+          assignedBranchIds.add(savedBranchId);
+        }
+        if (assignedBranchIds.isNotEmpty) {
+          branches.assignAll(
+            result.where(
+              (b) => b is Map && assignedBranchIds.contains(b['id']?.toString()),
+            ),
+          );
+        } else {
+          branches.assignAll(result);
+        }
+      } else {
+        branches.assignAll(result);
+      }
 
       if (savedBranchId != null && savedBranchId.isNotEmpty) {
         final hasSaved = branches.any((b) => b is Map && b['id']?.toString() == savedBranchId);

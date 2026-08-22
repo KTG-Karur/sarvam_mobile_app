@@ -220,6 +220,13 @@ class EnrollmentApiService {
   Future<Map<String, dynamic>?> getLatestHighmarkReport(String aadhaar) =>
       _getMap("${Api.highmarkLatestUrl}?aadhaar=$aadhaar");
 
+  /// `GET /api/highmark/history?clientId=` — every past Highmark pull for
+  /// this client (the client's own db `id`, not the display `clientId`
+  /// code), newest first, mirroring `HighmarkHistoryButton` on the web
+  /// approval workbench.
+  Future<List<dynamic>> getHighmarkHistory(String clientDbId) =>
+      _getList("${Api.highmarkHistoryUrl}?clientId=$clientDbId");
+
   // ---------------------------------------------------------------------
   // KYC document upload
   // ---------------------------------------------------------------------
@@ -246,6 +253,40 @@ class EnrollmentApiService {
     _client.timeout = const Duration(seconds: 60);
     final response = await _client.post(
       Api.kycUploadUrl,
+      formData,
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    final data = _unwrap(response);
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+  }
+
+  /// `POST /api/approval/clients/{clientId}/documents/{documentId}/reupload`
+  /// — FDO replaces a KYC document a reviewer flagged RETAKE_REQUIRED.
+  /// `documentId` is the existing `KYCDocument.id`, not the document type —
+  /// the client detail response's `kycDocuments[].id` — and `clientId` is
+  /// the same display client code used by the other `/approval/clients/...`
+  /// endpoints. Only valid while the client's approvalStatus is one of the
+  /// `*_RETAKE_REQUIRED` stages; the server resets this document's flagged
+  /// decision(s) back to PENDING on success, but does not itself advance
+  /// the client's overall approvalStatus — call [submitClientApprovalAction]
+  /// with `FDO_RESUBMIT` once every flagged document has been re-uploaded.
+  Future<Map<String, dynamic>> reuploadKycDocument({
+    required String clientId,
+    required String documentId,
+    required List<int> bytes,
+    required String filename,
+    required String contentType,
+    String? documentNumber,
+  }) async {
+    final token = await _authToken();
+    final formData = FormData({
+      'file': MultipartFile(bytes, filename: filename, contentType: contentType),
+      if (documentNumber != null && documentNumber.isNotEmpty)
+        'documentNumber': documentNumber,
+    });
+    _client.timeout = const Duration(seconds: 60);
+    final response = await _client.post(
+      "${Api.approvalClientsUrl}/$clientId/documents/$documentId/reupload",
       formData,
       headers: {'Authorization': 'Bearer $token'},
     );
