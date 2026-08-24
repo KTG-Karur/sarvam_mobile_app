@@ -5,10 +5,9 @@ import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:sarvam/controller/member_individual_detail_controller.dart';
 import 'package:sarvam/services/api_client.dart';
-import 'package:sarvam/services/grt_api_service.dart';
+import 'package:sarvam/services/enrollment_api_service.dart';
 import 'package:sarvam/view/BM/group_assignment/widgets/id_dropdown.dart';
-import 'package:sarvam/view/BM/member_individual/grt_session_conduct_screen.dart';
-import 'package:sarvam/view/BM/member_individual/grt_session_create_dialog.dart';
+import 'package:sarvam/view/shared/highmark_report_sheet.dart';
 
 const _green = Color(0xFF0D6842);
 const _darkText = Color(0xFF172033);
@@ -39,7 +38,7 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
   // which sits *above* DefaultTabController in the tree (it's created
   // inside build()), so DefaultTabController.of(context) can't find it.
   late final TabController _tabController = TabController(
-    length: 4,
+    length: 3,
     vsync: this,
   );
 
@@ -120,7 +119,6 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
                       _buildCashFlowTab(),
                       _buildLoanAppraisalTab(),
                       _buildHouseholdVisitTab(),
-                      _buildGrtTab(),
                     ],
                   ),
                 ),
@@ -209,7 +207,7 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
           Row(
             children: [
               _heroBadge(
-                '${controller.completedTabsCount}/4 tabs complete',
+                '${controller.completedTabsCount}/3 tabs complete',
                 background: Colors.white.withValues(alpha: 0.15),
                 textColor: Colors.white,
               ),
@@ -252,8 +250,8 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
     );
   }
 
-  // GRT is filled center-wide (group) on a separate web-only screen, not
-  // per-loan here — this is an informational banner only.
+
+
   Widget _buildGrtBanner() {
     final complete = controller.grtComplete;
     final sessionId = _field(controller.grt, 'completedSessionId', '');
@@ -280,7 +278,7 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
               complete
                   ? 'GRT complete — covered by session $sessionId.'
                   : 'GRT not yet complete for this member — fill it on the GRT Sessions '
-                        'screen (center-wise, covers multiple members at once).',
+                        'tab (center-wise, covers multiple members at once).',
               style: TextStyle(
                 fontSize: 10.5.sp,
                 color: complete ? _green : const Color(0xFF9A6B00),
@@ -289,6 +287,31 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
           ),
         ],
       ),
+    );
+  }
+
+  Widget _tabLabel(String label, IconData iconData, bool isDone) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(iconData, size: 12.sp),
+        SizedBox(width: 3.w),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 9.5.sp, fontWeight: FontWeight.w700),
+          ),
+        ),
+        SizedBox(width: 2.w),
+        Icon(
+          isDone ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+          size: 11.sp,
+          color: isDone ? const Color(0xFF15803D) : const Color(0xFF94A3B8),
+        ),
+      ],
     );
   }
 
@@ -309,12 +332,10 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
         dividerColor: Colors.transparent,
         labelColor: _green,
         unselectedLabelColor: _muted,
-        labelStyle: TextStyle(fontSize: 10.5.sp, fontWeight: FontWeight.w700),
-        tabs: const [
-          Tab(text: 'Cash Flow'),
-          Tab(text: 'Appraisal'),
-          Tab(text: 'House Visit'),
-          Tab(text: 'GRT'),
+        tabs: [
+          Tab(child: _tabLabel('Cash Flow', Icons.account_balance_wallet_outlined, controller.cashFlowComplete)),
+          Tab(child: _tabLabel('Loan Appraisal', Icons.assignment_turned_in_outlined, controller.loanAppraisalComplete)),
+          Tab(child: _tabLabel('House Hold Assessment', Icons.home_outlined, controller.houseHoldVisitComplete)),
         ],
       ),
     );
@@ -610,13 +631,57 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
                   'Loan Appraisal reviewed on ${_formatDateTime(controller.loanAppraisal['reviewedAt'])}',
                 ),
               ),
-            Text(
-              'Loan Details',
-              style: TextStyle(
-                fontSize: 13.sp,
-                fontWeight: FontWeight.w800,
-                color: _darkText,
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Loan Details',
+                  style: TextStyle(
+                    fontSize: 13.sp,
+                    fontWeight: FontWeight.w800,
+                    color: _darkText,
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    final clientDbId = _field(loan, 'clientId');
+                    final clientDisplayId = _field(loan, 'clientDisplayId');
+                    final clientName = _field(loan, 'clientName');
+                    showHighmarkReport(
+                      context,
+                      api: Get.isRegistered<EnrollmentApiService>()
+                          ? Get.find<EnrollmentApiService>()
+                          : Get.put(
+                              EnrollmentApiService(
+                                Get.isRegistered<ApiClient>()
+                                    ? Get.find<ApiClient>()
+                                    : Get.put(ApiClient()),
+                              ),
+                            ),
+                      clientDbId: clientDbId,
+                      clientName: '$clientDisplayId - $clientName'.trim(),
+                    );
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _green,
+                    side: BorderSide(color: _green.withValues(alpha: 0.35)),
+                    padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20.r),
+                    ),
+                  ),
+                  icon: Icon(Icons.shield_outlined, size: 13.sp),
+                  label: Text(
+                    'Highmark History',
+                    style: TextStyle(
+                      fontSize: 10.sp,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
             ),
             SizedBox(height: 10.h),
             GridView.count(
@@ -655,7 +720,7 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
                   ),
                   icon: const Icon(Icons.edit_rounded, size: 18),
                   label: Text(
-                    'Edit Product',
+                    'Change Product',
                     style: TextStyle(
                       fontSize: 13.sp,
                       fontWeight: FontWeight.w700,
@@ -1687,313 +1752,5 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
     ),
   );
 
-  // -------------------------------------------------------------------
-  // GRT (Group Readiness Test)
-  // -------------------------------------------------------------------
 
-  Widget _buildGrtTab() {
-    return Obx(() {
-      final grt = controller.grt;
-      final isComplete = controller.grtComplete;
-      final questions = grt['questions'] is List ? (grt['questions'] as List) : <dynamic>[];
-      final sessionPhotos = grt['sessionPhotos'] is List ? (grt['sessionPhotos'] as List) : <dynamic>[];
-
-      return SingleChildScrollView(
-        padding: EdgeInsets.all(16.w),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (isComplete) ...[
-              _completeBanner(
-                'GRT completed for Session ${_field(grt, 'completedSessionId')}'
-                '${grt['completedAt'] != null ? ' on ${_formatDateTime(grt['completedAt'])}' : ''}',
-              ),
-              SizedBox(height: 12.h),
-              if (_field(grt, 'questionnaireTitle').isNotEmpty) ...[
-                Text(
-                  _field(grt, 'questionnaireTitle'),
-                  style: TextStyle(
-                    fontSize: 14.sp,
-                    fontWeight: FontWeight.w800,
-                    color: _darkText,
-                  ),
-                ),
-                SizedBox(height: 10.h),
-              ],
-              if (questions.isNotEmpty) ...[
-                Text(
-                  'Questions & Answers',
-                  style: TextStyle(
-                    fontSize: 12.5.sp,
-                    fontWeight: FontWeight.w700,
-                    color: _muted,
-                  ),
-                ),
-                SizedBox(height: 8.h),
-                ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: questions.length,
-                  separatorBuilder: (_, __) => SizedBox(height: 10.h),
-                  itemBuilder: (_, idx) {
-                    final q = Map<String, dynamic>.from(questions[idx]);
-                    final qText = _field(q, 'question');
-                    final answerBool = q['answerBool'];
-                    final answerText = q['answerText']?.toString() ?? '';
-                    final qPhotos = q['photos'] is List ? (q['photos'] as List) : <dynamic>[];
-
-                    return Container(
-                      padding: EdgeInsets.all(12.w),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        border: Border.all(color: const Color(0xFFE1EAE4)),
-                        borderRadius: BorderRadius.circular(10.r),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              CircleAvatar(
-                                radius: 11.r,
-                                backgroundColor: const Color(0xFFE6F5EC),
-                                child: Text(
-                                  '${idx + 1}',
-                                  style: TextStyle(
-                                    fontSize: 10.sp,
-                                    fontWeight: FontWeight.w800,
-                                    color: _green,
-                                  ),
-                                ),
-                              ),
-                              SizedBox(width: 8.w),
-                              Expanded(
-                                child: Text(
-                                  qText,
-                                  style: TextStyle(
-                                    fontSize: 12.sp,
-                                    fontWeight: FontWeight.w700,
-                                    color: _darkText,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          SizedBox(height: 8.h),
-                          Padding(
-                            padding: EdgeInsets.only(left: 30.w),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (answerBool is bool)
-                                  Container(
-                                    padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
-                                    decoration: BoxDecoration(
-                                      color: answerBool ? const Color(0xFFDCFCE7) : const Color(0xFFFEE2E2),
-                                      borderRadius: BorderRadius.circular(6.r),
-                                      border: Border.all(
-                                        color: answerBool ? const Color(0xFF86EFAC) : const Color(0xFFFCA5A5),
-                                      ),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          answerBool ? Icons.check_circle_rounded : Icons.cancel_rounded,
-                                          size: 13.sp,
-                                          color: answerBool ? const Color(0xFF15803D) : const Color(0xFFB91C1C),
-                                        ),
-                                        SizedBox(width: 4.w),
-                                        Text(
-                                          answerBool ? 'Yes' : 'No',
-                                          style: TextStyle(
-                                            fontSize: 11.sp,
-                                            fontWeight: FontWeight.w700,
-                                            color: answerBool ? const Color(0xFF15803D) : const Color(0xFFB91C1C),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                if (answerText.isNotEmpty) ...[
-                                  if (answerBool is bool) SizedBox(height: 4.h),
-                                  Text(
-                                    'Answer: $answerText',
-                                    style: TextStyle(
-                                      fontSize: 11.5.sp,
-                                      fontWeight: FontWeight.w600,
-                                      color: _darkText,
-                                    ),
-                                  ),
-                                ],
-                                if (qPhotos.isNotEmpty) ...[
-                                  SizedBox(height: 8.h),
-                                  SizedBox(
-                                    height: 60.h,
-                                    child: ListView.separated(
-                                      scrollDirection: Axis.horizontal,
-                                      itemCount: qPhotos.length,
-                                      separatorBuilder: (_, __) => SizedBox(width: 6.w),
-                                      itemBuilder: (_, pIdx) {
-                                        final photo = Map<String, dynamic>.from(qPhotos[pIdx]);
-                                        final pKey = photo['photoUrl']?.toString();
-                                        return _storageImageWidget(
-                                          photoKey: pKey,
-                                          width: 60.h,
-                                          height: 60.h,
-                                          fit: BoxFit.cover,
-                                          borderRadius: BorderRadius.circular(6.r),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-                SizedBox(height: 14.h),
-              ],
-              if (sessionPhotos.isNotEmpty) ...[
-                Text(
-                  'Session Photos',
-                  style: TextStyle(
-                    fontSize: 12.5.sp,
-                    fontWeight: FontWeight.w700,
-                    color: _muted,
-                  ),
-                ),
-                SizedBox(height: 8.h),
-                SizedBox(
-                  height: 90.h,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: sessionPhotos.length,
-                    separatorBuilder: (_, __) => SizedBox(width: 8.w),
-                    itemBuilder: (_, pIdx) {
-                      final photo = Map<String, dynamic>.from(sessionPhotos[pIdx]);
-                      final pKey = photo['photoUrl']?.toString();
-                      return _storageImageWidget(
-                        photoKey: pKey,
-                        width: 90.h,
-                        height: 90.h,
-                        fit: BoxFit.cover,
-                        borderRadius: BorderRadius.circular(8.r),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ] else ...[
-              Container(
-                width: double.infinity,
-                padding: EdgeInsets.all(16.w),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF8E1),
-                  border: Border.all(color: const Color(0xFFF5DD9E)),
-                  borderRadius: BorderRadius.circular(12.r),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.access_time_rounded, size: 24.sp, color: const Color(0xFF9A6B00)),
-                        SizedBox(width: 12.w),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'GRT Session Pending',
-                                style: TextStyle(
-                                  fontSize: 13.sp,
-                                  fontWeight: FontWeight.w800,
-                                  color: const Color(0xFF9A6B00),
-                                ),
-                              ),
-                              SizedBox(height: 4.h),
-                              Text(
-                                'Group Readiness Test (GRT) has not been completed for this member/center yet.',
-                                style: TextStyle(
-                                  fontSize: 11.sp,
-                                  color: const Color(0xFF9A6B00),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 14.h),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () async {
-                          final centerId = controller.center['id']?.toString() ?? '';
-                          final centerName = controller.center['name']?.toString() ?? 'Center';
-                          if (centerId.isEmpty) return;
-
-                          final api = GrtApiService(
-                            Get.isRegistered<ApiClient>() ? Get.find<ApiClient>() : Get.put(ApiClient()),
-                          );
-
-                          try {
-                            final sessions = await api.getGrtSessions(centerId);
-                            String? sessionId;
-                            final active = sessions.firstWhere(
-                              (s) => s['isComplete'] != true,
-                              orElse: () => null,
-                            );
-
-                            if (active != null) {
-                              sessionId = active['id']?.toString() ?? active['sessionId']?.toString();
-                            } else if (mounted) {
-                              sessionId = await showDialog<String>(
-                                context: context,
-                                builder: (_) => GrtSessionCreateDialog(centerId: centerId, centerName: centerName),
-                              );
-                            }
-
-                            if (sessionId != null && sessionId.isNotEmpty && mounted) {
-                              final updated = await Navigator.push<bool>(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => GrtSessionConductScreen(sessionId: sessionId!, centerName: centerName),
-                                ),
-                              );
-                              if (updated == true) {
-                                controller.loadRecord();
-                              }
-                            }
-                          } catch (e) {
-                            Get.snackbar('Error', 'Failed to fetch GRT sessions: $e', backgroundColor: Colors.redAccent, colorText: Colors.white);
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _green,
-                          foregroundColor: Colors.white,
-                          padding: EdgeInsets.symmetric(vertical: 12.h),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.r)),
-                        ),
-                        icon: const Icon(Icons.play_circle_fill_rounded, size: 18),
-                        label: Text('Conduct GRT Session for Center', style: TextStyle(fontSize: 12.5.sp, fontWeight: FontWeight.w700)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              SizedBox(height: 30.h),
-              _emptyState('GRT session details will appear here once completed.'),
-            ],
-          ],
-        ),
-      );
-    });
-  }
 }

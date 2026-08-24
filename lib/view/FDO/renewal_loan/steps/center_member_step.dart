@@ -39,13 +39,23 @@ class CenterMemberStep extends StatelessWidget {
       orElse: () => null,
     );
     if (match is! Map) return id;
+
     final first = match['firstName']?.toString() ?? '';
     final last = match['lastName']?.toString() ?? '';
-    final name = (first.isNotEmpty || last.isNotEmpty)
-        ? '$first $last'.trim()
-        : '${match['clientId']}';
+    final firstLast = '$first $last'.trim();
+    final rawName = match['name']?.toString() ?? match['clientName']?.toString() ?? '';
+
+    final name = firstLast.isNotEmpty
+        ? firstLast
+        : (rawName.isNotEmpty ? rawName : '${match['clientId']}');
+
+    final clientId = match['clientId']?.toString() ?? '';
     final hasGroup = match['hasGroup'] != false;
-    return '${match['clientId']} - $name${hasGroup ? '' : '  ⚠ No group'}';
+
+    if (name != clientId && name.isNotEmpty && clientId.isNotEmpty) {
+      return '$name - $clientId${hasGroup ? '' : '  ⚠ No group'}';
+    }
+    return '$clientId${hasGroup ? '' : '  ⚠ No group'}';
   }
 
   List<String> get _coApplicantOptions => controller.eligibleCoApplicants
