@@ -58,6 +58,7 @@ mixin EnrollmentDraftMixin on GetxController {
   Rxn<String> get spouseEconomicActivityId;
   TextEditingController get ifscCodeCtrl;
   TextEditingController get bankAcNoCtrl;
+  TextEditingController get retypeBankAcNoCtrl;
   TextEditingController get bankNameCtrl;
   TextEditingController get bankBranchCtrl;
   Rxn<String> get bankAccountType;
@@ -104,13 +105,27 @@ mixin EnrollmentDraftMixin on GetxController {
     return clean;
   }
 
+  String? _formatDateForApi(String? text) {
+    if (text == null || text.trim().isEmpty) return null;
+    final str = text.trim();
+    final dmy = RegExp(r'^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$');
+    final match = dmy.firstMatch(str);
+    if (match != null) {
+      final day = match.group(1)!.padLeft(2, '0');
+      final month = match.group(2)!.padLeft(2, '0');
+      final year = match.group(3)!;
+      return '$year-$month-$day';
+    }
+    return str;
+  }
+
   Map<String, dynamic> _buildDraftBody() {
     return {
       'mobileNumber': mobileNumberCtrl.text.trim(),
       'firstName': clientNameCtrl.text.trim(),
       'lastName': lastNameCtrl.text.trim(),
       'email': emailCtrl.text.trim(),
-      'dateOfBirth': dobCtrl.text.trim(),
+      'dateOfBirth': _formatDateForApi(dobCtrl.text),
       'age': ageCtrl.text.trim(),
       'gender': gender.value,
       'caste': caste.value,
@@ -135,13 +150,14 @@ mixin EnrollmentDraftMixin on GetxController {
       'monthlyFamilyIncome': monthlyFamilyIncomeCtrl.text.trim(),
       'monthlyFamilyExpense': monthlyFamilyExpenseCtrl.text.trim(),
       'spouseName': spouseNameCtrl.text.trim(),
-      'spouseDob': spouseDobCtrl.text.trim(),
+      'spouseDob': _formatDateForApi(spouseDobCtrl.text),
       'spouseMobileNumber': spouseMobileNumberCtrl.text.trim(),
       'spouseGender': spouseGender.value,
       'spouseEconomicActivityTypeId': spouseEconomicActivityTypeId.value,
       'spouseEconomicActivityId': spouseEconomicActivityId.value,
       'ifscCode': ifscCodeCtrl.text.trim(),
       'bankAcNo': bankAcNoCtrl.text.trim(),
+      'retypeBankAcNo': retypeBankAcNoCtrl.text.trim(),
       'bankName': bankNameCtrl.text.trim(),
       'bankBranch': bankBranchCtrl.text.trim(),
       'bankAccountType': bankAccountType.value,
@@ -156,7 +172,7 @@ mixin EnrollmentDraftMixin on GetxController {
       'nomineeRelation': nomineeRelation.value,
       'nomineePhone': nomineePhoneNumberCtrl.text.trim(),
       'nomineeGender': nomineeGender.value,
-      'nomineeDateOfBirth': nomineeDateOfBirthCtrl.text.trim(),
+      'nomineeDateOfBirth': _formatDateForApi(nomineeDateOfBirthCtrl.text),
       'nomineeAge': nomineeAgeCtrl.text.trim(),
       'coApplicantEconomicActivityTypeId':
           coApplicantEconomicActivityTypeId.value,
@@ -216,6 +232,7 @@ mixin EnrollmentDraftMixin on GetxController {
       spouseMobileNumberCtrl,
       ifscCodeCtrl,
       bankAcNoCtrl,
+      retypeBankAcNoCtrl,
       votersIdNoCtrl,
       caVoterIdNoCtrl,
       otherIdNoCtrl,
@@ -244,9 +261,14 @@ mixin EnrollmentDraftMixin on GetxController {
       spouseGender,
       spouseEconomicActivityTypeId,
       spouseEconomicActivityId,
+      coApplicantEconomicActivityTypeId,
+      coApplicantEconomicActivityId,
       bankAccountType,
       nomineeRelation,
       nomineeGender,
+      memberGroupStatus,
+      requestedCenterId,
+      requestedGroupId,
       requestedLoanProductId,
       requestedLoanProductTypeId,
       requestedLoanPurposeTypeId,
@@ -321,127 +343,191 @@ mixin EnrollmentDraftMixin on GetxController {
       if (draft == null) return;
 
       draftDbId.value = (draft['id'] ?? draft['dbId'])?.toString();
-      clientNameCtrl.text = draft['firstName']?.toString() ?? clientNameCtrl.text;
+      clientNameCtrl.text =
+          draft['firstName']?.toString() ?? clientNameCtrl.text;
       lastNameCtrl.text = draft['lastName']?.toString() ?? lastNameCtrl.text;
       emailCtrl.text = draft['email']?.toString() ?? emailCtrl.text;
       final dobVal = (draft['dateOfBirth'] ?? draft['dob'])?.toString();
       if (dobVal != null && dobVal.isNotEmpty) {
         dobCtrl.text = _formatDob(dobVal);
       }
+      String? matchOption(List<String> options, String? val) {
+        if (val == null || val.trim().isEmpty) return null;
+        final clean = val.trim();
+        if (options.contains(clean)) return clean;
+        final lower = clean.toLowerCase();
+        for (final opt in options) {
+          if (opt.toLowerCase() == lower) return opt;
+        }
+        return clean;
+      }
+
       gender.value = draft['gender']?.toString() ?? gender.value;
       caste.value = draft['caste']?.toString() ?? caste.value;
       community.value = draft['community']?.toString() ?? community.value;
       religion.value = draft['religion']?.toString() ?? religion.value;
-      qualification.value = draft['qualification']?.toString() ?? qualification.value;
-      maritalStatus.value = draft['maritalStatus']?.toString() ?? maritalStatus.value;
+      qualification.value =
+          draft['qualification']?.toString() ?? qualification.value;
+      final rawMarital = draft['maritalStatus']?.toString();
+      if (rawMarital != null && rawMarital.isNotEmpty) {
+        maritalStatus.value =
+            matchOption([
+              'Single',
+              'Married',
+              'Divorced',
+              'Widowed',
+            ], rawMarital) ??
+            rawMarital;
+      }
       houseStatus.value = draft['houseStatus']?.toString() ?? houseStatus.value;
-      fatherNameCtrl.text = draft['fatherName']?.toString() ?? fatherNameCtrl.text;
-      motherNameCtrl.text = draft['motherName']?.toString() ?? motherNameCtrl.text;
-      noOfChildrenCtrl.text = draft['noOfChildren']?.toString() ?? noOfChildrenCtrl.text;
+      fatherNameCtrl.text =
+          draft['fatherName']?.toString() ?? fatherNameCtrl.text;
+      motherNameCtrl.text =
+          draft['motherName']?.toString() ?? motherNameCtrl.text;
+      noOfChildrenCtrl.text =
+          draft['noOfChildren']?.toString() ?? noOfChildrenCtrl.text;
       permanentAddressCtrl.text =
           draft['permanentAddress']?.toString() ?? permanentAddressCtrl.text;
       pincodeCtrl.text = draft['pincode']?.toString() ?? pincodeCtrl.text;
-      postOfficeCtrl.text = draft['postOffice']?.toString() ?? postOfficeCtrl.text;
+      postOfficeCtrl.text =
+          draft['postOffice']?.toString() ?? postOfficeCtrl.text;
       districtCtrl.text = draft['district']?.toString() ?? districtCtrl.text;
       stateCtrl.text = draft['state']?.toString() ?? stateCtrl.text;
       countryCtrl.text = draft['country']?.toString() ?? countryCtrl.text;
 
-      final lat = (draft['latitude'] ?? draft['lat'] ?? draft['location']?['latitude'])?.toString();
+      final lat =
+          (draft['latitude'] ?? draft['lat'] ?? draft['location']?['latitude'])
+              ?.toString();
       if (lat != null && lat.isNotEmpty && lat != 'null') {
         latitude.value = lat;
       }
-      final lng = (draft['longitude'] ?? draft['lng'] ?? draft['location']?['longitude'])?.toString();
+      final lng =
+          (draft['longitude'] ??
+                  draft['lng'] ??
+                  draft['location']?['longitude'])
+              ?.toString();
       if (lng != null && lng.isNotEmpty && lng != 'null') {
         longitude.value = lng;
       }
 
+      final savedClientEaId = draft['economicActivityId']?.toString();
       economicActivityTypeId.value =
-          draft['economicActivityTypeId']?.toString() ?? economicActivityTypeId.value;
-      economicActivityId.value =
-          draft['economicActivityId']?.toString() ?? economicActivityId.value;
+          draft['economicActivityTypeId']?.toString() ??
+          economicActivityTypeId.value;
       if (economicActivityTypeId.value != null &&
           economicActivityTypeId.value!.isNotEmpty) {
-        onEconomicActivityTypeChanged(
+        await onEconomicActivityTypeChanged(
           economicActivityTypeId.value,
           scope: EaScope.client,
         );
       }
+      if (savedClientEaId != null && savedClientEaId.isNotEmpty) {
+        economicActivityId.value = savedClientEaId;
+      }
 
       monthlyFamilyIncomeCtrl.text =
-          draft['monthlyFamilyIncome']?.toString() ?? monthlyFamilyIncomeCtrl.text;
+          draft['monthlyFamilyIncome']?.toString() ??
+          monthlyFamilyIncomeCtrl.text;
       monthlyFamilyExpenseCtrl.text =
-          draft['monthlyFamilyExpense']?.toString() ?? monthlyFamilyExpenseCtrl.text;
-      spouseNameCtrl.text = draft['spouseName']?.toString() ?? spouseNameCtrl.text;
+          draft['monthlyFamilyExpense']?.toString() ??
+          monthlyFamilyExpenseCtrl.text;
+      spouseNameCtrl.text =
+          draft['spouseName']?.toString() ?? spouseNameCtrl.text;
 
-      final spouseDobVal = (draft['spouseDob'] ?? draft['spouseDateOfBirth'])?.toString();
+      final spouseDobVal = (draft['spouseDob'] ?? draft['spouseDateOfBirth'])
+          ?.toString();
       if (spouseDobVal != null && spouseDobVal.isNotEmpty) {
         spouseDobCtrl.text = _formatDob(spouseDobVal);
       }
 
       spouseMobileNumberCtrl.text =
-          draft['spouseMobileNumber']?.toString() ?? spouseMobileNumberCtrl.text;
-      spouseGender.value = draft['spouseGender']?.toString() ?? spouseGender.value;
+          draft['spouseMobileNumber']?.toString() ??
+          spouseMobileNumberCtrl.text;
+      spouseGender.value =
+          draft['spouseGender']?.toString() ?? spouseGender.value;
+
+      final savedSpouseEaId = draft['spouseEconomicActivityId']?.toString();
       spouseEconomicActivityTypeId.value =
           draft['spouseEconomicActivityTypeId']?.toString() ??
           spouseEconomicActivityTypeId.value;
-      spouseEconomicActivityId.value =
-          draft['spouseEconomicActivityId']?.toString() ?? spouseEconomicActivityId.value;
       if (spouseEconomicActivityTypeId.value != null &&
           spouseEconomicActivityTypeId.value!.isNotEmpty) {
-        onEconomicActivityTypeChanged(
+        await onEconomicActivityTypeChanged(
           spouseEconomicActivityTypeId.value,
           scope: EaScope.spouse,
         );
       }
+      if (savedSpouseEaId != null && savedSpouseEaId.isNotEmpty) {
+        spouseEconomicActivityId.value = savedSpouseEaId;
+      }
 
       ifscCodeCtrl.text = draft['ifscCode']?.toString() ?? ifscCodeCtrl.text;
       bankAcNoCtrl.text = draft['bankAcNo']?.toString() ?? bankAcNoCtrl.text;
+      retypeBankAcNoCtrl.text =
+          draft['retypeBankAcNo']?.toString() ??
+          draft['bankAcNo']?.toString() ??
+          retypeBankAcNoCtrl.text;
       bankNameCtrl.text = draft['bankName']?.toString() ?? bankNameCtrl.text;
-      bankBranchCtrl.text = draft['bankBranch']?.toString() ?? bankBranchCtrl.text;
-      bankAccountType.value = draft['bankAccountType']?.toString() ?? bankAccountType.value;
-      votersIdNoCtrl.text = draft['votersIdNo']?.toString() ?? votersIdNoCtrl.text;
-      caVoterIdNoCtrl.text = draft['caVoterIdNo']?.toString() ?? caVoterIdNoCtrl.text;
+      bankBranchCtrl.text =
+          draft['bankBranch']?.toString() ?? bankBranchCtrl.text;
+      bankAccountType.value =
+          draft['bankAccountType']?.toString() ?? bankAccountType.value;
+      votersIdNoCtrl.text =
+          draft['votersIdNo']?.toString() ?? votersIdNoCtrl.text;
+      caVoterIdNoCtrl.text =
+          draft['caVoterIdNo']?.toString() ?? caVoterIdNoCtrl.text;
       otherIdNoCtrl.text = draft['otherIdNo']?.toString() ?? otherIdNoCtrl.text;
-      caOtherIdNoCtrl.text = draft['caOtherIdNo']?.toString() ?? caOtherIdNoCtrl.text;
+      caOtherIdNoCtrl.text =
+          draft['caOtherIdNo']?.toString() ?? caOtherIdNoCtrl.text;
       pancardNoCtrl.text = draft['pancardNo']?.toString() ?? pancardNoCtrl.text;
-      caPancardNoCtrl.text = draft['caPancardNo']?.toString() ?? caPancardNoCtrl.text;
-      smartCardNoCtrl.text = draft['smartCardNo']?.toString() ?? smartCardNoCtrl.text;
-      nomineeNameCtrl.text = draft['nomineeName']?.toString() ?? nomineeNameCtrl.text;
-      nomineeRelation.value = draft['nomineeRelation']?.toString() ?? nomineeRelation.value;
+      caPancardNoCtrl.text =
+          draft['caPancardNo']?.toString() ?? caPancardNoCtrl.text;
+      smartCardNoCtrl.text =
+          draft['smartCardNo']?.toString() ?? smartCardNoCtrl.text;
+      nomineeNameCtrl.text =
+          draft['nomineeName']?.toString() ?? nomineeNameCtrl.text;
+      nomineeRelation.value =
+          draft['nomineeRelation']?.toString() ?? nomineeRelation.value;
       nomineePhoneNumberCtrl.text =
           draft['nomineePhone']?.toString() ?? nomineePhoneNumberCtrl.text;
-      nomineeGender.value = draft['nomineeGender']?.toString() ?? nomineeGender.value;
+      nomineeGender.value =
+          draft['nomineeGender']?.toString() ?? nomineeGender.value;
 
-      final nomineeDobVal = (draft['nomineeDateOfBirth'] ?? draft['nomineeDob'])?.toString();
+      final nomineeDobVal = (draft['nomineeDateOfBirth'] ?? draft['nomineeDob'])
+          ?.toString();
       if (nomineeDobVal != null && nomineeDobVal.isNotEmpty) {
         nomineeDateOfBirthCtrl.text = _formatDob(nomineeDobVal);
       }
-      nomineeAgeCtrl.text = draft['nomineeAge']?.toString() ?? nomineeAgeCtrl.text;
+      nomineeAgeCtrl.text =
+          draft['nomineeAge']?.toString() ?? nomineeAgeCtrl.text;
 
+      final savedCoAppEaId = draft['coApplicantEconomicActivityId']?.toString();
       coApplicantEconomicActivityTypeId.value =
           draft['coApplicantEconomicActivityTypeId']?.toString() ??
           coApplicantEconomicActivityTypeId.value;
-      coApplicantEconomicActivityId.value =
-          draft['coApplicantEconomicActivityId']?.toString() ??
-          coApplicantEconomicActivityId.value;
       if (coApplicantEconomicActivityTypeId.value != null &&
           coApplicantEconomicActivityTypeId.value!.isNotEmpty) {
-        onEconomicActivityTypeChanged(
+        await onEconomicActivityTypeChanged(
           coApplicantEconomicActivityTypeId.value,
           scope: EaScope.coApplicant,
         );
+      }
+      if (savedCoAppEaId != null && savedCoAppEaId.isNotEmpty) {
+        coApplicantEconomicActivityId.value = savedCoAppEaId;
       }
 
       memberGroupStatus.value =
           draft['memberGroupStatus']?.toString() ??
           draft['groupStatus']?.toString() ??
           memberGroupStatus.value;
-      final centerId = (draft['requestedCenterId'] ?? draft['centerId'])?.toString();
+      final centerId = (draft['requestedCenterId'] ?? draft['centerId'])
+          ?.toString();
       if (centerId != null && centerId.isNotEmpty && centerId != 'null') {
         requestedCenterId.value = centerId;
         await onCenterChanged(centerId);
       }
-      final groupId = (draft['requestedGroupId'] ?? draft['groupId'])?.toString();
+      final groupId = (draft['requestedGroupId'] ?? draft['groupId'])
+          ?.toString();
       if (groupId != null && groupId.isNotEmpty && groupId != 'null') {
         requestedGroupId.value = groupId;
       }
@@ -450,9 +536,11 @@ mixin EnrollmentDraftMixin on GetxController {
           draft['requestedLoanProductTypeId']?.toString() ??
           requestedLoanProductTypeId.value;
       requestedLoanFrequency.value =
-          draft['requestedLoanFrequency']?.toString() ?? requestedLoanFrequency.value;
+          draft['requestedLoanFrequency']?.toString() ??
+          requestedLoanFrequency.value;
       requestedLoanProductId.value =
-          draft['requestedLoanProductId']?.toString() ?? requestedLoanProductId.value;
+          draft['requestedLoanProductId']?.toString() ??
+          requestedLoanProductId.value;
       if (requestedLoanProductId.value != null &&
           requestedLoanProductId.value!.isNotEmpty) {
         onLoanProductSelected(requestedLoanProductId.value);
@@ -465,7 +553,8 @@ mixin EnrollmentDraftMixin on GetxController {
         await onLoanPurposeTypeChanged(requestedLoanPurposeTypeId.value);
       }
       requestedLoanPurposeId.value =
-          draft['requestedLoanPurposeId']?.toString() ?? requestedLoanPurposeId.value;
+          draft['requestedLoanPurposeId']?.toString() ??
+          requestedLoanPurposeId.value;
 
       final docs = draft['kycDocuments'];
       if (docs is List) {

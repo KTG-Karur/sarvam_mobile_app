@@ -248,10 +248,17 @@ class KycDetailsTab extends StatelessWidget {
           children: [
             const Icon(Icons.qr_code_scanner_rounded, color: enrollmentGreen),
             SizedBox(width: 8.w),
-            Text(title, style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w800, color: const Color(0xFF063B20))),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w800, color: const Color(0xFF063B20)),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ],
         ),
-        content: Column(
+        content: SingleChildScrollView(
+          child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -275,6 +282,7 @@ class KycDetailsTab extends StatelessWidget {
             ),
           ],
         ),
+      ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),

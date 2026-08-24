@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/services/api_client.dart';
 import 'package:sarvam/services/member_individual_api_service.dart';
+import 'package:sarvam/services/secure_session_service.dart';
 
 /// Powers one loan's Member Individual detail screen — mirrors
 /// `components/loan-module/MemberIndividualDetailPage.tsx`'s Cash Flow, Loan
@@ -214,13 +216,23 @@ class MemberIndividualDetailController extends GetxController {
   final allProducts = <dynamic>[].obs;
 
   Future<void> fetchProductEditData() async {
-    final branchId = _fmt(branch['id']).isNotEmpty
+    var branchId = _fmt(branch['id']).isNotEmpty
         ? _fmt(branch['id'])
         : (_fmt(center['branchId']).isNotEmpty
             ? _fmt(center['branchId'])
             : _fmt(loan['branchId']));
 
-    if (branchId.isEmpty) return;
+    if (branchId.isEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      branchId = prefs.getString('branchId') ?? '';
+      if (branchId.isEmpty) {
+        final token = prefs.getString('accessToken') ?? '';
+        if (token.isNotEmpty) {
+          final claims = SecureSessionService.decodeJwtPayload(token);
+          branchId = claims?['branchId']?.toString() ?? '';
+        }
+      }
+    }
 
     isLoadingProductData.value = true;
     try {
@@ -240,7 +252,8 @@ class MemberIndividualDetailController extends GetxController {
     try {
       final isIndexed =
           loan['indexId'] != null ||
-          loan['disbursementStatus'] == 'PENDING_LEVEL2';
+          loan['disbursementStatus'] == 'PENDING_LEVEL2' ||
+          true;
       await api.updateLoanProduct(
         loanId,
         loanProductId: newProductId,
@@ -391,6 +404,41 @@ class MemberIndividualDetailController extends GetxController {
       return false;
     } finally {
       isCompletingVisit.value = false;
+    }
+  }
+
+  final RxMap<String, String> signedUrlCache = <String, String>{}.obs;
+  final Set<String> _resolvingKeys = <String>{};
+
+  /// Resolves a private storage key (e.g. GCS/S3 object key) to a viewable signed URL.
+  Future<void> resolveSignedUrl(String key) async {
+    if (key.isEmpty || signedUrlCache.containsKey(key) || _resolvingKeys.contains(key)) {
+      return;
+    }
+
+    if (key.startsWith('http://') || key.startsWith('https://') || key.startsWith('data:')) {
+      signedUrlCache[key] = key;
+      return;
+    }
+    if (key.startsWith('/')) {
+      signedUrlCache[key] = '${Api.baseUrl}$key';
+      return;
+    }
+
+    _resolvingKeys.add(key);
+    try {
+      final rawUrl = await api.getSignedUrl(key);
+      if (rawUrl != null && rawUrl.isNotEmpty) {
+        String finalUrl = rawUrl;
+        if (finalUrl.startsWith('/')) {
+          finalUrl = '${Api.baseUrl}$finalUrl';
+        }
+        signedUrlCache[key] = finalUrl;
+      }
+    } catch (e) {
+      debugPrint('Failed to resolve signed URL for $key: $e');
+    } finally {
+      _resolvingKeys.remove(key);
     }
   }
 }

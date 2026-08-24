@@ -286,10 +286,10 @@ class ClientEnrollmentController extends GetxController
   void validateMobileNumber(String value, Rxn<String> errorState) {
     final text = value.trim();
     if (text.isEmpty) {
-      errorState.value = 'Enter a 10-digit phone number.';
+      errorState.value = null;
       return;
     }
-    if (!RegExp(r'^[6-9]\d{9}$').hasMatch(text)) {
+    if (!RegExp(r'^\d{10}$').hasMatch(text)) {
       errorState.value = 'Please enter a valid 10-digit phone number.';
       return;
     }

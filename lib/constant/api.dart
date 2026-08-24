@@ -1,5 +1,5 @@
 class Api {
-  static const String baseUrl = "http://192.168.29.100:3320";
+  static const String baseUrl = "http://192.168.29.204:3320";
   // static const String baseUrl = "http://192.168.29.96:3320";
   // static const String baseUrl = "http://172.29.176.1:3320";
   // static const String baseUrl = "http://localhost:3320";

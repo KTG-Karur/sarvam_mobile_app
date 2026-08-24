@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/controller/dashboard_controller.dart';
 import 'package:sarvam/view/AM/collection_view/collection_view_hub.dart';
+import 'package:sarvam/view/BM/collection_approval/collection_approval.dart';
 import 'package:sarvam/view/FDO/client_search_locate/client_search_locate.dart';
 import 'package:sarvam/view/FDO/loan_disbursement/loan_disbursement.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
@@ -1057,9 +1058,30 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
     );
   }
 
-  /// Row 3 — Client Loan Tracker + Location + Profile
+  /// Row 3 — Collection Approval Shortcut
   Widget _shortcutRow3() {
-    return Row(children: [SizedBox(width: 10.w)]);
+    return Row(
+      children: [
+        SizedBox(width: 10.w),
+        Expanded(
+          child: _tile(
+            asset: 'assets/icon/disbursement_approval.png',
+            label: 'Collection\nApproval',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const CollectionApproval(),
+              ),
+            ),
+          ),
+        ),
+        SizedBox(width: 10.w),
+        const Expanded(child: SizedBox()),
+        SizedBox(width: 10.w),
+        const Expanded(child: SizedBox()),
+        SizedBox(width: 10.w),
+        const Expanded(child: SizedBox()),
+      ],
+    );
   }
 
   Widget _tile({

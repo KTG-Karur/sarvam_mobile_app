@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/controller/member_individual_detail_controller.dart';
+import 'package:sarvam/services/api_client.dart';
+import 'package:sarvam/services/grt_api_service.dart';
+import 'package:sarvam/view/BM/group_assignment/widgets/id_dropdown.dart';
+import 'package:sarvam/view/BM/member_individual/grt_session_conduct_screen.dart';
+import 'package:sarvam/view/BM/member_individual/grt_session_create_dialog.dart';
 
 const _green = Color(0xFF0D6842);
 const _darkText = Color(0xFF172033);
@@ -758,11 +763,29 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
               }
             }
 
-            final typeProducts = products.where((p) {
+            final maxAmount = (loan['maxAllowedAmount'] is num)
+                ? (loan['maxAllowedAmount'] as num).toDouble()
+                : double.tryParse(loan['maxAllowedAmount']?.toString() ?? '') ??
+                    ((loan['amount'] is num)
+                        ? (loan['amount'] as num).toDouble()
+                        : double.tryParse(loan['amount']?.toString() ?? '') ?? double.infinity);
+
+            var typeProducts = products.where((p) {
               if (p is! Map) return false;
+              final pAmount = _amount(p, 'loanAmount');
+              if (maxAmount > 0 && maxAmount < double.infinity && pAmount > maxAmount) return false;
               if (selectedTypeId.value == null || selectedTypeId.value!.isEmpty) return true;
               return p['loanProductTypeId']?.toString() == selectedTypeId.value;
             }).toList();
+
+            // If maxAmount filtering results in no products, fallback to showing all products for the selected type
+            if (typeProducts.isEmpty && products.isNotEmpty) {
+              typeProducts = products.where((p) {
+                if (p is! Map) return false;
+                if (selectedTypeId.value == null || selectedTypeId.value!.isEmpty) return true;
+                return p['loanProductTypeId']?.toString() == selectedTypeId.value;
+              }).toList();
+            }
 
             final availableFreqs = typeProducts
                 .map((p) => p['frequency']?.toString().toLowerCase() ?? '')
@@ -808,23 +831,17 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
                   style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700, color: _darkText),
                 ),
                 SizedBox(height: 6.h),
-                DropdownButtonFormField<String>(
-                  initialValue: selectedTypeId.value,
-                  decoration: InputDecoration(
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10.r)),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10.r),
-                      borderSide: const BorderSide(color: _green, width: 1.4),
-                    ),
-                  ),
-                  hint: const Text('Select Product Type'),
-                  items: types.map<DropdownMenuItem<String>>((t) {
-                    return DropdownMenuItem<String>(
-                      value: t['id']?.toString(),
-                      child: Text('${t['name']}', style: TextStyle(fontSize: 12.5.sp)),
+                IdDropdown(
+                  label: 'Product Type',
+                  value: selectedTypeId.value,
+                  items: types,
+                  labelBuilder: (_, id) {
+                    final t = types.cast<Map<String, dynamic>?>().firstWhere(
+                      (e) => e?['id']?.toString() == id,
+                      orElse: () => null,
                     );
-                  }).toList(),
+                    return t != null ? '${t['name']}' : id;
+                  },
                   onChanged: (val) {
                     selectedTypeId.value = val;
                     selectedFrequency.value = null;
@@ -868,24 +885,19 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
                   style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700, color: _darkText),
                 ),
                 SizedBox(height: 6.h),
-                DropdownButtonFormField<String>(
-                  initialValue: selectedProductId.value,
-                  decoration: InputDecoration(
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10.r)),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10.r),
-                      borderSide: const BorderSide(color: _green, width: 1.4),
-                    ),
-                  ),
-                  hint: const Text('Select Loan Product'),
-                  items: filteredProducts.map<DropdownMenuItem<String>>((p) {
-                    final amount = _currency(_amount(p, 'loanAmount'));
-                    return DropdownMenuItem<String>(
-                      value: p['id']?.toString(),
-                      child: Text('${p['productName']} ($amount)', style: TextStyle(fontSize: 12.5.sp)),
+                IdDropdown(
+                  label: 'Loan Product',
+                  value: selectedProductId.value,
+                  items: filteredProducts,
+                  labelBuilder: (_, id) {
+                    final p = filteredProducts.cast<Map<String, dynamic>?>().firstWhere(
+                      (e) => e?['id']?.toString() == id,
+                      orElse: () => null,
                     );
-                  }).toList(),
+                    if (p == null) return id;
+                    final amount = _currency(_amount(p, 'loanAmount'));
+                    return '${p['productName']} ($amount)';
+                  },
                   onChanged: (val) {
                     selectedProductId.value = val;
                   },
@@ -1016,15 +1028,92 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
     );
   }
 
+  double? _calcDistanceMeters(dynamic sourceLat, dynamic sourceLng, dynamic targetLat, dynamic targetLng) {
+    if (sourceLat == null || sourceLng == null || targetLat == null || targetLng == null) return null;
+    final sLat = double.tryParse('$sourceLat');
+    final sLng = double.tryParse('$sourceLng');
+    final tLat = double.tryParse('$targetLat');
+    final tLng = double.tryParse('$targetLng');
+    if (sLat == null || sLng == null || tLat == null || tLng == null) return null;
+    if (sLat == 0 || sLng == 0 || tLat == 0 || tLng == 0) return null;
+    try {
+      return Geolocator.distanceBetween(sLat, sLng, tLat, tLng);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Widget _storageImageWidget({
+    required String? photoKey,
+    required double width,
+    required double height,
+    BoxFit fit = BoxFit.cover,
+    BorderRadius? borderRadius,
+  }) {
+    if (photoKey == null || photoKey.trim().isEmpty) {
+      return Container(
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          color: const Color(0xFFEFF3F1),
+          borderRadius: borderRadius ?? BorderRadius.circular(8.r),
+        ),
+        child: Icon(Icons.image_outlined, size: 24.sp, color: _muted),
+      );
+    }
+
+    final key = photoKey.trim();
+    controller.resolveSignedUrl(key);
+
+    return Obx(() {
+      final resolvedUrl = controller.signedUrlCache[key];
+      if (resolvedUrl == null) {
+        return Container(
+          width: width,
+          height: height,
+          decoration: BoxDecoration(
+            color: const Color(0xFFEFF3F1),
+            borderRadius: borderRadius ?? BorderRadius.circular(8.r),
+          ),
+          alignment: Alignment.center,
+          child: SizedBox(
+            width: 16.sp,
+            height: 16.sp,
+            child: const CircularProgressIndicator(strokeWidth: 2, color: _green),
+          ),
+        );
+      }
+
+      return ClipRRect(
+        borderRadius: borderRadius ?? BorderRadius.circular(8.r),
+        child: Image.network(
+          resolvedUrl,
+          width: width,
+          height: height,
+          fit: fit,
+          errorBuilder: (_, __, ___) => Container(
+            width: width,
+            height: height,
+            color: const Color(0xFFEFF3F1),
+            alignment: Alignment.center,
+            child: Icon(Icons.broken_image_outlined, size: 24.sp, color: Colors.redAccent),
+          ),
+        ),
+      );
+    });
+  }
+
   Widget _distanceChip({
     required String label,
     required dynamic distanceMeters,
+    dynamic fallbackDistanceMeters,
     double? maxRadiusMeters,
   }) {
-    if (distanceMeters == null) return const SizedBox.shrink();
-    final meters = (distanceMeters is num)
-        ? distanceMeters.toDouble()
-        : (double.tryParse('$distanceMeters') ?? 0.0);
+    final dist = distanceMeters ?? fallbackDistanceMeters;
+    if (dist == null) return const SizedBox.shrink();
+    final meters = (dist is num)
+        ? dist.toDouble()
+        : (double.tryParse('$dist') ?? 0.0);
     final isKm = meters >= 1000;
     final displayDist = isKm
         ? '${(meters / 1000).toStringAsFixed(2)} km'
@@ -1063,8 +1152,151 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
     );
   }
 
+  Widget _distanceMetricBox({
+    required String label,
+    required String value,
+    required IconData icon,
+  }) {
+    return Container(
+      padding: EdgeInsets.all(8.w),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8.r),
+        border: Border.all(color: const Color(0xFFE1EAE4)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 16.sp, color: _green),
+          SizedBox(width: 8.w),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 8.5.sp,
+                    fontWeight: FontWeight.w700,
+                    color: _muted,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+                SizedBox(height: 2.h),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 12.sp,
+                    fontWeight: FontWeight.w800,
+                    color: _darkText,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDistanceSummaryCard() {
+    final center = controller.center;
+    final branch = controller.branch;
+    final visit = controller.houseHoldVisit;
+    final client = controller.record.value?['client'] as Map?;
+
+    // Center -> Branch
+    dynamic kmBranchVal = center['kmFromBranch'];
+    double? centerToBranchMeters = kmBranchVal != null && double.tryParse('$kmBranchVal') != null
+        ? double.parse('$kmBranchVal') * 1000
+        : null;
+    centerToBranchMeters ??= _calcDistanceMeters(
+      center['latitude'], center['longitude'],
+      branch['latitude'], branch['longitude'],
+    );
+
+    // Visit / Client -> Center
+    double? visitToCenterMeters = visit['distanceMeters'] != null
+        ? double.tryParse('${visit['distanceMeters']}')
+        : null;
+    visitToCenterMeters ??= _calcDistanceMeters(
+      visit['latitude'] ?? client?['latitude'], visit['longitude'] ?? client?['longitude'],
+      center['latitude'], center['longitude'],
+    );
+
+    // Visit / Client -> Branch
+    double? visitToBranchMeters = visit['distanceFromBranchMeters'] != null
+        ? double.tryParse('${visit['distanceFromBranchMeters']}')
+        : null;
+    visitToBranchMeters ??= _calcDistanceMeters(
+      visit['latitude'] ?? client?['latitude'], visit['longitude'] ?? client?['longitude'],
+      branch['latitude'], branch['longitude'],
+    );
+
+    String formatKm(double? meters) {
+      if (meters == null) return 'N/A';
+      return '${(meters / 1000).toStringAsFixed(2)} KM';
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(12.w),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0FAF4),
+        border: Border.all(color: const Color(0xFFC6E7D2)),
+        borderRadius: BorderRadius.circular(12.r),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.alt_route_rounded, size: 16.sp, color: _green),
+              SizedBox(width: 6.w),
+              Text(
+                'Distance Metrics Summary',
+                style: TextStyle(
+                  fontSize: 12.sp,
+                  fontWeight: FontWeight.w800,
+                  color: _darkText,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 10.h),
+          Row(
+            children: [
+              Expanded(
+                child: _distanceMetricBox(
+                  label: 'KM FROM BRANCH',
+                  value: formatKm(centerToBranchMeters),
+                  icon: Icons.account_balance_rounded,
+                ),
+              ),
+              SizedBox(width: 8.w),
+              Expanded(
+                child: _distanceMetricBox(
+                  label: 'KM FROM CENTER',
+                  value: formatKm(visitToCenterMeters),
+                  icon: Icons.storefront_rounded,
+                ),
+              ),
+            ],
+          ),
+          if (visitToBranchMeters != null) ...[
+            SizedBox(height: 8.h),
+            _distanceMetricBox(
+              label: 'VISIT KM FROM BRANCH',
+              value: formatKm(visitToBranchMeters),
+              icon: Icons.home_rounded,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildFdoHouseImageCard(Map<String, dynamic>? fdoHouseImage) {
-    if (fdoHouseImage == null || fdoHouseImage['photoUrl'] == null) {
+    if (fdoHouseImage == null || fdoHouseImage['photoUrl'] == null || fdoHouseImage['photoUrl'].toString().trim().isEmpty) {
       return Container(
         width: double.infinity,
         padding: EdgeInsets.all(10.w),
@@ -1088,10 +1320,7 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
       );
     }
 
-    String url = fdoHouseImage['photoUrl'].toString();
-    if (!url.startsWith('http')) {
-      url = '${Api.baseUrl}$url';
-    }
+    final photoKey = fdoHouseImage['photoUrl'].toString();
 
     return Container(
       width: double.infinity,
@@ -1119,20 +1348,12 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
             ],
           ),
           SizedBox(height: 10.h),
-          ClipRRect(
+          _storageImageWidget(
+            photoKey: photoKey,
+            width: double.infinity,
+            height: 160.h,
+            fit: BoxFit.cover,
             borderRadius: BorderRadius.circular(10.r),
-            child: Image.network(
-              url,
-              width: double.infinity,
-              height: 160.h,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(
-                height: 120.h,
-                color: const Color(0xFFF1F5F9),
-                alignment: Alignment.center,
-                child: const Text('Unable to load FDO House Image'),
-              ),
-            ),
           ),
           if (fdoHouseImage['uploadedByName'] != null) ...[
             SizedBox(height: 6.h),
@@ -1167,6 +1388,8 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
                 'House Hold Visit completed on ${_formatDateTime(controller.houseHoldVisit['completedAt'])}',
               ),
             SizedBox(height: 10.h),
+            _buildDistanceSummaryCard(),
+            SizedBox(height: 12.h),
             _buildFdoHouseImageCard(fdoMap),
             SizedBox(height: 14.h),
             Container(
@@ -1304,17 +1527,20 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
 
   Widget _photoCard(Map<String, dynamic> photo) {
     final isMandatory = photo['isMandatory'] == true;
-    final distanceCenter = photo['distanceMeters'];
-    final distanceBranch = photo['distanceFromBranchMeters'];
-    final distanceFdo = photo['distanceFromClientMeters'];
-    final photoId = photo['id']?.toString() ?? '';
-    final outOfRange =
-        isMandatory && distanceCenter is num && distanceCenter > 500;
+    final photoLat = photo['latitude'];
+    final photoLng = photo['longitude'];
+    final center = controller.center;
+    final branch = controller.branch;
+    final client = controller.record.value?['client'] as Map?;
 
-    String photoUrl = photo['photoUrl']?.toString() ?? '';
-    if (photoUrl.isNotEmpty && !photoUrl.startsWith('http')) {
-      photoUrl = '${Api.baseUrl}$photoUrl';
-    }
+    final fallbackCenter = _calcDistanceMeters(photoLat, photoLng, center['latitude'], center['longitude']);
+    final fallbackBranch = _calcDistanceMeters(photoLat, photoLng, branch['latitude'], branch['longitude']);
+    final fallbackFdo = _calcDistanceMeters(photoLat, photoLng, client?['latitude'], client?['longitude']);
+
+    final distanceCenter = photo['distanceMeters'] ?? fallbackCenter;
+    final photoId = photo['id']?.toString() ?? '';
+    final outOfRange = isMandatory && distanceCenter is num && distanceCenter > 500;
+    final photoKey = photo['photoUrl']?.toString() ?? '';
 
     return Obx(() {
       final deleting = controller.deletingPhotoId.value == photoId;
@@ -1335,35 +1561,12 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                ClipRRect(
+                _storageImageWidget(
+                  photoKey: photoKey,
+                  width: 60.w,
+                  height: 60.w,
+                  fit: BoxFit.cover,
                   borderRadius: BorderRadius.circular(8.r),
-                  child: photoUrl.isNotEmpty
-                      ? Image.network(
-                          photoUrl,
-                          width: 60.w,
-                          height: 60.w,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(
-                            width: 60.w,
-                            height: 60.w,
-                            color: const Color(0xFFEFF3F1),
-                            child: Icon(
-                              Icons.image_outlined,
-                              color: _muted,
-                              size: 24.sp,
-                            ),
-                          ),
-                        )
-                      : Container(
-                          width: 60.w,
-                          height: 60.w,
-                          color: const Color(0xFFEFF3F1),
-                          child: Icon(
-                            Icons.image_outlined,
-                            color: _muted,
-                            size: 24.sp,
-                          ),
-                        ),
                 ),
                 SizedBox(width: 10.w),
                 Expanded(
@@ -1409,12 +1612,23 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
                         spacing: 6.w,
                         runSpacing: 4.h,
                         children: [
-                          if (distanceBranch != null)
-                            _distanceChip(label: 'Branch', distanceMeters: distanceBranch),
-                          if (distanceCenter != null)
-                            _distanceChip(label: 'Center', distanceMeters: distanceCenter, maxRadiusMeters: isMandatory ? 500 : null),
-                          if (distanceFdo != null)
-                            _distanceChip(label: 'FDO', distanceMeters: distanceFdo, maxRadiusMeters: isMandatory ? 100 : null),
+                          _distanceChip(
+                            label: 'Branch',
+                            distanceMeters: photo['distanceFromBranchMeters'],
+                            fallbackDistanceMeters: fallbackBranch,
+                          ),
+                          _distanceChip(
+                            label: 'Center',
+                            distanceMeters: photo['distanceMeters'],
+                            fallbackDistanceMeters: fallbackCenter,
+                            maxRadiusMeters: isMandatory ? 500 : null,
+                          ),
+                          _distanceChip(
+                            label: 'FDO',
+                            distanceMeters: photo['distanceFromClientMeters'],
+                            fallbackDistanceMeters: fallbackFdo,
+                            maxRadiusMeters: isMandatory ? 100 : null,
+                          ),
                         ],
                       ),
                     ],
@@ -1623,24 +1837,13 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
                                       separatorBuilder: (_, __) => SizedBox(width: 6.w),
                                       itemBuilder: (_, pIdx) {
                                         final photo = Map<String, dynamic>.from(qPhotos[pIdx]);
-                                        String pUrl = photo['photoUrl']?.toString() ?? '';
-                                        if (pUrl.isNotEmpty && !pUrl.startsWith('http')) {
-                                          pUrl = '${Api.baseUrl}$pUrl';
-                                        }
-                                        return ClipRRect(
+                                        final pKey = photo['photoUrl']?.toString();
+                                        return _storageImageWidget(
+                                          photoKey: pKey,
+                                          width: 60.h,
+                                          height: 60.h,
+                                          fit: BoxFit.cover,
                                           borderRadius: BorderRadius.circular(6.r),
-                                          child: Image.network(
-                                            pUrl,
-                                            width: 60.h,
-                                            height: 60.h,
-                                            fit: BoxFit.cover,
-                                            errorBuilder: (_, __, ___) => Container(
-                                              width: 60.h,
-                                              height: 60.h,
-                                              color: const Color(0xFFEFF3F1),
-                                              child: Icon(Icons.image_outlined, size: 18.sp, color: _muted),
-                                            ),
-                                          ),
                                         );
                                       },
                                     ),
@@ -1674,24 +1877,13 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
                     separatorBuilder: (_, __) => SizedBox(width: 8.w),
                     itemBuilder: (_, pIdx) {
                       final photo = Map<String, dynamic>.from(sessionPhotos[pIdx]);
-                      String pUrl = photo['photoUrl']?.toString() ?? '';
-                      if (pUrl.isNotEmpty && !pUrl.startsWith('http')) {
-                        pUrl = '${Api.baseUrl}$pUrl';
-                      }
-                      return ClipRRect(
+                      final pKey = photo['photoUrl']?.toString();
+                      return _storageImageWidget(
+                        photoKey: pKey,
+                        width: 90.h,
+                        height: 90.h,
+                        fit: BoxFit.cover,
                         borderRadius: BorderRadius.circular(8.r),
-                        child: Image.network(
-                          pUrl,
-                          width: 90.h,
-                          height: 90.h,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(
-                            width: 90.h,
-                            height: 90.h,
-                            color: const Color(0xFFEFF3F1),
-                            child: Icon(Icons.image_outlined, size: 24.sp, color: _muted),
-                          ),
-                        ),
                       );
                     },
                   ),
@@ -1706,31 +1898,91 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
                   border: Border.all(color: const Color(0xFFF5DD9E)),
                   borderRadius: BorderRadius.circular(12.r),
                 ),
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.access_time_rounded, size: 24.sp, color: const Color(0xFF9A6B00)),
-                    SizedBox(width: 12.w),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'GRT Session Pending',
-                            style: TextStyle(
-                              fontSize: 13.sp,
-                              fontWeight: FontWeight.w800,
-                              color: const Color(0xFF9A6B00),
-                            ),
+                    Row(
+                      children: [
+                        Icon(Icons.access_time_rounded, size: 24.sp, color: const Color(0xFF9A6B00)),
+                        SizedBox(width: 12.w),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'GRT Session Pending',
+                                style: TextStyle(
+                                  fontSize: 13.sp,
+                                  fontWeight: FontWeight.w800,
+                                  color: const Color(0xFF9A6B00),
+                                ),
+                              ),
+                              SizedBox(height: 4.h),
+                              Text(
+                                'Group Readiness Test (GRT) has not been completed for this member/center yet.',
+                                style: TextStyle(
+                                  fontSize: 11.sp,
+                                  color: const Color(0xFF9A6B00),
+                                ),
+                              ),
+                            ],
                           ),
-                          SizedBox(height: 4.h),
-                          Text(
-                            'Group Readiness Test (GRT) has not been completed for this member/center yet.',
-                            style: TextStyle(
-                              fontSize: 11.sp,
-                              color: const Color(0xFF9A6B00),
-                            ),
-                          ),
-                        ],
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 14.h),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                          final centerId = controller.center['id']?.toString() ?? '';
+                          final centerName = controller.center['name']?.toString() ?? 'Center';
+                          if (centerId.isEmpty) return;
+
+                          final api = GrtApiService(
+                            Get.isRegistered<ApiClient>() ? Get.find<ApiClient>() : Get.put(ApiClient()),
+                          );
+
+                          try {
+                            final sessions = await api.getGrtSessions(centerId);
+                            String? sessionId;
+                            final active = sessions.firstWhere(
+                              (s) => s['isComplete'] != true,
+                              orElse: () => null,
+                            );
+
+                            if (active != null) {
+                              sessionId = active['sessionId']?.toString() ?? active['id']?.toString();
+                            } else if (mounted) {
+                              sessionId = await showDialog<String>(
+                                context: context,
+                                builder: (_) => GrtSessionCreateDialog(centerId: centerId, centerName: centerName),
+                              );
+                            }
+
+                            if (sessionId != null && sessionId.isNotEmpty && mounted) {
+                              final updated = await Navigator.push<bool>(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => GrtSessionConductScreen(sessionId: sessionId!, centerName: centerName),
+                                ),
+                              );
+                              if (updated == true) {
+                                controller.loadRecord();
+                              }
+                            }
+                          } catch (e) {
+                            Get.snackbar('Error', 'Failed to fetch GRT sessions: $e', backgroundColor: Colors.redAccent, colorText: Colors.white);
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _green,
+                          foregroundColor: Colors.white,
+                          padding: EdgeInsets.symmetric(vertical: 12.h),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.r)),
+                        ),
+                        icon: const Icon(Icons.play_circle_fill_rounded, size: 18),
+                        label: Text('Conduct GRT Session for Center', style: TextStyle(fontSize: 12.5.sp, fontWeight: FontWeight.w700)),
                       ),
                     ),
                   ],

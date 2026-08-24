@@ -332,10 +332,17 @@ class OtherDetailsTab extends StatelessWidget {
           children: [
             const Icon(Icons.qr_code_scanner_rounded, color: enrollmentGreen),
             const SizedBox(width: 8),
-            Text('Scan $docTitle', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF063B20))),
+            Expanded(
+              child: Text(
+                'Scan $docTitle',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF063B20)),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ],
         ),
-        content: Column(
+        content: SingleChildScrollView(
+          child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -392,6 +399,7 @@ class OtherDetailsTab extends StatelessWidget {
             ),
           ],
         ),
+      ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),

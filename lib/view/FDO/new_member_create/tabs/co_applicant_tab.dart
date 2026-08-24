@@ -16,8 +16,8 @@ class CoApplicantTab extends StatelessWidget {
   Widget build(BuildContext context) => Obx(() {
     final locked = controller.coApplicantFieldsLockedFromSpouse.value;
     // Register Obx dependency on lookup lists so dropdowns update when loaded
-    final _ = controller.economicActivityTypes.length;
-    final __ = controller.coApplicantEconomicActivitiesForType.length;
+    controller.economicActivityTypes.length;
+    controller.coApplicantEconomicActivitiesForType.length;
     return EnrollmentSectionShell(
       title: 'Co-Applicant Details',
       subtitle: 'Enter co-applicant details for this enrollment.',
@@ -71,7 +71,7 @@ class CoApplicantTab extends StatelessWidget {
           keyboardType: TextInputType.phone,
           maxLength: 10,
           readOnly: locked,
-          errorText: controller.nomineePhoneNumberError.value,
+          errorText: locked ? null : controller.nomineePhoneNumberError.value,
         ),
         EnrollmentSelectField(
           label: 'Gender',
@@ -223,10 +223,17 @@ void _showScanDialog(
         children: [
           const Icon(Icons.qr_code_scanner_rounded, color: enrollmentGreen),
           const SizedBox(width: 8),
-          Text('Scan $docTitle', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF063B20))),
+          Expanded(
+            child: Text(
+              'Scan $docTitle',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF063B20)),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
       ),
-      content: Column(
+      content: SingleChildScrollView(
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -281,6 +288,7 @@ void _showScanDialog(
           ),
         ],
       ),
+    ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx),

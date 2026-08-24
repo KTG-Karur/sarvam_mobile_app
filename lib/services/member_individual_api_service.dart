@@ -163,9 +163,16 @@ class MemberIndividualApiService {
   Future<List<dynamic>> getLoanProductTypes() =>
       _getList("${Api.loanProductTypesUrl}?includeInactive=false");
 
-  /// `GET /api/products?branchId={branchId}`
-  Future<List<dynamic>> getProductsForBranch(String branchId) =>
-      _getList("${Api.productsUrl}?branchId=$branchId");
+  /// `GET /api/products?branchId={branchId}` (with fallback to all products if empty)
+  Future<List<dynamic>> getProductsForBranch(String branchId) async {
+    if (branchId.isNotEmpty) {
+      try {
+        final res = await _getList("${Api.productsUrl}?branchId=$branchId");
+        if (res.isNotEmpty) return res;
+      } catch (_) {}
+    }
+    return _getList("${Api.productsUrl}?includeInactive=false");
+  }
 
   /// `PATCH /api/disbursements/{loanId}/update-product` or `/api/loans/{loanId}/update-product`
   Future<Map<String, dynamic>> updateLoanProduct(
@@ -184,5 +191,18 @@ class MemberIndividualApiService {
     };
 
     return _patchMap(url, payload);
+  }
+
+  /// `GET /api/storage/signed-url?key=` — resolves a private-bucket object
+  /// key into a viewable signed URL.
+  Future<String?> getSignedUrl(String key) async {
+    final token = await _authToken();
+    _client.timeout = const Duration(seconds: 15);
+    final response = await _client.get(
+      "${Api.signedUrlUrl}?key=${Uri.encodeQueryComponent(key)}",
+      headers: _authHeaders(token),
+    );
+    final data = _unwrap(response);
+    return data is Map ? data['url']?.toString() : null;
   }
 }

@@ -331,44 +331,71 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
     return [
       SizedBox(height: 10.h),
       Container(
-        padding: EdgeInsets.all(10.w),
+        padding: EdgeInsets.all(12.w),
         decoration: BoxDecoration(
           color: const Color(0xFFF0FAF4),
-          borderRadius: BorderRadius.circular(10.r),
+          border: Border.all(color: const Color(0xFFC6E7D2)),
+          borderRadius: BorderRadius.circular(12.r),
         ),
-        child: Row(
+        child: Column(
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'FIRST DUE DATE',
-                    style: TextStyle(fontSize: 8.5.sp, color: _muted, fontWeight: FontWeight.w700),
-                  ),
-                  SizedBox(height: 3.h),
-                  Obx(() {
-                    final due = controller.commonFirstDueDate;
-                    return Text(
-                      due ?? 'Not set — go to Loan Index Approval first',
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'FIRST DUE DATE',
+                      style: TextStyle(fontSize: 8.5.sp, color: _muted, fontWeight: FontWeight.w700),
+                    ),
+                    SizedBox(height: 2.h),
+                    Obx(() {
+                      final due = controller.commonFirstDueDate;
+                      return Text(
+                        due ?? 'Not set — go to Loan Index Approval first',
+                        style: TextStyle(
+                          fontSize: due == null ? 10.sp : 11.5.sp,
+                          fontWeight: FontWeight.w800,
+                          color: due == null ? Colors.red : _green,
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+                Obx(() => Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      'NET PAYABLE',
+                      style: TextStyle(fontSize: 8.5.sp, color: _green, fontWeight: FontWeight.w800),
+                    ),
+                    Text(
+                      _currency(controller.netDisbursementAmount),
                       style: TextStyle(
-                        fontSize: due == null ? 10.sp : 12.sp,
+                        fontSize: 14.sp,
                         fontWeight: FontWeight.w800,
-                        color: due == null ? Colors.red : _green,
+                        color: _green,
                       ),
-                    );
-                  }),
-                ],
-              ),
+                    ),
+                  ],
+                )),
+              ],
             ),
-            Text(
-              _currency(_amount(idx, 'totalAmount')),
-              style: TextStyle(
-                fontSize: 14.sp,
-                fontWeight: FontWeight.w800,
-                color: _green,
-              ),
-            ),
+            Divider(height: 14.h, color: const Color(0xFFC6E7D2)),
+            Obx(() => Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Gross Loans: ${_currency(controller.totalLoanAmount)}',
+                  style: TextStyle(fontSize: 10.5.sp, fontWeight: FontWeight.w600, color: _darkText),
+                ),
+                Text(
+                  'Admission Fees: -${_currency(controller.totalAdmissionFee)}',
+                  style: TextStyle(fontSize: 10.5.sp, fontWeight: FontWeight.w700, color: const Color(0xFFB91C1C)),
+                ),
+              ],
+            )),
           ],
         ),
       ),
@@ -484,6 +511,10 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
       final status = controller.attendanceMap[loanId];
       final fee = controller.admissionFeeMap[loanId] ?? 0.0;
       final selectedFunder = controller.memberFunderMap[loanId] ?? controller.funderId.value;
+      final isCustomFunder = controller.funderOverrides.contains(loanId);
+
+      final grossAmount = _amount(loan, 'amount');
+      final netAmount = (grossAmount - fee) < 0 ? 0.0 : (grossAmount - fee);
 
       return Container(
         margin: EdgeInsets.only(bottom: 8.h),
@@ -499,6 +530,7 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(
                   child: Column(
@@ -519,9 +551,18 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
                     ],
                   ),
                 ),
-                Text(
-                  _currency(_amount(loan, 'amount')),
-                  style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w800, color: _green),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      'Net: ${_currency(netAmount)}',
+                      style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w800, color: _green),
+                    ),
+                    Text(
+                      'Gross: ${_currency(grossAmount)}',
+                      style: TextStyle(fontSize: 9.5.sp, color: _muted),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -561,9 +602,26 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Fund Allocation',
-                        style: TextStyle(fontSize: 10.sp, fontWeight: FontWeight.w700, color: _muted),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Fund Allocation',
+                            style: TextStyle(fontSize: 10.sp, fontWeight: FontWeight.w700, color: _muted),
+                          ),
+                          if (isCustomFunder)
+                            Container(
+                              padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 1.h),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF3E8FF),
+                                borderRadius: BorderRadius.circular(3.r),
+                              ),
+                              child: Text(
+                                'Custom',
+                                style: TextStyle(fontSize: 8.sp, fontWeight: FontWeight.w800, color: const Color(0xFF7E22CE)),
+                              ),
+                            ),
+                        ],
                       ),
                       SizedBox(height: 4.h),
                       IdDropdown(

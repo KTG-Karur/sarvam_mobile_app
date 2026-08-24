@@ -96,6 +96,20 @@ mixin EnrollmentSubmitMixin on GetxController {
   int? _blankInt(String value) =>
       value.trim().isEmpty ? null : int.tryParse(value.trim());
 
+  String? _formatDateForApi(String? text) {
+    if (text == null || text.trim().isEmpty) return null;
+    final str = text.trim();
+    final dmy = RegExp(r'^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$');
+    final match = dmy.firstMatch(str);
+    if (match != null) {
+      final day = match.group(1)!.padLeft(2, '0');
+      final month = match.group(2)!.padLeft(2, '0');
+      final year = match.group(3)!;
+      return '$year-$month-$day';
+    }
+    return str;
+  }
+
   /// Drops null-valued keys. The backend's Zod schemas accept a field being
   /// *absent* (undefined) but not explicit JSON `null` for optional
   /// string/number fields — sending `null` fails with "Expected string,
@@ -156,7 +170,7 @@ mixin EnrollmentSubmitMixin on GetxController {
         'district': _blank(districtCtrl.text),
         'state': _blank(stateCtrl.text),
         'country': _blank(countryCtrl.text) ?? 'India',
-        'dateOfBirth': _blank(dobCtrl.text),
+        'dateOfBirth': _formatDateForApi(dobCtrl.text),
         'age': _blankInt(ageCtrl.text),
         'gender': gender.value,
         'caste': caste.value,
@@ -167,7 +181,7 @@ mixin EnrollmentSubmitMixin on GetxController {
         'qualification': qualification.value,
         'maritalStatus': maritalStatus.value,
         'spouseName': _blank(spouseNameCtrl.text),
-        'spouseDob': _blank(spouseDobCtrl.text),
+        'spouseDob': _formatDateForApi(spouseDobCtrl.text),
         'spouseMobileNumber': _blank(spouseMobileNumberCtrl.text),
         'spouseGender': spouseGender.value,
         'spouseEconomicActivityTypeId': spouseEconomicActivityTypeId.value,
@@ -190,7 +204,7 @@ mixin EnrollmentSubmitMixin on GetxController {
         'nomineeName': _blank(nomineeNameCtrl.text),
         'nomineePhoneNumber': _blank(nomineePhoneNumberCtrl.text),
         'nomineeGender': nomineeGender.value,
-        'nomineeDateOfBirth': _blank(nomineeDateOfBirthCtrl.text),
+        'nomineeDateOfBirth': _formatDateForApi(nomineeDateOfBirthCtrl.text),
         'nomineeAge': _blankInt(nomineeAgeCtrl.text),
         'nomineeRelation': nomineeRelation.value,
         'requestedLoanProductTypeId': requestedLoanProductTypeId.value,
@@ -211,14 +225,7 @@ mixin EnrollmentSubmitMixin on GetxController {
   /// Returns `null` when valid, or an error message when it isn't — also
   /// jumps [currentStep] to the first tab with a problem.
   String? validateBeforeSubmit() {
-    // Hard-required regardless of the dynamic validation config (Zod
-    // enforces these unconditionally server-side).
-    if (memberGroupStatus.value == null ||
-        requestedCenterId.value == null ||
-        requestedGroupId.value == null) {
-      currentStep.value = 4;
-      return 'Select Group Status, Center and Group before submitting.';
-    }
+    // Step 0: Member Details
     if (mobileNumberCtrl.text.trim().isEmpty) {
       currentStep.value = 0;
       return 'Mobile Number is required.';
@@ -227,10 +234,92 @@ mixin EnrollmentSubmitMixin on GetxController {
       currentStep.value = 0;
       return 'First Name is required.';
     }
+    if (isRequired('lastName') && lastNameCtrl.text.trim().isEmpty) {
+      currentStep.value = 0;
+      return 'Last Name is required.';
+    }
+    if (isRequired('dateOfBirth') && dobCtrl.text.trim().isEmpty) {
+      currentStep.value = 0;
+      return 'Date of Birth is required.';
+    }
+    if (isRequired('gender') && gender.value == null) {
+      currentStep.value = 0;
+      return 'Gender is required.';
+    }
+    if (isRequired('votersIdNo') && votersIdNoCtrl.text.trim().isEmpty) {
+      currentStep.value = 0;
+      return 'Voter ID is required.';
+    }
 
-    // Client vs co-applicant identity-collision check, mirroring the
-    // backend's Zod `superRefine` (approximate — normalizes by trimming
-    // only, not full phone/ID normalization).
+    // Step 1: Credit Check
+    if (isRequired('otherIdNo') && otherIdNoCtrl.text.trim().isEmpty) {
+      currentStep.value = 1;
+      return 'Aadhaar Number is required.';
+    }
+    if (isRequired('pancardNo') && pancardNoCtrl.text.trim().isEmpty) {
+      currentStep.value = 1;
+      return 'PAN Card is required.';
+    }
+
+    // Step 2: Other Details
+    if (isRequired('pincode') && pincodeCtrl.text.trim().isEmpty) {
+      currentStep.value = 2;
+      return 'Pincode is required.';
+    }
+    if (isRequired('ifscCode') && ifscCodeCtrl.text.trim().isEmpty) {
+      currentStep.value = 2;
+      return 'IFSC Code is required.';
+    }
+    if (isRequired('bankAcNo') && bankAcNoCtrl.text.trim().isEmpty) {
+      currentStep.value = 2;
+      return 'Bank Account Number is required.';
+    }
+
+    // Step 3: Co-Applicant
+    if ((isRequired('coApplicantName') || isRequired('nomineeName')) &&
+        nomineeNameCtrl.text.trim().isEmpty) {
+      currentStep.value = 3;
+      return 'Co-Applicant Name is required.';
+    }
+    if ((isRequired('coApplicantRelation') || isRequired('nomineeRelation')) &&
+        nomineeRelation.value == null) {
+      currentStep.value = 3;
+      return 'Co-Applicant Relation is required.';
+    }
+    if ((isRequired('coApplicantMobileNumber') || isRequired('nomineePhoneNumber')) &&
+        nomineePhoneNumberCtrl.text.trim().isEmpty) {
+      currentStep.value = 3;
+      return 'Co-Applicant Mobile Number is required.';
+    }
+    if ((isRequired('coApplicantDob') || isRequired('nomineeDateOfBirth')) &&
+        nomineeDateOfBirthCtrl.text.trim().isEmpty) {
+      currentStep.value = 3;
+      return 'Co-Applicant Date of Birth is required.';
+    }
+    if (isRequired('caOtherIdNo') && caOtherIdNoCtrl.text.trim().isEmpty) {
+      currentStep.value = 3;
+      return 'CA Aadhaar ID is required.';
+    }
+    if (isRequired('caVoterIdNo') && caVoterIdNoCtrl.text.trim().isEmpty) {
+      currentStep.value = 3;
+      return 'CA Voter ID is required.';
+    }
+    if (isRequired('caPancardNo') && caPancardNoCtrl.text.trim().isEmpty) {
+      currentStep.value = 3;
+      return 'CA PAN Card is required.';
+    }
+    if (isRequired('coApplicantEconomicActivityTypeId') &&
+        coApplicantEconomicActivityTypeId.value == null) {
+      currentStep.value = 3;
+      return 'Co-Applicant Economic Activity Type is required.';
+    }
+    if (isRequired('coApplicantEconomicActivityId') &&
+        coApplicantEconomicActivityId.value == null) {
+      currentStep.value = 3;
+      return 'Co-Applicant Economic Activity is required.';
+    }
+
+    // Client vs co-applicant identity-collision check
     final collisions = <String, String>{
       'Mobile Number': mobileNumberCtrl.text.trim(),
       'Aadhaar Number': otherIdNoCtrl.text.trim(),
@@ -250,6 +339,18 @@ mixin EnrollmentSubmitMixin on GetxController {
         currentStep.value = 3;
         return 'Client and Co-Applicant cannot use the same $label.';
       }
+    }
+
+    // Step 4: Loan Details
+    if (memberGroupStatus.value == null ||
+        requestedCenterId.value == null ||
+        requestedGroupId.value == null) {
+      currentStep.value = 4;
+      return 'Select Group Status, Center and Group before submitting.';
+    }
+    if (isRequired('requestedLoanProductId') && requestedLoanProductId.value == null) {
+      currentStep.value = 4;
+      return 'Requested Loan Product is required.';
     }
 
     return null;
@@ -280,6 +381,40 @@ mixin EnrollmentSubmitMixin on GetxController {
       );
       return true;
     } catch (e) {
+      final errStr = e.toString();
+      if (errStr.contains('CA ') ||
+          errStr.contains('caOtherIdNo') ||
+          errStr.contains('caVoterIdNo') ||
+          errStr.contains('caPancardNo') ||
+          errStr.contains('Co-Applicant') ||
+          errStr.contains('nominee')) {
+        currentStep.value = 3; // Co-Applicant tab
+      } else if (errStr.contains('Group') ||
+          errStr.contains('Center') ||
+          errStr.contains('Loan')) {
+        currentStep.value = 4; // Loan Details tab
+      } else if (errStr.contains('Address') ||
+          errStr.contains('Pincode') ||
+          errStr.contains('Bank') ||
+          errStr.contains('IFSC') ||
+          errStr.contains('Income') ||
+          errStr.contains('Expense')) {
+        currentStep.value = 2; // Other Details tab
+      } else if (errStr.contains('Aadhaar') || errStr.contains('PAN Card')) {
+        currentStep.value = 1; // Credit Check tab
+      } else if (errStr.contains('Mobile') ||
+          errStr.contains('First Name') ||
+          errStr.contains('Last Name') ||
+          errStr.contains('Date of Birth') ||
+          errStr.contains('Gender')) {
+        currentStep.value = 0; // Member Details tab
+      } else if (errStr.contains('Document') ||
+          errStr.contains('Photo') ||
+          errStr.contains('File') ||
+          errStr.contains('Upload')) {
+        currentStep.value = 5; // KYC Details tab
+      }
+
       Get.snackbar(
         'Submission Failed',
         'Failed to submit enrollment: $e',

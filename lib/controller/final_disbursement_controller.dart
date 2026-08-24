@@ -37,6 +37,7 @@ class FinalDisbursementController extends GetxController {
   final attendanceMap = <String, String>{}.obs;
   final admissionFeeMap = <String, double>{}.obs;
   final memberFunderMap = <String, String>{}.obs;
+  final funderOverrides = <String>{}.obs;
 
   String? _branchId;
 
@@ -111,13 +112,16 @@ class FinalDisbursementController extends GetxController {
     attendanceMap.clear();
     admissionFeeMap.clear();
     memberFunderMap.clear();
+    funderOverrides.clear();
   }
 
   void setBulkFunder(String? newFunderId) {
     funderId.value = newFunderId;
     if (newFunderId != null && newFunderId.isNotEmpty) {
       for (final loanId in memberFunderMap.keys.toList()) {
-        memberFunderMap[loanId] = newFunderId;
+        if (!funderOverrides.contains(loanId)) {
+          memberFunderMap[loanId] = newFunderId;
+        }
       }
     }
   }
@@ -133,6 +137,7 @@ class FinalDisbursementController extends GetxController {
       return;
     }
     selectedIndex.value = idx;
+    funderOverrides.clear();
     final loans = idx['loans'];
     final newAttendance = <String, String>{};
     final newFee = <String, double>{};
@@ -145,18 +150,20 @@ class FinalDisbursementController extends GetxController {
           final loanId = l['id'].toString();
           newAttendance[loanId] = 'PRESENT';
 
-          double fee = 0.0;
+          double fee = 50.0;
           if (l['admissionFee'] is num) {
             fee = (l['admissionFee'] as num).toDouble();
           } else if (l['client'] is Map && l['client']['admissionFees'] is num) {
             fee = (l['client']['admissionFees'] as num).toDouble();
+          } else if (l['admissionFees'] is num) {
+            fee = (l['admissionFees'] as num).toDouble();
           } else if (l['isNewClient'] == true) {
             fee = 100.0;
           }
           newFee[loanId] = fee;
 
           final fId = l['funderId']?.toString() ?? bulkFunder;
-          newFunder[loanId] = fId;
+          newFunder[loanId] = fId.isNotEmpty ? fId : bulkFunder;
         }
       }
     }
@@ -175,6 +182,7 @@ class FinalDisbursementController extends GetxController {
 
   void setMemberFunder(String loanId, String selectedFunderId) {
     memberFunderMap[loanId] = selectedFunderId;
+    funderOverrides.add(loanId);
   }
 
   void setAttendanceForAll(String status) {
@@ -189,6 +197,32 @@ class FinalDisbursementController extends GetxController {
   List<dynamic> get selectedLoans {
     final loans = selectedIndex.value?['loans'];
     return loans is List ? loans : const [];
+  }
+
+  double get totalLoanAmount {
+    double sum = 0.0;
+    for (final l in selectedLoans) {
+      if (l is Map && l['amount'] is num) {
+        sum += (l['amount'] as num).toDouble();
+      }
+    }
+    return sum;
+  }
+
+  double get totalAdmissionFee {
+    double sum = 0.0;
+    for (final l in selectedLoans) {
+      if (l is Map && l['id'] != null) {
+        final fee = admissionFeeMap[l['id'].toString()] ?? 0.0;
+        if (!fee.isNaN && fee > 0) sum += fee;
+      }
+    }
+    return sum;
+  }
+
+  double get netDisbursementAmount {
+    final net = totalLoanAmount - totalAdmissionFee;
+    return net < 0 ? 0.0 : net;
   }
 
   List<dynamic> get missingFirstDueDateLoans =>

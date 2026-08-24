@@ -278,7 +278,7 @@ class EnrollmentDateField extends StatelessWidget {
   );
 }
 
-/// A labeled dropdown bound to a simple `List<String>` of options.
+/// A labeled searchable dropdown bound to a `List<String>` of options.
 class EnrollmentSelectField extends StatelessWidget {
   const EnrollmentSelectField({
     super.key,
@@ -301,43 +301,268 @@ class EnrollmentSelectField extends StatelessWidget {
   final bool enabled;
   final String Function(String)? labelBuilder;
 
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: EdgeInsets.only(bottom: 13.h),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        enrollmentLabel(label, required: required, helper: helper),
-        SizedBox(height: 6.h),
-        DropdownButtonFormField<String>(
-          key: ValueKey('${label}_${value}_${options.length}'),
-          initialValue: options.contains(value) ? value : null,
-          hint: Text(
-            '-- SELECT --',
-            style: TextStyle(fontSize: 12.sp, color: enrollmentHintColor),
-          ),
-          isExpanded: true,
-          decoration: enrollmentDecoration(''),
-          // Defensive de-dup: DropdownButtonFormField requires every item's
-          // `value` to be unique, but option lists here can (legitimately)
-          // contain repeats — e.g. two different-ID centers sharing a name.
-          items: {for (final o in options) o: o}.keys
-              .map(
-                (o) => DropdownMenuItem(
-                  value: o,
-                  child: Text(
-                    labelBuilder != null ? labelBuilder!(o) : o,
-                    style: TextStyle(fontSize: 13.sp),
-                    overflow: TextOverflow.ellipsis,
+  void _showSearchSheet(BuildContext context) {
+    if (!enabled || options.isEmpty) return;
+
+    final uniqueOptions = {for (final o in options) o: o}.keys.toList();
+    final searchCtrl = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20.r)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final query = searchCtrl.text.trim().toLowerCase();
+            final filtered = uniqueOptions.where((o) {
+              if (query.isEmpty) return true;
+              final display = labelBuilder != null ? labelBuilder!(o) : o;
+              return display.toLowerCase().contains(query) ||
+                  o.toLowerCase().contains(query);
+            }).toList();
+
+            return Container(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(ctx).size.height * 0.75,
+              ),
+              padding: EdgeInsets.fromLTRB(
+                16.w,
+                16.h,
+                16.w,
+                16.h + MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Select $label',
+                          style: TextStyle(
+                            fontSize: 16.sp,
+                            fontWeight: FontWeight.w800,
+                            color: enrollmentDarkText,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: Icon(
+                          Icons.close_rounded,
+                          color: Colors.grey.shade600,
+                          size: 20.sp,
+                        ),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                    ],
                   ),
+                  SizedBox(height: 12.h),
+
+                  // Search input bar
+                  TextField(
+                    controller: searchCtrl,
+                    autofocus: uniqueOptions.length > 5,
+                    onChanged: (_) => setSheetState(() {}),
+                    style: TextStyle(fontSize: 13.sp, color: enrollmentDarkText),
+                    decoration: InputDecoration(
+                      hintText: 'Search $label...',
+                      hintStyle: TextStyle(
+                        fontSize: 12.sp,
+                        color: enrollmentHintColor,
+                      ),
+                      prefixIcon: Icon(
+                        Icons.search_rounded,
+                        color: enrollmentGreen,
+                        size: 20.sp,
+                      ),
+                      suffixIcon: searchCtrl.text.isNotEmpty
+                          ? IconButton(
+                              icon: Icon(
+                                Icons.clear_rounded,
+                                size: 18.sp,
+                                color: Colors.grey,
+                              ),
+                              onPressed: () {
+                                searchCtrl.clear();
+                                setSheetState(() {});
+                              },
+                            )
+                          : null,
+                      filled: true,
+                      fillColor: enrollmentFieldFill,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12.w,
+                        vertical: 10.h,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10.r),
+                        borderSide: const BorderSide(color: enrollmentBorderColor),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10.r),
+                        borderSide: const BorderSide(color: enrollmentBorderColor),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10.r),
+                        borderSide: const BorderSide(
+                          color: enrollmentGreen,
+                          width: 1.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: 12.h),
+
+                  // Options List
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? Center(
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(vertical: 24.h),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.search_off_rounded,
+                                    size: 36.sp,
+                                    color: enrollmentHintColor,
+                                  ),
+                                  SizedBox(height: 8.h),
+                                  Text(
+                                    'No matching options found',
+                                    style: TextStyle(
+                                      fontSize: 13.sp,
+                                      color: enrollmentDarkText,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                        : ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: filtered.length,
+                            separatorBuilder: (_, __) => Divider(
+                              height: 1,
+                              color: Colors.grey.shade200,
+                            ),
+                            itemBuilder: (context, index) {
+                              final item = filtered[index];
+                              final isSelected = item == value;
+                              final displayText = labelBuilder != null
+                                  ? labelBuilder!(item)
+                                  : item;
+
+                              return ListTile(
+                                contentPadding: EdgeInsets.symmetric(
+                                  horizontal: 8.w,
+                                  vertical: 2.h,
+                                ),
+                                dense: true,
+                                title: Text(
+                                  displayText,
+                                  style: TextStyle(
+                                    fontSize: 13.sp,
+                                    fontWeight: isSelected
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                    color: isSelected
+                                        ? enrollmentGreen
+                                        : enrollmentDarkText,
+                                  ),
+                                ),
+                                trailing: isSelected
+                                    ? Icon(
+                                        Icons.check_circle_rounded,
+                                        color: enrollmentGreen,
+                                        size: 20.sp,
+                                      )
+                                    : null,
+                                onTap: () {
+                                  onChanged(item);
+                                  Navigator.pop(ctx);
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  String? _resolveSelectedText() {
+    if (value == null || value!.trim().isEmpty) return null;
+    final val = value!.trim();
+    if (options.contains(val)) {
+      return labelBuilder != null ? labelBuilder!(val) : val;
+    }
+    final lower = val.toLowerCase();
+    for (final opt in options) {
+      if (opt.toLowerCase() == lower) {
+        return labelBuilder != null ? labelBuilder!(opt) : opt;
+      }
+    }
+    return labelBuilder != null ? labelBuilder!(val) : val;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedText = _resolveSelectedText();
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: 13.h),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          enrollmentLabel(label, required: required, helper: helper),
+          SizedBox(height: 6.h),
+          InkWell(
+            onTap: enabled ? () => _showSearchSheet(context) : null,
+            borderRadius: BorderRadius.circular(10.r),
+            child: InputDecorator(
+              decoration: enrollmentDecoration('').copyWith(
+                suffixIcon: Icon(
+                  Icons.arrow_drop_down_rounded,
+                  size: 24.sp,
+                  color: enabled ? enrollmentGreen : Colors.grey,
                 ),
-              )
-              .toList(),
-          onChanged: enabled ? onChanged : null,
-        ),
-      ],
-    ),
-  );
+              ),
+              child: Text(
+                selectedText ?? '-- SELECT --',
+                style: TextStyle(
+                  fontSize: 13.sp,
+                  color: selectedText != null
+                      ? enrollmentDarkText
+                      : enrollmentHintColor,
+                  fontWeight: selectedText != null
+                      ? FontWeight.w600
+                      : FontWeight.normal,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// The `id` strings for an API-fetched lookup list (`[{id, name, ...}]`) —
