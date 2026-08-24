@@ -85,6 +85,7 @@ class LoanDisbursement extends StatelessWidget {
                   MaterialPageRoute(builder: (_) => const ClientLoanTracker()),
                 ),
               ),
+
               if (isAreaManager) ...[
                 SizedBox(height: 13.h),
                 _actionCard(

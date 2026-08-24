@@ -93,7 +93,7 @@ class _GrtSessionCreateDialogState extends State<GrtSessionCreateDialog> {
         loanIds: _selectedLoanIds.toList(),
       );
 
-      final sessionId = res['sessionId']?.toString() ?? res['id']?.toString();
+      final sessionId = res['id']?.toString() ?? res['sessionId']?.toString();
       Get.snackbar('Created', 'GRT Session created successfully.', backgroundColor: const Color(0xFF00843D), colorText: Colors.white);
       if (mounted) Navigator.pop(context, sessionId);
     } catch (e) {

@@ -109,7 +109,7 @@ class IdDropdown extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ids = idOptions(items);
-    final allIds = [...ids, ...extraOptions.keys];
+    final allIds = [...extraOptions.keys, ...ids];
     final hasValue = value != null && allIds.contains(value);
     final selectedText = hasValue ? _getOptionLabel(value!) : '-- Select --';
 

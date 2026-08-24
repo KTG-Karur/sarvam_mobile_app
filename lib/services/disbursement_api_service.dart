@@ -181,4 +181,74 @@ class DisbursementApiService {
     final data = _unwrap(response);
     return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
   }
+
+  /// `GET /api/loans/{loanId}/member-individual-status`
+  Future<Map<String, dynamic>> getMemberIndividualStatus(String loanId) async {
+    final token = await _authToken();
+    _client.timeout = const Duration(seconds: 15);
+    final response = await _client.get(
+      "${Api.baseUrl}/api/loans/$loanId/member-individual-status",
+      headers: _authHeaders(token),
+    );
+    final data = _unwrap(response);
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+  }
+
+  /// `GET /api/clients/{clientId}/is-new`
+  Future<Map<String, dynamic>> getClientIsNew(String clientId) async {
+    final token = await _authToken();
+    _client.timeout = const Duration(seconds: 15);
+    final response = await _client.get(
+      "${Api.baseUrl}/api/clients/$clientId/is-new",
+      headers: _authHeaders(token),
+    );
+    final data = _unwrap(response);
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+  }
+
+  /// `GET /api/loans/{loanId}/gold-photos`
+  Future<List<dynamic>> getGoldPhotos(String loanId) async {
+    final token = await _authToken();
+    _client.timeout = const Duration(seconds: 15);
+    final response = await _client.get(
+      "${Api.baseUrl}/api/loans/$loanId/gold-photos",
+      headers: _authHeaders(token),
+    );
+    final data = _unwrap(response);
+    if (data is Map && data['photos'] is List) {
+      return data['photos'] as List;
+    }
+    return data is List ? data : <dynamic>[];
+  }
+
+  /// `POST /api/loans/{loanId}/gold-photos`
+  Future<Map<String, dynamic>> uploadGoldPhoto(
+    String loanId,
+    List<int> bytes,
+    String filename,
+  ) async {
+    final token = await _authToken();
+    final formData = FormData({
+      'photo': MultipartFile(bytes, filename: filename, contentType: 'image/jpeg'),
+    });
+    _client.timeout = const Duration(seconds: 45);
+    final response = await _client.post(
+      "${Api.baseUrl}/api/loans/$loanId/gold-photos",
+      formData,
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    final data = _unwrap(response);
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+  }
+
+  /// `DELETE /api/loans/{loanId}/gold-photos/{photoId}`
+  Future<void> deleteGoldPhoto(String loanId, String photoId) async {
+    final token = await _authToken();
+    _client.timeout = const Duration(seconds: 20);
+    final response = await _client.delete(
+      "${Api.baseUrl}/api/loans/$loanId/gold-photos/$photoId",
+      headers: _authHeaders(token),
+    );
+    _unwrap(response);
+  }
 }

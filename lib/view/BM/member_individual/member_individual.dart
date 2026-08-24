@@ -194,7 +194,8 @@ class _MemberIndividualState extends State<MemberIndividual> {
             separatorBuilder: (_, __) => SizedBox(height: 10.h),
             itemBuilder: (_, index) {
               final session = _grtSessions[index];
-              final sId = session['sessionId']?.toString() ?? session['id']?.toString() ?? '';
+              final sId = session['id']?.toString() ?? session['sessionId']?.toString() ?? '';
+              final displayId = session['sessionId']?.toString() ?? session['id']?.toString() ?? '';
               final dateStr = session['sessionDate']?.toString() ?? '';
               final qTitle = session['questionnaireTitle']?.toString() ?? '';
               final mCount = session['memberCount'] ?? 0;
@@ -226,16 +227,34 @@ class _MemberIndividualState extends State<MemberIndividual> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Session: $sId', style: TextStyle(fontSize: 12.5.sp, fontWeight: FontWeight.w800, color: _darkText)),
+                                Expanded(
+                                  child: Text(
+                                    'Session: $displayId',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12.sp,
+                                      fontWeight: FontWeight.w800,
+                                      color: _darkText,
+                                    ),
+                                  ),
+                                ),
+                                SizedBox(width: 6.w),
                                 Container(
                                   padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 2.h),
                                   decoration: BoxDecoration(
                                     color: isDone ? const Color(0xFFDCFCE7) : const Color(0xFFFFF8E1),
                                     borderRadius: BorderRadius.circular(4.r),
                                   ),
-                                  child: Text(isDone ? 'COMPLETED' : 'IN PROGRESS', style: TextStyle(fontSize: 9.5.sp, fontWeight: FontWeight.w800, color: isDone ? const Color(0xFF15803D) : const Color(0xFF9A6B00))),
+                                  child: Text(
+                                    isDone ? 'COMPLETED' : 'IN PROGRESS',
+                                    style: TextStyle(
+                                      fontSize: 9.5.sp,
+                                      fontWeight: FontWeight.w800,
+                                      color: isDone ? const Color(0xFF15803D) : const Color(0xFF9A6B00),
+                                    ),
+                                  ),
                                 ),
                               ],
                             ),

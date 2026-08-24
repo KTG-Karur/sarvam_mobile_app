@@ -6,10 +6,9 @@ import 'package:sarvam/services/disbursement_api_service.dart';
 
 /// Powers the BM "Final Disbursement" screen — mirrors the core flow of the
 /// web app's `components/loan-module/FinalDisbursementClient.tsx`: select a
-/// funder, pick an AM-approved index, set attendance per loan, and disburse.
-/// Gold-loan detail capture, admission-fee editing and the Member-Individual
-/// refresh-status button stay web-only for now (regular loans only; the
-/// server still enforces the Member Individual + GRT gate on submit).
+/// funder, pick an AM-approved index, verify Member-Individual statuses, set
+/// attendance & admission fees per loan, capture gold details if applicable,
+/// and disburse.
 class FinalDisbursementController extends GetxController {
   FinalDisbursementController({DisbursementApiService? api})
     : api =
@@ -24,6 +23,8 @@ class FinalDisbursementController extends GetxController {
 
   final isLoading = true.obs;
   final isLoadingIndexes = false.obs;
+  final isLoadingDetails = false.obs;
+  final isRefreshingMemberIndividual = false.obs;
   final isSubmitting = false.obs;
 
   final Rxn<Map<String, dynamic>> branch = Rxn<Map<String, dynamic>>();
@@ -36,8 +37,17 @@ class FinalDisbursementController extends GetxController {
   final Rxn<Map<String, dynamic>> selectedIndex = Rxn<Map<String, dynamic>>();
   final attendanceMap = <String, String>{}.obs;
   final admissionFeeMap = <String, double>{}.obs;
+  final newClientsMap = <String, bool>{}.obs;
   final memberFunderMap = <String, String>{}.obs;
   final funderOverrides = <String>{}.obs;
+
+  // Member Individual verification status per loanId
+  final memberIndividualMap = <String, bool>{}.obs;
+
+  // Gold loan state
+  final goldMap = <String, Map<String, dynamic>>{}.obs;
+  final goldPhotosMap = <String, List<dynamic>>{}.obs;
+  final uploadingGoldPhotoFor = Rxn<String>();
 
   String? _branchId;
 
@@ -111,8 +121,12 @@ class FinalDisbursementController extends GetxController {
     selectedIndex.value = null;
     attendanceMap.clear();
     admissionFeeMap.clear();
+    newClientsMap.clear();
     memberFunderMap.clear();
     funderOverrides.clear();
+    memberIndividualMap.clear();
+    goldMap.clear();
+    goldPhotosMap.clear();
   }
 
   void setBulkFunder(String? newFunderId) {
@@ -126,7 +140,7 @@ class FinalDisbursementController extends GetxController {
     }
   }
 
-  void selectIndex(Map<String, dynamic> idx) {
+  Future<void> selectIndex(Map<String, dynamic> idx) async {
     if (funderId.value == null || funderId.value!.isEmpty) {
       Get.snackbar(
         'Funder Required',
@@ -136,40 +150,168 @@ class FinalDisbursementController extends GetxController {
       );
       return;
     }
+    clearSelection();
     selectedIndex.value = idx;
-    funderOverrides.clear();
+
     final loans = idx['loans'];
+    if (loans is! List) return;
+
     final newAttendance = <String, String>{};
-    final newFee = <String, double>{};
     final newFunder = <String, String>{};
     final bulkFunder = funderId.value ?? '';
 
-    if (loans is List) {
-      for (final l in loans) {
-        if (l is Map && l['id'] != null) {
-          final loanId = l['id'].toString();
-          newAttendance[loanId] = 'PRESENT';
-
-          double fee = 50.0;
-          if (l['admissionFee'] is num) {
-            fee = (l['admissionFee'] as num).toDouble();
-          } else if (l['client'] is Map && l['client']['admissionFees'] is num) {
-            fee = (l['client']['admissionFees'] as num).toDouble();
-          } else if (l['admissionFees'] is num) {
-            fee = (l['admissionFees'] as num).toDouble();
-          } else if (l['isNewClient'] == true) {
-            fee = 100.0;
-          }
-          newFee[loanId] = fee;
-
-          final fId = l['funderId']?.toString() ?? bulkFunder;
-          newFunder[loanId] = fId.isNotEmpty ? fId : bulkFunder;
-        }
+    for (final l in loans) {
+      if (l is Map && l['id'] != null) {
+        final loanId = l['id'].toString();
+        newAttendance[loanId] = 'PRESENT';
+        final fId = l['funderId']?.toString() ?? bulkFunder;
+        newFunder[loanId] = fId.isNotEmpty ? fId : bulkFunder;
       }
     }
     attendanceMap.assignAll(newAttendance);
-    admissionFeeMap.assignAll(newFee);
     memberFunderMap.assignAll(newFunder);
+
+    isLoadingDetails.value = true;
+    try {
+      await refreshMemberIndividualStatuses();
+      await refreshGoldPhotos();
+
+      // Check admission fee & isNewClient status for each client
+      final newFees = <String, double>{};
+      final newClients = <String, bool>{};
+      for (final l in loans) {
+        if (l is Map && l['id'] != null && l['clientId'] != null) {
+          final loanId = l['id'].toString();
+          final clientId = l['clientId'].toString();
+          try {
+            final res = await api.getClientIsNew(clientId);
+            final isNew = res['isNew'] == true;
+            newClients[loanId] = isNew;
+            if (isNew) {
+              final feeVal = double.tryParse(res['admissionFees']?.toString() ?? '') ?? 50.0;
+              newFees[loanId] = feeVal;
+            } else {
+              newFees[loanId] = 0.0;
+            }
+          } catch (_) {
+            newClients[loanId] = false;
+            newFees[loanId] = 0.0;
+          }
+        }
+      }
+      admissionFeeMap.assignAll(newFees);
+      newClientsMap.assignAll(newClients);
+    } finally {
+      isLoadingDetails.value = false;
+    }
+  }
+
+  Future<void> refreshMemberIndividualStatuses() async {
+    final loans = selectedLoans;
+    if (loans.isEmpty) return;
+
+    isRefreshingMemberIndividual.value = true;
+    try {
+      final resultMap = <String, bool>{};
+      for (final l in loans) {
+        if (l is Map && l['id'] != null) {
+          final loanId = l['id'].toString();
+          try {
+            final statusRes = await api.getMemberIndividualStatus(loanId);
+            resultMap[loanId] = statusRes['isComplete'] == true;
+          } catch (_) {
+            resultMap[loanId] = false;
+          }
+        }
+      }
+      memberIndividualMap.assignAll(resultMap);
+    } finally {
+      isRefreshingMemberIndividual.value = false;
+    }
+  }
+
+  Future<void> refreshGoldPhotos() async {
+    final goldLoans = selectedLoans.where((l) => l is Map && l['isGoldLoan'] == true).toList();
+    if (goldLoans.isEmpty) return;
+
+    for (final l in goldLoans) {
+      if (l is Map && l['id'] != null) {
+        final loanId = l['id'].toString();
+        try {
+          final photos = await api.getGoldPhotos(loanId);
+          goldPhotosMap[loanId] = photos;
+        } catch (_) {
+          goldPhotosMap[loanId] = [];
+        }
+      }
+    }
+  }
+
+  void updateGoldDetail(String loanId, String field, dynamic value, [double? loanAmount]) {
+    final current = Map<String, dynamic>.from(goldMap[loanId] ?? {});
+    current[field] = value;
+
+    if (loanAmount != null && loanAmount > 0) {
+      if (field == 'goldTakenValue') {
+        final val = double.tryParse(value.toString()) ?? 0.0;
+        final capped = val > loanAmount ? loanAmount : val;
+        current['goldTakenValue'] = capped;
+        current['cashGiven'] = double.parse((loanAmount - capped).toStringAsFixed(2));
+      } else if (field == 'cashGiven') {
+        final val = double.tryParse(value.toString()) ?? 0.0;
+        final capped = val > loanAmount ? loanAmount : val;
+        current['cashGiven'] = capped;
+        current['goldTakenValue'] = double.parse((loanAmount - capped).toStringAsFixed(2));
+      }
+    }
+    goldMap[loanId] = current;
+  }
+
+  Future<void> uploadGoldPhoto(String loanId, List<int> bytes, String filename) async {
+    uploadingGoldPhotoFor.value = loanId;
+    try {
+      final res = await api.uploadGoldPhoto(loanId, bytes, filename);
+      final list = List<dynamic>.from(goldPhotosMap[loanId] ?? []);
+      list.add(res);
+      goldPhotosMap[loanId] = list;
+      Get.snackbar(
+        'Photo Uploaded',
+        'Gold photo attached successfully.',
+        backgroundColor: const Color(0xFF00843D),
+        colorText: Colors.white,
+      );
+    } catch (e) {
+      Get.snackbar(
+        'Upload Failed',
+        '$e',
+        backgroundColor: Colors.redAccent,
+        colorText: Colors.white,
+      );
+    } finally {
+      uploadingGoldPhotoFor.value = null;
+    }
+  }
+
+  Future<void> deleteGoldPhoto(String loanId, String photoId) async {
+    try {
+      await api.deleteGoldPhoto(loanId, photoId);
+      final list = List<dynamic>.from(goldPhotosMap[loanId] ?? []);
+      list.removeWhere((p) => p is Map && p['id']?.toString() == photoId);
+      goldPhotosMap[loanId] = list;
+      Get.snackbar(
+        'Photo Removed',
+        'Gold photo deleted.',
+        backgroundColor: const Color(0xFF00843D),
+        colorText: Colors.white,
+      );
+    } catch (e) {
+      Get.snackbar(
+        'Delete Failed',
+        '$e',
+        backgroundColor: Colors.redAccent,
+        colorText: Colors.white,
+      );
+    }
   }
 
   void setAttendance(String loanId, String status) {
@@ -213,8 +355,11 @@ class FinalDisbursementController extends GetxController {
     double sum = 0.0;
     for (final l in selectedLoans) {
       if (l is Map && l['id'] != null) {
-        final fee = admissionFeeMap[l['id'].toString()] ?? 0.0;
-        if (!fee.isNaN && fee > 0) sum += fee;
+        final loanId = l['id'].toString();
+        if (newClientsMap[loanId] == true) {
+          final fee = admissionFeeMap[loanId] ?? 0.0;
+          if (!fee.isNaN && fee > 0) sum += fee;
+        }
       }
     }
     return sum;
@@ -244,13 +389,42 @@ class FinalDisbursementController extends GetxController {
         (l) => l is Map && attendanceMap.containsKey(l['id'].toString()),
       );
 
+  List<dynamic> get notCompletedMemberIndividualLoans => selectedLoans
+      .where((l) => l is Map && memberIndividualMap[l['id'].toString()] != true)
+      .toList();
+
+  bool get allMemberIndividualsCompleted =>
+      selectedLoans.isNotEmpty &&
+      !isLoadingDetails.value &&
+      notCompletedMemberIndividualLoans.isEmpty;
+
+  bool get allGoldFilled => selectedLoans
+      .where((l) => l is Map && l['isGoldLoan'] == true)
+      .every((l) {
+        final loanId = (l as Map)['id'].toString();
+        final gd = goldMap[loanId];
+        final photos = goldPhotosMap[loanId] ?? [];
+        if (gd == null) return false;
+        final karat = gd['karatType'];
+        final gram = double.tryParse(gd['gramCount']?.toString() ?? '') ?? 0;
+        final val = double.tryParse(gd['goldTakenValue']?.toString() ?? '') ?? 0;
+        final cash = double.tryParse(gd['cashGiven']?.toString() ?? '') ?? -1;
+        return karat != null &&
+            gram > 0 &&
+            val > 0 &&
+            cash >= 0 &&
+            photos.isNotEmpty;
+      });
+
   bool get canConfirmDisburse =>
       !isSubmitting.value &&
       selectedIndex.value != null &&
       funderId.value != null &&
       funderId.value!.isNotEmpty &&
       firstDueDateValid &&
-      allAttendanceSet;
+      allAttendanceSet &&
+      allMemberIndividualsCompleted &&
+      allGoldFilled;
 
   Future<bool> disburse() async {
     final idx = selectedIndex.value;
@@ -276,18 +450,20 @@ class FinalDisbursementController extends GetxController {
       final fee = admissionFeeMap[loanId] ?? 0.0;
       final sanitizedFee = (fee.isNaN || fee < 0) ? 0.0 : fee;
       final mFunder = memberFunderMap[loanId]?.trim() ?? '';
-      final isNew = loanMap['isNewClient'] == true || sanitizedFee > 0;
+      final isNew = newClientsMap[loanId] == true || sanitizedFee > 0;
 
       final item = <String, dynamic>{
         'loanId': loanId,
         'attendanceStatus': attendanceMap[loanId] == 'ABSENT' ? 'ABSENT' : 'PRESENT',
         'admissionFee': sanitizedFee,
         'isNewClient': isNew,
+        'funderId': mFunder.isNotEmpty ? mFunder : fId,
       };
 
-      if (mFunder.isNotEmpty && mFunder != fId) {
-        item['funderId'] = mFunder;
+      if (loanMap['isGoldLoan'] == true && goldMap[loanId] != null) {
+        item['goldLoanDetails'] = goldMap[loanId];
       }
+
       return item;
     }).toList();
 

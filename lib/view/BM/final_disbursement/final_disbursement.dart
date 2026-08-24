@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:sarvam/controller/final_disbursement_controller.dart';
 import 'package:sarvam/view/BM/group_assignment/widgets/id_dropdown.dart';
 
@@ -9,11 +10,10 @@ const _green = Color(0xFF0D6842);
 const _darkText = Color(0xFF172033);
 const _muted = Color(0xFF64748B);
 
-/// BM "Final Disbursement" — mirrors the core flow of the web app's
-/// `components/loan-module/FinalDisbursementClient.tsx`: select a funder,
-/// pick an AM-approved index, set attendance per loan, and disburse.
-/// Gold-loan detail capture, admission-fee editing and the Member-Individual
-/// refresh-status button stay web-only for now.
+/// BM "Final Disbursement" — mirrors the core flow and complete feature set of the
+/// web app's `components/loan-module/FinalDisbursementClient.tsx`: select a funder,
+/// pick an AM-approved index, verify Member-Individual statuses, set attendance &
+/// admission fees per loan, capture gold pledge details/photos if applicable, and disburse.
 class FinalDisbursement extends StatefulWidget {
   const FinalDisbursement({super.key});
 
@@ -49,6 +49,19 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
     final code = match['funderId'] ?? '';
     final name = match['funderName'] ?? id;
     return code.toString().isEmpty ? '$name' : '$code — $name';
+  }
+
+  Future<void> _pickGoldPhoto(String loanId, ImageSource source) async {
+    final picked = await ImagePicker().pickImage(
+      source: source,
+      maxWidth: 1920,
+      maxHeight: 1920,
+      imageQuality: 80,
+    );
+    if (picked != null) {
+      final bytes = await picked.readAsBytes();
+      await controller.uploadGoldPhoto(loanId, bytes, picked.name);
+    }
   }
 
   @override
@@ -144,7 +157,11 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
             children: [
               Text(
                 'Funder',
-                style: TextStyle(fontSize: 11.5.sp, fontWeight: FontWeight.w700, color: _darkText),
+                style: TextStyle(
+                  fontSize: 11.5.sp,
+                  fontWeight: FontWeight.w700,
+                  color: _darkText,
+                ),
               ),
               Text(' *', style: TextStyle(fontSize: 11.5.sp, color: Colors.red)),
             ],
@@ -198,7 +215,9 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
           Expanded(
             child: _statCard(
               label: 'Total Value',
-              value: controller.isLoadingIndexes.value ? '...' : _currency(amountValue),
+              value: controller.isLoadingIndexes.value
+                  ? '...'
+                  : _currency(amountValue),
               icon: Icons.account_balance_wallet_rounded,
               iconColor: const Color(0xFF059669),
               iconBg: const Color(0xFFD1FAE5),
@@ -330,6 +349,61 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
   List<Widget> _buildDisbursementDetails(Map<String, dynamic> idx) {
     return [
       SizedBox(height: 10.h),
+      // Member Individual Verification Refresh Section
+      Container(
+        padding: EdgeInsets.all(10.w),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+          borderRadius: BorderRadius.circular(10.r),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.verified_user_outlined, size: 16.sp, color: _green),
+            SizedBox(width: 8.w),
+            Expanded(
+              child: Text(
+                'Member Individual Verification Status',
+                style: TextStyle(
+                  fontSize: 11.sp,
+                  fontWeight: FontWeight.w700,
+                  color: _darkText,
+                ),
+              ),
+            ),
+            Obx(
+              () => OutlinedButton.icon(
+                onPressed: controller.isRefreshingMemberIndividual.value
+                    ? null
+                    : controller.refreshMemberIndividualStatuses,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _green,
+                  side: const BorderSide(color: _green),
+                  padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                icon: controller.isRefreshingMemberIndividual.value
+                    ? SizedBox(
+                        width: 12.sp,
+                        height: 12.sp,
+                        child: const CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: _green,
+                        ),
+                      )
+                    : Icon(Icons.refresh_rounded, size: 14.sp),
+                label: Text(
+                  'Refresh',
+                  style: TextStyle(fontSize: 10.5.sp, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      SizedBox(height: 10.h),
+      // Accounting Overview Card
       Container(
         padding: EdgeInsets.all(12.w),
         decoration: BoxDecoration(
@@ -347,7 +421,11 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
                   children: [
                     Text(
                       'FIRST DUE DATE',
-                      style: TextStyle(fontSize: 8.5.sp, color: _muted, fontWeight: FontWeight.w700),
+                      style: TextStyle(
+                        fontSize: 8.5.sp,
+                        color: _muted,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     SizedBox(height: 2.h),
                     Obx(() {
@@ -363,43 +441,60 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
                     }),
                   ],
                 ),
-                Obx(() => Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      'NET PAYABLE',
-                      style: TextStyle(fontSize: 8.5.sp, color: _green, fontWeight: FontWeight.w800),
-                    ),
-                    Text(
-                      _currency(controller.netDisbursementAmount),
-                      style: TextStyle(
-                        fontSize: 14.sp,
-                        fontWeight: FontWeight.w800,
-                        color: _green,
+                Obx(
+                  () => Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        'NET PAYABLE',
+                        style: TextStyle(
+                          fontSize: 8.5.sp,
+                          color: _green,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
-                    ),
-                  ],
-                )),
+                      Text(
+                        _currency(controller.netDisbursementAmount),
+                        style: TextStyle(
+                          fontSize: 14.sp,
+                          fontWeight: FontWeight.w800,
+                          color: _green,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
             Divider(height: 14.h, color: const Color(0xFFC6E7D2)),
-            Obx(() => Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Gross Loans: ${_currency(controller.totalLoanAmount)}',
-                  style: TextStyle(fontSize: 10.5.sp, fontWeight: FontWeight.w600, color: _darkText),
-                ),
-                Text(
-                  'Admission Fees: -${_currency(controller.totalAdmissionFee)}',
-                  style: TextStyle(fontSize: 10.5.sp, fontWeight: FontWeight.w700, color: const Color(0xFFB91C1C)),
-                ),
-              ],
-            )),
+            Obx(
+              () => Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Gross Loans: ${_currency(controller.totalLoanAmount)}',
+                    style: TextStyle(
+                      fontSize: 10.5.sp,
+                      fontWeight: FontWeight.w600,
+                      color: _darkText,
+                    ),
+                  ),
+                  Text(
+                    'Admission Fees: -${_currency(controller.totalAdmissionFee)}',
+                    style: TextStyle(
+                      fontSize: 10.5.sp,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFFB91C1C),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
       SizedBox(height: 10.h),
+      // Attendance Quick Action
       Row(
         children: [
           Expanded(
@@ -430,39 +525,70 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
         ],
       ),
       SizedBox(height: 12.h),
+      // Per Loan Cards
       ...((idx['loans'] as List? ?? []))
-          .map((l) => _loanAttendanceRow(Map<String, dynamic>.from(l)))
-          ,
+          .map((l) => _loanAttendanceRow(Map<String, dynamic>.from(l))),
       SizedBox(height: 10.h),
+      // Validation Warnings Box
       Obx(() {
         if (controller.canConfirmDisburse) return const SizedBox.shrink();
         final hints = <String>[];
         if (!controller.firstDueDateValid) {
-          hints.add('All loans must have a First Due Date set on the Loan Index page.');
+          hints.add(
+            'All loans must have a First Due Date set on the Loan Index page.',
+          );
         }
         if (!controller.allAttendanceSet) {
-          hints.add('Attendance must be set for all ${controller.selectedLoans.length} loan(s).');
+          hints.add(
+            'Attendance must be set for all ${controller.selectedLoans.length} loan(s).',
+          );
         }
         if (controller.funderId.value == null) {
           hints.add('Select a funder above.');
         }
+        if (!controller.allMemberIndividualsCompleted) {
+          final pending = controller.notCompletedMemberIndividualLoans;
+          final names = pending
+              .map((l) => l is Map ? (l['clientName'] ?? 'Member') : 'Member')
+              .join(', ');
+          hints.add(
+            'Member Individual Verification pending for: $names. Ask FDO to complete.',
+          );
+        }
+        if (!controller.allGoldFilled) {
+          hints.add(
+            'For Gold Loans, enter Karat Type, Grams, Taken Value, Cash Given, and upload at least one gold pledge photo.',
+          );
+        }
+
         return Container(
           width: double.infinity,
           padding: EdgeInsets.all(10.w),
           decoration: BoxDecoration(
             color: const Color(0xFFFFF8E1),
             borderRadius: BorderRadius.circular(10.r),
+            border: Border.all(color: const Color(0xFFFDE68A)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Before disbursing, please ensure:',
-                style: TextStyle(
-                  fontSize: 10.5.sp,
-                  fontWeight: FontWeight.w700,
-                  color: const Color(0xFF9A6B00),
-                ),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.warning_amber_rounded,
+                    size: 16,
+                    color: Color(0xFFD97706),
+                  ),
+                  SizedBox(width: 6.w),
+                  Text(
+                    'Before disbursing, please ensure:',
+                    style: TextStyle(
+                      fontSize: 10.5.sp,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF9A6B00),
+                    ),
+                  ),
+                ],
               ),
               SizedBox(height: 4.h),
               ...hints.map(
@@ -470,7 +596,10 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
                   padding: EdgeInsets.only(top: 2.h),
                   child: Text(
                     '• $h',
-                    style: TextStyle(fontSize: 10.sp, color: const Color(0xFF9A6B00)),
+                    style: TextStyle(
+                      fontSize: 10.sp,
+                      color: const Color(0xFF9A6B00),
+                    ),
                   ),
                 ),
               ),
@@ -479,23 +608,31 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
         );
       }),
       SizedBox(height: 12.h),
+      // Final Disburse Button
       Obx(
         () => SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
-            onPressed: controller.canConfirmDisburse ? () => _confirmAndDisburse() : null,
+            onPressed: controller.canConfirmDisburse
+                ? () => _confirmAndDisburse()
+                : null,
             style: ElevatedButton.styleFrom(
               backgroundColor: _green,
               foregroundColor: Colors.white,
               disabledBackgroundColor: const Color(0xFFA8D5BC),
               padding: EdgeInsets.symmetric(vertical: 13.h),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.r)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10.r),
+              ),
             ),
             icon: controller.isSubmitting.value
                 ? SizedBox(
                     width: 16.sp,
                     height: 16.sp,
-                    child: const CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    child: const CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
                   )
                 : const Icon(Icons.check_circle_rounded, size: 18),
             label: Text('Disburse ${controller.selectedLoans.length} Loan(s)'),
@@ -507,28 +644,37 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
 
   Widget _loanAttendanceRow(Map<String, dynamic> loan) {
     final loanId = loan['id'].toString();
+    final isGoldLoan = loan['isGoldLoan'] == true;
+
     return Obx(() {
       final status = controller.attendanceMap[loanId];
       final fee = controller.admissionFeeMap[loanId] ?? 0.0;
-      final selectedFunder = controller.memberFunderMap[loanId] ?? controller.funderId.value;
-      final isCustomFunder = controller.funderOverrides.contains(loanId);
+      final isNewClient = controller.newClientsMap[loanId] == true;
+      final isMIComplete = controller.memberIndividualMap[loanId] == true;
 
       final grossAmount = _amount(loan, 'amount');
       final netAmount = (grossAmount - fee) < 0 ? 0.0 : (grossAmount - fee);
 
+      final goldData = controller.goldMap[loanId] ?? {};
+      final goldPhotos = controller.goldPhotosMap[loanId] ?? [];
+      final isUploadingGold = controller.uploadingGoldPhotoFor.value == loanId;
+
       return Container(
-        margin: EdgeInsets.only(bottom: 8.h),
-        padding: EdgeInsets.all(10.w),
+        margin: EdgeInsets.only(bottom: 10.h),
+        padding: EdgeInsets.all(12.w),
         decoration: BoxDecoration(
           color: status == null ? const Color(0xFFFFF3F3) : Colors.white,
           border: Border.all(
-            color: status == null ? Colors.red.withValues(alpha: 0.3) : const Color(0xFFE1EAE4),
+            color: status == null
+                ? Colors.red.withValues(alpha: 0.3)
+                : const Color(0xFFE1EAE4),
           ),
-          borderRadius: BorderRadius.circular(10.r),
+          borderRadius: BorderRadius.circular(12.r),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Top Row: Member name + Net / Gross amount
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -536,16 +682,45 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        _field(loan, 'clientId'),
-                        style: TextStyle(
-                          fontSize: 11.5.sp,
-                          fontWeight: FontWeight.w800,
-                          color: _darkText,
-                        ),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              _field(loan, 'clientName'),
+                              style: TextStyle(
+                                fontSize: 12.sp,
+                                fontWeight: FontWeight.w800,
+                                color: _darkText,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (isGoldLoan) ...[
+                            SizedBox(width: 6.w),
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 6.w,
+                                vertical: 1.h,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFEF3C7),
+                                borderRadius: BorderRadius.circular(4.r),
+                              ),
+                              child: Text(
+                                'GOLD LOAN',
+                                style: TextStyle(
+                                  fontSize: 8.5.sp,
+                                  fontWeight: FontWeight.w800,
+                                  color: const Color(0xFFB45309),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
+                      SizedBox(height: 2.h),
                       Text(
-                        _field(loan, 'clientName'),
+                        'ID: ${_field(loan, 'clientId')} · Loan: ${_field(loan, 'loanNumber')}',
                         style: TextStyle(fontSize: 10.sp, color: _muted),
                       ),
                     ],
@@ -556,7 +731,11 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
                   children: [
                     Text(
                       'Net: ${_currency(netAmount)}',
-                      style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w800, color: _green),
+                      style: TextStyle(
+                        fontSize: 12.sp,
+                        fontWeight: FontWeight.w800,
+                        color: _green,
+                      ),
                     ),
                     Text(
                       'Gross: ${_currency(grossAmount)}',
@@ -567,6 +746,70 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
               ],
             ),
             SizedBox(height: 8.h),
+            // Member Individual Verification Badge
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
+              decoration: BoxDecoration(
+                color: isMIComplete
+                    ? const Color(0xFFDCFCE7)
+                    : const Color(0xFFFEE2E2),
+                borderRadius: BorderRadius.circular(6.r),
+                border: Border.all(
+                  color: isMIComplete
+                      ? const Color(0xFF86EFAC)
+                      : const Color(0xFFFCA5A5),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    isMIComplete
+                        ? Icons.check_circle_rounded
+                        : Icons.pending_actions_rounded,
+                    size: 13.sp,
+                    color: isMIComplete
+                        ? const Color(0xFF15803D)
+                        : const Color(0xFFDC2626),
+                  ),
+                  SizedBox(width: 4.w),
+                  Text(
+                    isMIComplete
+                        ? 'Member Individual: Complete'
+                        : 'Member Individual: Pending',
+                    style: TextStyle(
+                      fontSize: 10.sp,
+                      fontWeight: FontWeight.w700,
+                      color: isMIComplete
+                          ? const Color(0xFF15803D)
+                          : const Color(0xFFDC2626),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(height: 10.h),
+            // Per Member Funder Override Dropdown
+            Text(
+              'Per-Member Funder Override',
+              style: TextStyle(
+                fontSize: 10.sp,
+                fontWeight: FontWeight.w700,
+                color: _muted,
+              ),
+            ),
+            SizedBox(height: 4.h),
+            IdDropdown(
+              label: 'Select Funder',
+              value: controller.memberFunderMap[loanId] ?? controller.funderId.value,
+              items: controller.funders,
+              labelBuilder: _funderLabel,
+              onChanged: (v) {
+                if (v != null) controller.setMemberFunder(loanId, v);
+              },
+            ),
+            SizedBox(height: 10.h),
+            // Admission Fee & Attendance Row
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
@@ -574,140 +817,434 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Admission Fee (₹)',
-                        style: TextStyle(fontSize: 10.sp, fontWeight: FontWeight.w700, color: _muted),
-                      ),
-                      SizedBox(height: 4.h),
-                      TextFormField(
-                        initialValue: fee > 0 ? fee.toStringAsFixed(0) : '0',
-                        keyboardType: TextInputType.number,
-                        style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700),
-                        decoration: InputDecoration(
-                          isDense: true,
-                          prefixText: '₹ ',
-                          contentPadding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 8.h),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(6.r),
-                            borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
-                          ),
-                        ),
-                        onChanged: (v) => controller.setAdmissionFee(loanId, double.tryParse(v) ?? 0.0),
-                      ),
-                    ],
-                  ),
-                ),
-                SizedBox(width: 8.w),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            'Fund Allocation',
-                            style: TextStyle(fontSize: 10.sp, fontWeight: FontWeight.w700, color: _muted),
+                            'Admission Fee (₹)',
+                            style: TextStyle(
+                              fontSize: 10.sp,
+                              fontWeight: FontWeight.w700,
+                              color: _muted,
+                            ),
                           ),
-                          if (isCustomFunder)
-                            Container(
-                              padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 1.h),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF3E8FF),
-                                borderRadius: BorderRadius.circular(3.r),
-                              ),
-                              child: Text(
-                                'Custom',
-                                style: TextStyle(fontSize: 8.sp, fontWeight: FontWeight.w800, color: const Color(0xFF7E22CE)),
+                          if (isNewClient)
+                            Text(
+                              ' (New)',
+                              style: TextStyle(
+                                fontSize: 9.5.sp,
+                                fontWeight: FontWeight.w700,
+                                color: _green,
                               ),
                             ),
                         ],
                       ),
                       SizedBox(height: 4.h),
-                      IdDropdown(
-                        label: 'Fund Allocation',
-                        value: selectedFunder,
-                        items: controller.funders,
-                        labelBuilder: _funderLabel,
-                        onChanged: (v) {
-                          if (v != null) controller.setMemberFunder(loanId, v);
-                        },
+                      TextFormField(
+                        initialValue: fee > 0 ? fee.toStringAsFixed(0) : '0',
+                        keyboardType: TextInputType.number,
+                        style: TextStyle(
+                          fontSize: 11.sp,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        decoration: InputDecoration(
+                          isDense: true,
+                          prefixText: '₹ ',
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 8.w,
+                            vertical: 8.h,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(6.r),
+                            borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+                          ),
+                        ),
+                        onChanged: (v) => controller.setAdmissionFee(
+                          loanId,
+                          double.tryParse(v) ?? 0.0,
+                        ),
                       ),
                     ],
                   ),
                 ),
-              ],
-            ),
-            SizedBox(height: 10.h),
-            Row(
-              children: [
-                Expanded(
-                  child: _attendanceChip(
-                    label: 'Present',
-                    icon: Icons.check_circle_rounded,
-                    color: _green,
-                    selected: status == 'PRESENT',
-                    onTap: () => controller.setAttendance(loanId, 'PRESENT'),
-                  ),
-                ),
                 SizedBox(width: 8.w),
-                Expanded(
-                  child: _attendanceChip(
-                    label: 'Absent',
-                    icon: Icons.cancel_rounded,
-                    color: const Color(0xFF92400E),
-                    selected: status == 'ABSENT',
-                    onTap: () => controller.setAttendance(loanId, 'ABSENT'),
-                  ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Attendance',
+                      style: TextStyle(
+                        fontSize: 10.sp,
+                        fontWeight: FontWeight.w700,
+                        color: _muted,
+                      ),
+                    ),
+                    SizedBox(height: 4.h),
+                    Row(
+                      children: [
+                        _attendanceChoiceChip(
+                          loanId,
+                          'PRESENT',
+                          status == 'PRESENT',
+                        ),
+                        SizedBox(width: 4.w),
+                        _attendanceChoiceChip(
+                          loanId,
+                          'ABSENT',
+                          status == 'ABSENT',
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ],
             ),
+            // Gold Loan Form & Photo Upload Section
+            if (isGoldLoan) ...[
+              SizedBox(height: 12.h),
+              Container(
+                padding: EdgeInsets.all(10.w),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFFBEB),
+                  border: Border.all(color: const Color(0xFFFDE68A)),
+                  borderRadius: BorderRadius.circular(10.r),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Gold Pledge Details',
+                      style: TextStyle(
+                        fontSize: 11.sp,
+                        fontWeight: FontWeight.w800,
+                        color: const Color(0xFFB45309),
+                      ),
+                    ),
+                    SizedBox(height: 8.h),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            initialValue: goldData['karatType'] as String?,
+                            hint: Text('Karat', style: TextStyle(fontSize: 11.sp)),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 8.w,
+                                vertical: 8.h,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(6.r),
+                              ),
+                            ),
+                            items: ['24K', '22K', '20K', '18K', '16K']
+                                .map(
+                                  (k) => DropdownMenuItem(
+                                    value: k,
+                                    child: Text(
+                                      k,
+                                      style: TextStyle(fontSize: 11.sp),
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (v) {
+                              if (v != null) {
+                                controller.updateGoldDetail(
+                                  loanId,
+                                  'karatType',
+                                  v,
+                                );
+                              }
+                            },
+                          ),
+                        ),
+                        SizedBox(width: 8.w),
+                        Expanded(
+                          child: TextFormField(
+                            initialValue: goldData['gramCount']?.toString() ?? '',
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            style: TextStyle(fontSize: 11.sp),
+                            decoration: InputDecoration(
+                              labelText: 'Grams',
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 8.w,
+                                vertical: 8.h,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(6.r),
+                              ),
+                            ),
+                            onChanged: (v) => controller.updateGoldDetail(
+                              loanId,
+                              'gramCount',
+                              double.tryParse(v) ?? 0,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 8.h),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            initialValue:
+                                goldData['goldTakenValue']?.toString() ?? '',
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            style: TextStyle(fontSize: 11.sp),
+                            decoration: InputDecoration(
+                              labelText: 'Taken Value (₹)',
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 8.w,
+                                vertical: 8.h,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(6.r),
+                              ),
+                            ),
+                            onChanged: (v) => controller.updateGoldDetail(
+                              loanId,
+                              'goldTakenValue',
+                              double.tryParse(v) ?? 0,
+                              grossAmount,
+                            ),
+                          ),
+                        ),
+                        SizedBox(width: 8.w),
+                        Expanded(
+                          child: TextFormField(
+                            initialValue: goldData['cashGiven']?.toString() ?? '',
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            style: TextStyle(fontSize: 11.sp),
+                            decoration: InputDecoration(
+                              labelText: 'Cash Given (₹)',
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 8.w,
+                                vertical: 8.h,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(6.r),
+                              ),
+                            ),
+                            onChanged: (v) => controller.updateGoldDetail(
+                              loanId,
+                              'cashGiven',
+                              double.tryParse(v) ?? 0,
+                              grossAmount,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 8.h),
+                    TextFormField(
+                      initialValue: goldData['itemDescription']?.toString() ?? '',
+                      style: TextStyle(fontSize: 11.sp),
+                      decoration: InputDecoration(
+                        labelText: 'Item Description / Token No (optional)',
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 8.w,
+                          vertical: 8.h,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(6.r),
+                        ),
+                      ),
+                      onChanged: (v) => controller.updateGoldDetail(
+                        loanId,
+                        'itemDescription',
+                        v,
+                      ),
+                    ),
+                    SizedBox(height: 10.h),
+                    // Gold Photos List & Attach Button
+                    Text(
+                      'Pledge Photos (${goldPhotos.length})',
+                      style: TextStyle(
+                        fontSize: 10.5.sp,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFFB45309),
+                      ),
+                    ),
+                    SizedBox(height: 6.h),
+                    if (goldPhotos.isNotEmpty)
+                      SizedBox(
+                        height: 55.h,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: goldPhotos.length,
+                          separatorBuilder: (_, __) => SizedBox(width: 6.w),
+                          itemBuilder: (_, pIdx) {
+                            final photo = goldPhotos[pIdx];
+                            final pId = photo['id']?.toString() ?? '';
+                            final url = photo['photoUrl']?.toString() ?? '';
+                            return Stack(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(6.r),
+                                  child: Image.network(
+                                    url,
+                                    width: 55.h,
+                                    height: 55.h,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => Container(
+                                      width: 55.h,
+                                      height: 55.h,
+                                      color: const Color(0xFFEFF3F1),
+                                      child: Icon(
+                                        Icons.broken_image_outlined,
+                                        size: 18.sp,
+                                        color: Colors.redAccent,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                Positioned(
+                                  top: 1,
+                                  right: 1,
+                                  child: GestureDetector(
+                                    onTap: () => controller.deleteGoldPhoto(
+                                      loanId,
+                                      pId,
+                                    ),
+                                    child: CircleAvatar(
+                                      radius: 8.r,
+                                      backgroundColor: Colors.black54,
+                                      child: Icon(
+                                        Icons.close,
+                                        size: 10.sp,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    SizedBox(height: 6.h),
+                    Row(
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: isUploadingGold
+                              ? null
+                              : () => _pickGoldPhoto(loanId, ImageSource.camera),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFFB45309),
+                            side: const BorderSide(color: Color(0xFFFDE68A)),
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 8.w,
+                              vertical: 4.h,
+                            ),
+                          ),
+                          icon: isUploadingGold
+                              ? SizedBox(
+                                  width: 12.sp,
+                                  height: 12.sp,
+                                  child: const CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : Icon(Icons.camera_alt_outlined, size: 14.sp),
+                          label: Text(
+                            'Camera',
+                            style: TextStyle(fontSize: 10.sp),
+                          ),
+                        ),
+                        SizedBox(width: 6.w),
+                        OutlinedButton.icon(
+                          onPressed: isUploadingGold
+                              ? null
+                              : () => _pickGoldPhoto(
+                                  loanId,
+                                  ImageSource.gallery,
+                                ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFFB45309),
+                            side: const BorderSide(color: Color(0xFFFDE68A)),
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 8.w,
+                              vertical: 4.h,
+                            ),
+                          ),
+                          icon: Icon(Icons.photo_library_outlined, size: 14.sp),
+                          label: Text(
+                            'Gallery',
+                            style: TextStyle(fontSize: 10.sp),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       );
     });
   }
 
-  Widget _attendanceChip({
-    required String label,
-    required IconData icon,
-    required Color color,
-    required bool selected,
-    required VoidCallback onTap,
-  }) {
+  Widget _attendanceChoiceChip(String loanId, String value, bool selected) {
+    final isPresent = value == 'PRESENT';
     return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8.r),
+      onTap: () => controller.setAttendance(loanId, value),
+      borderRadius: BorderRadius.circular(6.r),
       child: Container(
-        padding: EdgeInsets.symmetric(vertical: 8.h),
+        padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
         decoration: BoxDecoration(
-          color: selected ? color : Colors.white,
-          border: Border.all(color: color),
-          borderRadius: BorderRadius.circular(8.r),
+          color: selected
+              ? (isPresent
+                  ? const Color(0xFFDCFCE7)
+                  : const Color(0xFFFEF3C7))
+              : Colors.white,
+          border: Border.all(
+            color: selected
+                ? (isPresent
+                    ? const Color(0xFF15803D)
+                    : const Color(0xFFB45309))
+                : const Color(0xFFCBD5E1),
+            width: selected ? 1.5 : 1,
+          ),
+          borderRadius: BorderRadius.circular(6.r),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 14.sp, color: selected ? Colors.white : color),
-            SizedBox(width: 4.w),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11.sp,
-                fontWeight: FontWeight.w700,
-                color: selected ? Colors.white : color,
-              ),
-            ),
-          ],
+        child: Text(
+          value,
+          style: TextStyle(
+            fontSize: 10.sp,
+            fontWeight: FontWeight.w700,
+            color: selected
+                ? (isPresent
+                    ? const Color(0xFF15803D)
+                    : const Color(0xFFB45309))
+                : _muted,
+          ),
         ),
       ),
     );
   }
 
   Widget _buildApprovedIndexesList() {
-    return Obx(() {
-      final indexes = controller.approvedIndexes;
-      return Column(
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(14.w),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE1EAE4)),
+        borderRadius: BorderRadius.circular(14.r),
+      ),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -715,149 +1252,160 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
             children: [
               Text(
                 'Approved Indexes',
-                style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w800, color: _darkText),
-              ),
-              if (indexes.isNotEmpty)
-                Container(
-                  padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 3.h),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE6F5EC),
-                    borderRadius: BorderRadius.circular(20.r),
-                  ),
-                  child: Text(
-                    '${indexes.length} Index(es)',
-                    style: TextStyle(fontSize: 9.5.sp, fontWeight: FontWeight.w700, color: _green),
-                  ),
+                style: TextStyle(
+                  fontSize: 13.sp,
+                  fontWeight: FontWeight.w800,
+                  color: _darkText,
                 ),
+              ),
+              Obx(
+                () => Text(
+                  '${controller.approvedIndexes.length} available',
+                  style: TextStyle(fontSize: 10.5.sp, color: _muted),
+                ),
+              ),
             ],
           ),
           SizedBox(height: 10.h),
-          if (controller.isLoadingIndexes.value)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 24),
-              child: Center(child: CircularProgressIndicator(color: _green)),
-            )
-          else if (indexes.isEmpty)
-            _emptyState('No loans are awaiting final disbursement for this branch.')
-          else
-            ListView.separated(
+          Obx(() {
+            if (controller.isLoadingIndexes.value) {
+              return const Padding(
+                padding: EdgeInsets.all(24.0),
+                child: Center(child: CircularProgressIndicator(color: _green)),
+              );
+            }
+            if (controller.approvedIndexes.isEmpty) {
+              return Padding(
+                padding: EdgeInsets.all(20.w),
+                child: Center(
+                  child: Text(
+                    'No Level-2 approved loan indexes found for this branch.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 11.5.sp, color: _muted),
+                  ),
+                ),
+              );
+            }
+            return ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              itemCount: indexes.length,
+              itemCount: controller.approvedIndexes.length,
               separatorBuilder: (_, __) => SizedBox(height: 8.h),
-              itemBuilder: (_, i) => _indexRow(Map<String, dynamic>.from(indexes[i])),
-            ),
-        ],
-      );
-    });
-  }
+              itemBuilder: (_, index) {
+                final idx = controller.approvedIndexes[index];
+                if (idx is! Map) return const SizedBox.shrink();
+                final idxMap = Map<String, dynamic>.from(idx);
+                final isSelected =
+                    controller.selectedIndex.value?['id'] == idxMap['id'];
 
-  Widget _indexRow(Map<String, dynamic> idx) {
-    return Obx(() {
-      final isSelected = controller.selectedIndex.value?['id'] == idx['id'];
-      final hasFunder = controller.funderId.value != null;
-      return Container(
-        padding: EdgeInsets.all(12.w),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFE8F7EE) : Colors.white,
-          border: Border.all(
-            color: isSelected ? _green.withValues(alpha: 0.4) : const Color(0xFFE1EAE4),
-          ),
-          borderRadius: BorderRadius.circular(12.r),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Index #${_field(idx, 'indexNo')}',
-                    style: TextStyle(
-                      fontSize: 12.5.sp,
-                      fontWeight: FontWeight.w800,
-                      color: _darkText,
+                return InkWell(
+                  onTap: () => controller.selectIndex(idxMap),
+                  child: Container(
+                    padding: EdgeInsets.all(12.w),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? const Color(0xFFF0FAF4)
+                          : Colors.white,
+                      border: Border.all(
+                        color: isSelected
+                            ? _green
+                            : const Color(0xFFE1EAE4),
+                        width: isSelected ? 1.5 : 1,
+                      ),
+                      borderRadius: BorderRadius.circular(10.r),
+                    ),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 16.r,
+                          backgroundColor: isSelected
+                              ? _green
+                              : const Color(0xFFE6F5EC),
+                          child: Icon(
+                            Icons.receipt_long_rounded,
+                            size: 16.sp,
+                            color: isSelected ? Colors.white : _green,
+                          ),
+                        ),
+                        SizedBox(width: 10.w),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Index #${_field(idxMap, 'indexNo')} · ${_field(idxMap, 'centerName')}',
+                                style: TextStyle(
+                                  fontSize: 12.sp,
+                                  fontWeight: FontWeight.w800,
+                                  color: _darkText,
+                                ),
+                              ),
+                              SizedBox(height: 2.h),
+                              Text(
+                                '${idxMap['totalLoans'] ?? 0} loans · Date: ${_field(idxMap, 'indexDate')}',
+                                style: TextStyle(
+                                  fontSize: 10.5.sp,
+                                  color: _muted,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          _currency(_amount(idxMap, 'totalAmount')),
+                          style: TextStyle(
+                            fontSize: 12.sp,
+                            fontWeight: FontWeight.w800,
+                            color: _green,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  SizedBox(height: 2.h),
-                  Text(
-                    '${_field(idx, 'centerName')} • ${idx['totalLoans'] ?? 0} loan(s) • ${_currency(_amount(idx, 'totalAmount'))}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 10.sp, color: _muted),
-                  ),
-                ],
-              ),
+                );
+              },
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  void _confirmAndDisburse() {
+    Get.defaultDialog(
+      title: 'Confirm Final Disbursement',
+      titleStyle: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w800),
+      content: Padding(
+        padding: EdgeInsets.symmetric(horizontal: 10.w),
+        child: Column(
+          children: [
+            Text(
+              'Are you sure you want to disburse ${controller.selectedLoans.length} loan(s)?',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 11.5.sp),
             ),
-            SizedBox(width: 8.w),
-            OutlinedButton.icon(
-              onPressed: (!hasFunder || isSelected) ? null : () => controller.selectIndex(idx),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: isSelected ? _green : Colors.white,
-                backgroundColor: isSelected ? Colors.white : _green,
-                side: BorderSide(color: _green),
-                padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 8.h),
-              ),
-              icon: Icon(
-                isSelected ? Icons.check_circle_rounded : Icons.send_rounded,
-                size: 14.sp,
-              ),
-              label: Text(
-                isSelected ? 'Selected' : 'Select',
-                style: TextStyle(fontSize: 10.5.sp),
+            SizedBox(height: 6.h),
+            Text(
+              'Net Payable: ${_currency(controller.netDisbursementAmount)}\n'
+              'First Due Date: ${controller.commonFirstDueDate ?? "N/A"}',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 11.sp,
+                fontWeight: FontWeight.w700,
+                color: _green,
               ),
             ),
           ],
         ),
-      );
-    });
-  }
-
-  Future<void> _confirmAndDisburse() async {
-    final count = controller.selectedLoans.length;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Disburse Loans'),
-        content: Text(
-          'You are disbursing $count loan(s). This generates repayment schedules '
-          'and posts GL entries — this cannot be undone from here.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: _green),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Disburse'),
-          ),
-        ],
       ),
+      textConfirm: 'Disburse',
+      textCancel: 'Cancel',
+      confirmTextColor: Colors.white,
+      buttonColor: _green,
+      onConfirm: () async {
+        Get.back();
+        await controller.disburse();
+      },
     );
-    if (confirmed == true) {
-      await controller.disburse();
-    }
   }
-
-  Widget _emptyState(String message) => Container(
-    width: double.infinity,
-    padding: EdgeInsets.symmetric(vertical: 28.h),
-    decoration: BoxDecoration(
-      border: Border.all(color: const Color(0xFFE1EAE4)),
-      borderRadius: BorderRadius.circular(12.r),
-    ),
-    child: Column(
-      children: [
-        Icon(Icons.folder_open_rounded, size: 34.sp, color: _muted),
-        SizedBox(height: 8.h),
-        Text(
-          message,
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 11.sp, color: _muted),
-        ),
-      ],
-    ),
-  );
 }

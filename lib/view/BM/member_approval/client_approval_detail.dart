@@ -9,7 +9,7 @@ import 'package:sarvam/view/BM/member_approval/widgets/signed_doc_thumbnail.dart
 
 const _green = Color(0xFF0D6842);
 const _muted = Color(0xFF64748B);
-const _border = Color(0xFFE1EEE6);
+const _border = Color(0xFFE2E8F0);
 
 /// Mirrors the web app's ApprovalClientDetail.tsx `docPairs` display order
 /// (photo → Aadhaar → voter ID → smart card → house/location → NOC),
@@ -254,7 +254,10 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
         .length;
 
     final retakeFlaggedCount = kycDocuments
-        .where((d) => d['bmDecision'] == 'RETAKE_REQUIRED' || d['amDecision'] == 'RETAKE_REQUIRED')
+        .where((d) =>
+            d['bmDecision'] == 'RETAKE_REQUIRED' ||
+            d['amDecision'] == 'RETAKE_REQUIRED' ||
+            d['qcDecision'] == 'RETAKE_REQUIRED')
         .length;
 
     if (action == 'BM_SUBMIT_TO_AM' || action == 'AM_APPROVE') {
@@ -396,7 +399,10 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
     final hasCenter = detail['centerId'] != null;
     final hasGroup = groupMemberships.isNotEmpty;
     final retakeFlaggedCount = kycDocuments
-        .where((d) => d['bmDecision'] == 'RETAKE_REQUIRED')
+        .where((d) =>
+            d['bmDecision'] == 'RETAKE_REQUIRED' ||
+            d['amDecision'] == 'RETAKE_REQUIRED' ||
+            d['qcDecision'] == 'RETAKE_REQUIRED')
         .length;
     final unreviewedDocsCount = kycDocuments
         .where((d) => _isAM
@@ -934,12 +940,27 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
       _ => 'Pending',
     };
     final color = switch (decision) {
-      'VERIFIED' => _green,
+      'VERIFIED' => const Color(0xFF0D6842),
       'RETAKE_REQUIRED' => const Color(0xFFB45309),
-      'DELETED' => Colors.red,
-      'REJECTED' => Colors.red,
-      _ => _muted,
+      'DELETED' => const Color(0xFFDC2626),
+      'REJECTED' => const Color(0xFFDC2626),
+      _ => const Color(0xFF64748B),
     };
+    final bg = switch (decision) {
+      'VERIFIED' => const Color(0xFFE8F5E9),
+      'RETAKE_REQUIRED' => const Color(0xFFFEF3C7),
+      'DELETED' => const Color(0xFFFEE2E2),
+      'REJECTED' => const Color(0xFFFEE2E2),
+      _ => const Color(0xFFF1F5F9),
+    };
+    final border = switch (decision) {
+      'VERIFIED' => const Color(0xFFA7F3D0),
+      'RETAKE_REQUIRED' => const Color(0xFFFDE68A),
+      'DELETED' => const Color(0xFFFCA5A5),
+      'REJECTED' => const Color(0xFFFCA5A5),
+      _ => const Color(0xFFE2E8F0),
+    };
+
     String? reviewerLine;
     if (decision != 'PENDING' && reviewer is Map) {
       final name =
@@ -952,27 +973,51 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
         if (date != null) date,
       ].join(' · ');
     }
+
     return Padding(
-      padding: const EdgeInsets.only(bottom: 2),
-      child: RichText(
-        text: TextSpan(
-          style: const TextStyle(fontSize: 10.5, color: _muted),
-          children: [
-            TextSpan(
-              text: '$stage: ',
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 32,
+            child: Text(
+              '$stage:',
               style: const TextStyle(
+                fontSize: 11,
                 fontWeight: FontWeight.w700,
                 color: Color(0xFF334155),
               ),
             ),
-            TextSpan(
-              text: label,
-              style: TextStyle(color: color, fontWeight: FontWeight.w700),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: border),
             ),
-            if (reviewerLine != null && reviewerLine.isNotEmpty)
-              TextSpan(text: ' · $reviewerLine'),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          if (reviewerLine != null && reviewerLine.isNotEmpty) ...[
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                reviewerLine,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 10.5, color: _muted),
+              ),
+            ),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -1031,13 +1076,13 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
-        border: Border.all(color: _border),
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: const [
           BoxShadow(
-            color: const Color(0x00000000).withValues(alpha: 0.03),
+            color: Color(0x0A000000),
             blurRadius: 8,
-            offset: const Offset(0, 2),
+            offset: Offset(0, 2),
           ),
         ],
       ),
@@ -1068,8 +1113,9 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
                           child: Text(
                             label,
                             style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 13.5,
+                              color: Color(0xFF0F172A),
                             ),
                           ),
                         ),
@@ -1078,12 +1124,12 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
                             onTap: () => _openLocationMap(lat, lng),
                             child: Container(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 5,
+                                horizontal: 9,
+                                vertical: 4,
                               ),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFEAF6F0),
-                                borderRadius: BorderRadius.circular(18),
+                                borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
                                   color: const Color(0xFFBBE5CE),
                                 ),
@@ -1093,14 +1139,14 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
                                 children: [
                                   Icon(
                                     Icons.map_outlined,
-                                    size: 14,
+                                    size: 13,
                                     color: _green,
                                   ),
                                   SizedBox(width: 4),
                                   Text(
-                                    'View on Map',
+                                    'View Map',
                                     style: TextStyle(
-                                      fontSize: 10.5,
+                                      fontSize: 10,
                                       fontWeight: FontWeight.w700,
                                       color: _green,
                                     ),
@@ -1137,84 +1183,141 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
           ),
           if (canReview) ...[
             const SizedBox(height: 12),
-            TextField(
-              controller: _docRemarkCtrl(docId),
-              maxLines: 2,
-              style: const TextStyle(fontSize: 12.5),
-              decoration: const InputDecoration(
-                hintText: 'Remark (required for retake / delete / reject)…',
-                isDense: true,
-                border: OutlineInputBorder(),
-              ),
-            ),
             if (blockVerify) ...[
-              const SizedBox(height: 6),
-              const Text(
-                'Another document is flagged for retake — resolve it (Request Retake below) before verifying more documents.',
-                style: TextStyle(fontSize: 11, color: Color(0xFFB45309)),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF3C7),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFFDE68A)),
+                ),
+                child: const Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      size: 16,
+                      color: Color(0xFFD97706),
+                    ),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Another document is flagged for retake — use "Request Retake" at the bottom of the page to submit to FDO.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF92400E),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
+            ] else ...[
+              TextField(
+                controller: _docRemarkCtrl(docId),
+                maxLines: 2,
+                style: const TextStyle(fontSize: 12),
+                decoration: InputDecoration(
+                  hintText: 'Enter document remark (required for retake / delete)…',
+                  hintStyle: const TextStyle(fontSize: 11.5, color: _muted),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: _green),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Obx(() {
+                final isSubmitting = controller.submittingDocId.value == docId;
+                return Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: isSubmitting
+                            ? null
+                            : () => _actOnDoc(docId, 'VERIFIED'),
+                        icon: const Icon(Icons.check_circle_outline_rounded, size: 15),
+                        style: OutlinedButton.styleFrom(
+                          backgroundColor: const Color(0xFFE8F5E9),
+                          foregroundColor: _green,
+                          side: const BorderSide(color: Color(0xFFA7F3D0)),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        label: const Text(
+                          'Verify',
+                          style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: isSubmitting
+                            ? null
+                            : () => _actOnDoc(docId, 'RETAKE_REQUIRED'),
+                        icon: const Icon(Icons.rotate_right_rounded, size: 15),
+                        style: OutlinedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFEF3C7),
+                          foregroundColor: const Color(0xFFB45309),
+                          side: const BorderSide(color: Color(0xFFFDE68A)),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        label: const Text(
+                          'Retake',
+                          style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: isSubmitting
+                            ? null
+                            : () => _actOnDoc(docId, 'DELETED'),
+                        icon: isSubmitting
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.delete_outline_rounded, size: 15),
+                        style: OutlinedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFEE2E2),
+                          foregroundColor: const Color(0xFFDC2626),
+                          side: const BorderSide(color: Color(0xFFFCA5A5)),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        label: const Text(
+                          'Delete',
+                          style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              }),
             ],
-            const SizedBox(height: 10),
-            Obx(() {
-              final isSubmitting = controller.submittingDocId.value == docId;
-              return Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: (isSubmitting || blockVerify)
-                          ? null
-                          : () => _actOnDoc(docId, 'VERIFIED'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: _green,
-                        side: const BorderSide(color: Color(0xFFBBE5CE)),
-                      ),
-                      child: const Text(
-                        'Verify',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: isSubmitting
-                          ? null
-                          : () => _actOnDoc(docId, 'RETAKE_REQUIRED'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFFB45309),
-                        side: const BorderSide(color: Color(0xFFFCD34D)),
-                      ),
-                      child: const Text(
-                        'Retake',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: isSubmitting
-                          ? null
-                          : () => _actOnDoc(docId, 'DELETED'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFFDC2626),
-                        side: const BorderSide(color: Color(0xFFFCA5A5)),
-                      ),
-                      child: isSubmitting
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text(
-                              'Delete',
-                              style: TextStyle(fontSize: 12),
-                            ),
-                    ),
-                  ),
-                ],
-              );
-            }),
           ],
         ],
       ),
@@ -1222,33 +1325,48 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
   }
 
   Widget _sectionCard(String title, IconData icon, List<Widget> children) =>
-      Card(
-        margin: EdgeInsets.zero,
-        elevation: 1,
-        surfaceTintColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(icon, size: 16, color: _green),
-                  const SizedBox(width: 8),
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 13.5,
-                    ),
+      Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: _border),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x0A000000),
+              blurRadius: 8,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: _green.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              ...children,
-            ],
-          ),
+                  child: Icon(icon, size: 16, color: _green),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ...children,
+          ],
         ),
       );
 
@@ -1280,7 +1398,9 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
 
   Widget _workflowStepperCard(String status) {
     int activeIndex = 1;
-    if (status == 'SUBMITTED' || status == 'PENDING_BM_REVIEW' || status == 'BM_RETAKE_REQUIRED') {
+    if (status == 'DRAFT' || status == 'ENROLLED') {
+      activeIndex = 0;
+    } else if (status == 'SUBMITTED' || status == 'PENDING_BM_REVIEW' || status == 'BM_RETAKE_REQUIRED') {
       activeIndex = 1;
     } else if (status == 'PENDING_AM_REVIEW' || status == 'AM_RETAKE_REQUIRED') {
       activeIndex = 2;
@@ -1302,108 +1422,172 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
       {'key': 'FINAL', 'label': 'Admin'},
     ];
 
-    return Card(
+    final isApproved = activeIndex == 5;
+    final isRejected = activeIndex == -1;
+
+    final badgeBg = isApproved
+        ? const Color(0xFFE8F5E9)
+        : (isRejected ? const Color(0xFFFEE2E2) : const Color(0xFFFEF3C7));
+    final badgeFg = isApproved
+        ? _green
+        : (isRejected ? const Color(0xFFDC2626) : const Color(0xFFB45309));
+    final badgeBorder = isApproved
+        ? const Color(0xFFA7F3D0)
+        : (isRejected ? const Color(0xFFFCA5A5) : const Color(0xFFFDE68A));
+
+    return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      elevation: 1,
-      surfaceTintColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.account_tree_outlined, size: 16, color: _green),
-                const SizedBox(width: 8),
-                const Text(
-                  'Approval Workflow Stage',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _border),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A000000),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: _green.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                const Spacer(),
-                Container(
+                child: const Icon(Icons.account_tree_outlined, size: 16, color: _green),
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Workflow Stage',
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13.5,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: activeIndex == 5
-                        ? const Color(0xFFE8F5E9)
-                        : (activeIndex == -1 ? Colors.red.shade50 : const Color(0xFFFEF3C7)),
+                    color: badgeBg,
                     borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: badgeBorder),
                   ),
                   child: Text(
                     status.replaceAll('_', ' '),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                     style: TextStyle(
-                      fontSize: 10,
+                      fontSize: 9.5,
                       fontWeight: FontWeight.w700,
-                      color: activeIndex == 5
-                          ? _green
-                          : (activeIndex == -1 ? Colors.red.shade700 : const Color(0xFFB45309)),
+                      color: badgeFg,
                     ),
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            Row(
-              children: List.generate(stages.length * 2 - 1, (i) {
-                if (i.isOdd) {
-                  final prevIdx = i ~/ 2;
-                  final isDone = activeIndex > prevIdx + 1;
-                  return Expanded(
-                    child: Container(
-                      height: 2,
-                      color: isDone ? _green : const Color(0xFFCBD5E1),
-                    ),
-                  );
-                }
-                final stageIdx = i ~/ 2;
-                final isDone = activeIndex > stageIdx;
-                final isActive = activeIndex == stageIdx;
-                final isRejected = activeIndex == -1;
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: List.generate(stages.length, (stageIdx) {
+              final isDone = activeIndex > stageIdx;
+              final isActive = activeIndex == stageIdx;
+              final isLast = stageIdx == stages.length - 1;
 
-                final bg = isDone
-                    ? _green
-                    : (isActive
-                        ? const Color(0xFF0284C7)
-                        : (isRejected ? Colors.red : const Color(0xFFE2E8F0)));
-                final fg = (isDone || isActive || isRejected) ? Colors.white : const Color(0xFF64748B);
+              final circleBg = isDone
+                  ? _green
+                  : (isActive
+                      ? (isRejected ? const Color(0xFFDC2626) : const Color(0xFF0284C7))
+                      : const Color(0xFFF1F5F9));
+              final circleFg = (isDone || isActive) ? Colors.white : const Color(0xFF64748B);
+              final circleBorder = isDone
+                  ? _green
+                  : (isActive
+                      ? (isRejected ? const Color(0xFFDC2626) : const Color(0xFF0284C7))
+                      : const Color(0xFFCBD5E1));
 
-                return Column(
+              return Expanded(
+                child: Column(
                   children: [
-                    Container(
-                      width: 26,
-                      height: 26,
-                      decoration: BoxDecoration(
-                        color: bg,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Center(
-                        child: isDone
-                            ? const Icon(Icons.check, size: 14, color: Colors.white)
-                            : Text(
-                                '${stageIdx + 1}',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: fg,
-                                ),
-                              ),
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            height: 3,
+                            color: stageIdx == 0
+                                ? Colors.transparent
+                                : (isDone || isActive ? _green : const Color(0xFFE2E8F0)),
+                          ),
+                        ),
+                        Container(
+                          width: 28,
+                          height: 28,
+                          decoration: BoxDecoration(
+                            color: circleBg,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: circleBorder, width: 2),
+                            boxShadow: isActive
+                                ? [
+                                    BoxShadow(
+                                      color: circleBg.withValues(alpha: 0.3),
+                                      blurRadius: 6,
+                                      spreadRadius: 1,
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: Center(
+                            child: isDone
+                                ? const Icon(Icons.check_rounded, size: 15, color: Colors.white)
+                                : Text(
+                                    '${stageIdx + 1}',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                      color: circleFg,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Container(
+                            height: 3,
+                            color: isLast
+                                ? Colors.transparent
+                                : (isDone ? _green : const Color(0xFFE2E8F0)),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 6),
                     Text(
                       stages[stageIdx]['label']!,
+                      textAlign: TextAlign.center,
                       style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: isActive ? FontWeight.w800 : FontWeight.w500,
-                        color: isActive ? _green : const Color(0xFF64748B),
+                        fontSize: 10.5,
+                        fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
+                        color: isActive
+                            ? (isRejected ? const Color(0xFFDC2626) : _green)
+                            : (isDone ? const Color(0xFF334155) : const Color(0xFF94A3B8)),
                       ),
                     ),
                   ],
-                );
-              }),
-            ),
-          ],
-        ),
+                ),
+              );
+            }),
+          ),
+        ],
       ),
     );
   }

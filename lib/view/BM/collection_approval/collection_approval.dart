@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/services/api_client.dart';
 import 'package:sarvam/view/AM/foreclosure_approval/foreclosure_approval.dart';
+import 'package:sarvam/view/BM/group_assignment/widgets/id_dropdown.dart';
 
 const _green = Color(0xFF00843D);
 const _darkGreen = Color(0xFF075E2E);
@@ -16,8 +17,9 @@ const _border = Color(0xFFE1EEE6);
 const _bg = Color(0xFFF7FBF8);
 
 /// Complete BM/AM Collection Approval screen — feature-identical with web app's
-/// `CollectionApprovalClient.tsx`. Supports Demand, Advance, Arrear, Gold Loan &
-/// Pre-Close modes with Date/Branch/Center/FDO filtering and instant approvals.
+/// `CollectionApprovalClient.tsx`. Supports Demand, Advance, Arrear, Gold Loan,
+/// Pre-Close, Close Loans & Allocate for EOD modes with Date/Branch/Center/FDO
+/// filtering, denomination summaries, search, and instant single/bulk approvals.
 class CollectionApproval extends StatefulWidget {
   const CollectionApproval({super.key});
 
@@ -32,6 +34,8 @@ class _CollectionApprovalState extends State<CollectionApproval>
   final RxBool _isLoading = false.obs;
   final RxBool _isLoadingFilters = false.obs;
   final RxBool _isSubmitting = false.obs;
+  final RxBool _isLoadingEodAllocation = false.obs;
+  final RxBool _isAllocatingEod = false.obs;
 
   final RxList<dynamic> _branches = <dynamic>[].obs;
   final RxList<dynamic> _centers = <dynamic>[].obs;
@@ -43,24 +47,36 @@ class _CollectionApprovalState extends State<CollectionApproval>
   DateTime _collectionDate = DateTime.now();
 
   final RxList<Map<String, dynamic>> _rows = <Map<String, dynamic>>[].obs;
+  final RxList<Map<String, dynamic>> _denominationByCenter = <Map<String, dynamic>>[].obs;
   final RxSet<String> _approvedIds = <String>{}.obs;
+
+  // EOD Allocation State
+  final RxList<Map<String, dynamic>> _funderAllocations = <Map<String, dynamic>>[].obs;
 
   String _userRole = '';
   String _searchQuery = '';
+  bool _showDenominationSummary = false;
 
   late TabController _tabController;
   final List<String> _modeTabs = [
     'DEMAND',
     'ADVANCE',
     'ARREAR',
-    'GOLD_LOAN',
     'PRE_CLOSE',
+    'CLOSE_LOANS',
+    'GOLD_LOAN',
+    'ALLOCATE_EOD',
   ];
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: _modeTabs.length, vsync: this);
+    _tabController.addListener(() {
+      if (_tabController.indexIsChanging && _modeTabs[_tabController.index] == 'ALLOCATE_EOD') {
+        _fetchEodAllocations();
+      }
+    });
     _bootstrap();
   }
 
@@ -81,7 +97,7 @@ class _CollectionApprovalState extends State<CollectionApproval>
       final token = prefs.getString('accessToken') ?? '';
       final headers = {'Authorization': 'Bearer $token'};
 
-      // Fetch branches if Admin / Area Manager
+      // Fetch branches if Admin or Area Manager
       if (_userRole == 'ADMIN' || _userRole == 'AREA_MANAGER') {
         final bRes = await _client.get(
           '${Api.baseUrl}/api/branches',
@@ -139,8 +155,14 @@ class _CollectionApprovalState extends State<CollectionApproval>
         headers: headers,
       );
       if (cRes.statusCode == 200 && cRes.body != null) {
-        final cData = cRes.body['data'];
-        _centers.assignAll(cData is List ? cData : <dynamic>[]);
+        final cData = cRes.body['data'] ?? cRes.body;
+        if (cData is List) {
+          _centers.assignAll(cData);
+        } else if (cData is Map && cData['centers'] is List) {
+          _centers.assignAll(cData['centers']);
+        } else {
+          _centers.clear();
+        }
       }
 
       final uRes = await _client.get(
@@ -200,10 +222,51 @@ class _CollectionApprovalState extends State<CollectionApproval>
           rawRows = bodyData;
         }
 
+        if (bodyData is Map && bodyData['denominationByCenter'] is List) {
+          _denominationByCenter.assignAll(
+            (bodyData['denominationByCenter'] as List)
+                .map((d) => d is Map ? Map<String, dynamic>.from(d) : <String, dynamic>{})
+                .toList(),
+          );
+        } else {
+          _denominationByCenter.clear();
+        }
+
         final List<Map<String, dynamic>> parsedRows = rawRows
             .map((r) => r is Map ? Map<String, dynamic>.from(r) : <String, dynamic>{})
             .where((m) => m.isNotEmpty)
             .toList();
+
+        // Ensure all centers present in current collection rows exist in _centers list
+        for (final r in parsedRows) {
+          final cName = r['centerName']?.toString() ?? r['center']?['name']?.toString() ?? '';
+          final cCode = r['centerCode']?.toString() ?? r['center']?['code']?.toString() ?? '';
+          final cId = r['centerId']?.toString() ?? r['center']?['id']?.toString() ?? '';
+          if (cId.isNotEmpty && !_centers.any((c) => c['id']?.toString() == cId)) {
+            _centers.add({'id': cId, 'name': cName, 'code': cCode});
+          }
+        }
+
+        for (final d in _denominationByCenter) {
+          final cName = d['centerName']?.toString() ?? '';
+          final cCode = d['centerCode']?.toString() ?? '';
+          final cId = d['centerId']?.toString() ?? '';
+          if (cId.isNotEmpty && !_centers.any((c) => c['id']?.toString() == cId)) {
+            _centers.add({'id': cId, 'name': cName, 'code': cCode});
+          }
+        }
+
+        // Ensure all officers present in current collection rows exist in _officers list
+        for (final r in parsedRows) {
+          final oName = r['collectedByName']?.toString() ?? r['collectedBy']?['firstName']?.toString() ?? '';
+          final oId = r['collectedById']?.toString() ?? r['collectedBy']?['id']?.toString() ?? '';
+          if (oId.isNotEmpty && !_officers.any((o) => o['id']?.toString() == oId)) {
+            final parts = oName.split(' ');
+            final fName = parts.isNotEmpty ? parts.first : oName;
+            final lName = parts.length > 1 ? parts.sublist(1).join(' ') : '';
+            _officers.add({'id': oId, 'firstName': fName, 'lastName': lName});
+          }
+        }
 
         _rows.assignAll(parsedRows);
         _approvedIds.clear();
@@ -255,6 +318,48 @@ class _CollectionApprovalState extends State<CollectionApproval>
       }
     } catch (e) {
       Get.snackbar('Error', 'Action failed: $e', backgroundColor: Colors.redAccent, colorText: Colors.white);
+    } finally {
+      _isSubmitting.value = false;
+    }
+  }
+
+  Future<void> _approveAllPendingForTab(String modeTab) async {
+    final pendingRows = _filteredRowsForTab(modeTab)
+        .where((r) => r['status']?.toString().toUpperCase() != 'APPROVED' && !_approvedIds.contains(r['transactionId']?.toString() ?? r['id']?.toString()))
+        .toList();
+
+    if (pendingRows.isEmpty) {
+      Get.snackbar('No Pending Rows', 'All items in this tab are already approved.', backgroundColor: Colors.orange, colorText: Colors.white);
+      return;
+    }
+
+    _isSubmitting.value = true;
+    try {
+      int successCount = 0;
+      for (final r in pendingRows) {
+        final txId = r['transactionId']?.toString() ?? r['id']?.toString() ?? '';
+        if (txId.isNotEmpty) {
+          final prefs = await SharedPreferences.getInstance();
+          final token = prefs.getString('accessToken') ?? '';
+          final response = await _client.post(
+            '${Api.baseUrl}/api/collections/approve',
+            {'transactionId': txId, 'action': 'APPROVE'},
+            headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+          );
+          if (response.statusCode == 200 || response.statusCode == 201) {
+            _approvedIds.add(txId);
+            successCount++;
+          }
+        }
+      }
+      Get.snackbar(
+        'Bulk Approval Complete',
+        'Approved $successCount collection transaction(s).',
+        backgroundColor: _green,
+        colorText: Colors.white,
+      );
+    } catch (e) {
+      Get.snackbar('Bulk Approval Error', '$e', backgroundColor: Colors.redAccent, colorText: Colors.white);
     } finally {
       _isSubmitting.value = false;
     }
@@ -346,6 +451,87 @@ class _CollectionApprovalState extends State<CollectionApproval>
     }
   }
 
+  Future<void> _fetchEodAllocations() async {
+    final branchId = _selectedBranchId.value;
+    if (branchId.isEmpty) return;
+
+    _isLoadingEodAllocation.value = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('accessToken') ?? '';
+      final dateStr = DateFormat('yyyy-MM-dd').format(_collectionDate);
+
+      final res = await _client.get(
+        '${Api.baseUrl}/api/collections/approved-unallocated?branchId=$branchId&date=$dateStr',
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (res.statusCode == 200 && res.body != null) {
+        final data = res.body['data'];
+        if (data is Map && data['funders'] is List) {
+          _funderAllocations.assignAll(
+            (data['funders'] as List).map((f) => f is Map ? Map<String, dynamic>.from(f) : <String, dynamic>{}).toList(),
+          );
+        } else if (data is List) {
+          _funderAllocations.assignAll(
+            data.map((f) => f is Map ? Map<String, dynamic>.from(f) : <String, dynamic>{}).toList(),
+          );
+        } else {
+          _funderAllocations.clear();
+        }
+      } else {
+        _funderAllocations.clear();
+      }
+    } catch (e) {
+      debugPrint('Failed to load EOD allocations: $e');
+      _funderAllocations.clear();
+    } finally {
+      _isLoadingEodAllocation.value = false;
+    }
+  }
+
+  Future<void> _allocateEodForFunder(String? funderId) async {
+    final branchId = _selectedBranchId.value;
+    if (branchId.isEmpty) return;
+
+    _isAllocatingEod.value = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('accessToken') ?? '';
+      final dateStr = DateFormat('yyyy-MM-dd').format(_collectionDate);
+
+      final res = await _client.post(
+        '${Api.baseUrl}/api/collections/allocate-eod',
+        {
+          'branchId': branchId,
+          'date': dateStr,
+          if (funderId != null && funderId.isNotEmpty) 'funderId': funderId,
+        },
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        Get.snackbar(
+          'EOD Allocated',
+          'Approved collections successfully allocated for EOD.',
+          backgroundColor: _green,
+          colorText: Colors.white,
+        );
+        await _fetchEodAllocations();
+      } else {
+        final err = res.body?['error'] ?? res.body?['message'] ?? 'Allocation failed';
+        Get.snackbar('Allocation Failed', '$err', backgroundColor: Colors.redAccent, colorText: Colors.white);
+      }
+    } catch (e) {
+      Get.snackbar('Error', '$e', backgroundColor: Colors.redAccent, colorText: Colors.white);
+    } finally {
+      _isAllocatingEod.value = false;
+    }
+  }
+
   List<Map<String, dynamic>> _filteredRowsForTab(String modeTab) {
     List<Map<String, dynamic>> baseList = [];
     if (modeTab == 'DEMAND') {
@@ -356,6 +542,20 @@ class _CollectionApprovalState extends State<CollectionApproval>
       baseList = _rows.where((r) => r['mode'] == 'ARREAR' && r['isGoldLoan'] != true).toList();
     } else if (modeTab == 'GOLD_LOAN') {
       baseList = _rows.where((r) => r['isGoldLoan'] == true).toList();
+    }
+
+    if (_selectedCenterId.value.isNotEmpty) {
+      baseList = baseList.where((r) {
+        final cId = r['centerId']?.toString() ?? r['center']?['id']?.toString() ?? '';
+        return cId == _selectedCenterId.value;
+      }).toList();
+    }
+
+    if (_selectedOfficerId.value.isNotEmpty) {
+      baseList = baseList.where((r) {
+        final oId = r['collectedById']?.toString() ?? r['collectedBy']?['id']?.toString() ?? '';
+        return oId == _selectedOfficerId.value;
+      }).toList();
     }
 
     if (_searchQuery.trim().isEmpty) return baseList;
@@ -369,16 +569,7 @@ class _CollectionApprovalState extends State<CollectionApproval>
   }
 
   int _countForTab(String modeTab) {
-    if (modeTab == 'DEMAND') {
-      return _rows.where((r) => r['mode'] == 'DEMAND' && r['isGoldLoan'] != true).length;
-    } else if (modeTab == 'ADVANCE') {
-      return _rows.where((r) => r['mode'] == 'ADVANCE' && r['isGoldLoan'] != true).length;
-    } else if (modeTab == 'ARREAR') {
-      return _rows.where((r) => r['mode'] == 'ARREAR' && r['isGoldLoan'] != true).length;
-    } else if (modeTab == 'GOLD_LOAN') {
-      return _rows.where((r) => r['isGoldLoan'] == true).length;
-    }
-    return 0;
+    return _filteredRowsForTab(modeTab).length;
   }
 
   @override
@@ -410,6 +601,9 @@ class _CollectionApprovalState extends State<CollectionApproval>
               onPressed: () async {
                 await _loadBranchLookups();
                 await _fetchRows();
+                if (_modeTabs[_tabController.index] == 'ALLOCATE_EOD') {
+                  await _fetchEodAllocations();
+                }
               },
             ),
           ],
@@ -426,8 +620,10 @@ class _CollectionApprovalState extends State<CollectionApproval>
                     _buildTabContent('DEMAND'),
                     _buildTabContent('ADVANCE'),
                     _buildTabContent('ARREAR'),
-                    _buildTabContent('GOLD_LOAN'),
                     _buildPreCloseTabContent(),
+                    _buildCloseLoansTabContent(),
+                    _buildTabContent('GOLD_LOAN'),
+                    _buildAllocateEodTabContent(),
                   ],
                 ),
               ),
@@ -486,39 +682,30 @@ class _CollectionApprovalState extends State<CollectionApproval>
               if (isAdminOrAM) ...[
                 SizedBox(width: 8.w),
                 Expanded(
-                  child: Obx(() {
-                    return Container(
-                      padding: EdgeInsets.symmetric(horizontal: 8.w),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF4FAF6),
-                        border: Border.all(color: _border),
-                        borderRadius: BorderRadius.circular(8.r),
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _selectedBranchId.value.isEmpty ? null : _selectedBranchId.value,
-                          isExpanded: true,
-                          hint: Text('Select Branch', style: TextStyle(fontSize: 11.sp)),
-                          items: _branches.map((b) {
-                            final bId = b['id']?.toString() ?? '';
-                            final name = b['name']?.toString() ?? '';
-                            final code = b['code']?.toString() ?? '';
-                            return DropdownMenuItem<String>(
-                              value: bId,
-                              child: Text(code.isNotEmpty ? '$code - $name' : name, style: TextStyle(fontSize: 11.sp), overflow: TextOverflow.ellipsis),
-                            );
-                          }).toList(),
-                          onChanged: (val) async {
-                            if (val != null) {
-                              _selectedBranchId.value = val;
-                              await _loadBranchLookups();
-                              await _fetchRows();
-                            }
-                          },
-                        ),
-                      ),
-                    );
-                  }),
+                  child: Obx(
+                    () => IdDropdown(
+                      label: 'Branch',
+                      value: _selectedBranchId.value.isEmpty ? null : _selectedBranchId.value,
+                      items: _branches.toList(),
+                      labelBuilder: (items, id) {
+                        final match = items.firstWhere(
+                          (b) => b['id']?.toString() == id,
+                          orElse: () => null,
+                        );
+                        if (match is! Map) return id;
+                        final code = match['code']?.toString() ?? '';
+                        final name = match['name']?.toString() ?? id;
+                        return code.isNotEmpty ? '$code - $name' : name;
+                      },
+                      onChanged: (val) async {
+                        if (val != null) {
+                          _selectedBranchId.value = val;
+                          await _loadBranchLookups();
+                          await _fetchRows();
+                        }
+                      },
+                    ),
+                  ),
                 ),
               ],
             ],
@@ -527,72 +714,54 @@ class _CollectionApprovalState extends State<CollectionApproval>
           Row(
             children: [
               Expanded(
-                child: Obx(() {
-                  return Container(
-                    padding: EdgeInsets.symmetric(horizontal: 8.w),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF4FAF6),
-                      border: Border.all(color: _border),
-                      borderRadius: BorderRadius.circular(8.r),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _selectedOfficerId.value.isEmpty ? 'ALL' : _selectedOfficerId.value,
-                        isExpanded: true,
-                        items: [
-                          DropdownMenuItem(value: 'ALL', child: Text('All Officers (FDO)', style: TextStyle(fontSize: 11.sp))),
-                          ..._officers.map((o) {
-                            final id = o['id']?.toString() ?? '';
-                            final name = '${o['firstName'] ?? ''} ${o['lastName'] ?? ''}'.trim();
-                            return DropdownMenuItem<String>(
-                              value: id,
-                              child: Text(name, style: TextStyle(fontSize: 11.sp), overflow: TextOverflow.ellipsis),
-                            );
-                          }),
-                        ],
-                        onChanged: (val) async {
-                          _selectedOfficerId.value = (val == 'ALL' || val == null) ? '' : val;
-                          await _fetchRows();
-                        },
-                      ),
-                    ),
-                  );
-                }),
+                child: Obx(
+                  () => IdDropdown(
+                    label: 'Officer',
+                    value: _selectedOfficerId.value.isEmpty ? 'ALL' : _selectedOfficerId.value,
+                    items: _officers.toList(),
+                    extraOptions: const {'ALL': 'All Officers (FDO)'},
+                    labelBuilder: (items, id) {
+                      final match = items.firstWhere(
+                        (o) => o['id']?.toString() == id,
+                        orElse: () => null,
+                      );
+                      if (match is! Map) return id;
+                      final firstName = match['firstName']?.toString() ?? '';
+                      final lastName = match['lastName']?.toString() ?? '';
+                      final fullName = '$firstName $lastName'.trim();
+                      return fullName.isNotEmpty ? fullName : id;
+                    },
+                    onChanged: (val) async {
+                      _selectedOfficerId.value = (val == 'ALL' || val == null) ? '' : val;
+                      await _fetchRows();
+                    },
+                  ),
+                ),
               ),
               SizedBox(width: 8.w),
               Expanded(
-                child: Obx(() {
-                  return Container(
-                    padding: EdgeInsets.symmetric(horizontal: 8.w),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF4FAF6),
-                      border: Border.all(color: _border),
-                      borderRadius: BorderRadius.circular(8.r),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _selectedCenterId.value.isEmpty ? 'ALL' : _selectedCenterId.value,
-                        isExpanded: true,
-                        items: [
-                          DropdownMenuItem(value: 'ALL', child: Text('All Centers', style: TextStyle(fontSize: 11.sp))),
-                          ..._centers.map((c) {
-                            final id = c['id']?.toString() ?? '';
-                            final name = c['name']?.toString() ?? '';
-                            final code = c['code']?.toString() ?? '';
-                            return DropdownMenuItem<String>(
-                              value: id,
-                              child: Text(code.isNotEmpty ? '$code - $name' : name, style: TextStyle(fontSize: 11.sp), overflow: TextOverflow.ellipsis),
-                            );
-                          }),
-                        ],
-                        onChanged: (val) async {
-                          _selectedCenterId.value = (val == 'ALL' || val == null) ? '' : val;
-                          await _fetchRows();
-                        },
-                      ),
-                    ),
-                  );
-                }),
+                child: Obx(
+                  () => IdDropdown(
+                    label: 'Center',
+                    value: _selectedCenterId.value.isEmpty ? 'ALL' : _selectedCenterId.value,
+                    items: _centers.toList(),
+                    extraOptions: const {'ALL': 'All Centers'},
+                    labelBuilder: (items, id) {
+                      final match = items.firstWhere(
+                        (c) => c['id']?.toString() == id,
+                        orElse: () => null,
+                      );
+                      if (match is! Map) return id;
+                      final code = match['code']?.toString() ?? '';
+                      final name = match['name']?.toString() ?? id;
+                      return code.isNotEmpty ? '$code - $name' : name;
+                    },
+                    onChanged: (val) async {
+                      _selectedCenterId.value = (val == 'ALL' || val == null) ? '' : val;
+                      await _fetchRows();
+                    },
+                  ),
+                ),
               ),
             ],
           ),
@@ -618,8 +787,10 @@ class _CollectionApprovalState extends State<CollectionApproval>
             Tab(text: 'Demand (${_countForTab('DEMAND')})'),
             Tab(text: 'Advance (${_countForTab('ADVANCE')})'),
             Tab(text: 'Arrear (${_countForTab('ARREAR')})'),
-            Tab(text: 'Gold Loan (${_countForTab('GOLD_LOAN')})'),
             const Tab(text: 'Pre-Close'),
+            const Tab(text: 'Close Loans'),
+            Tab(text: 'Gold Loan (${_countForTab('GOLD_LOAN')})'),
+            const Tab(text: 'Allocate for EOD'),
           ],
         );
       }),
@@ -638,30 +809,52 @@ class _CollectionApprovalState extends State<CollectionApproval>
         (s, r) => s + (double.tryParse('${r['totalAmount'] ?? r['amount']}') ?? 0.0),
       );
 
+      final pendingCount = rows.where((r) => r['status']?.toString().toUpperCase() != 'APPROVED' && !_approvedIds.contains(r['transactionId']?.toString() ?? r['id']?.toString())).length;
+
       return Column(
         children: [
+          // Header summary with Search & Bulk Approve
           Container(
             padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 8.h),
             color: const Color(0xFFEBF7F0),
-            child: Row(
+            child: Column(
               children: [
-                Expanded(
-                  child: Text(
-                    'Total Collection: ₹${totalAmount.toStringAsFixed(2)} (${rows.length} rows)',
-                    style: TextStyle(fontSize: 11.5.sp, fontWeight: FontWeight.w800, color: _darkGreen),
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Total: ₹${totalAmount.toStringAsFixed(2)} (${rows.length} rows)',
+                        style: TextStyle(fontSize: 11.5.sp, fontWeight: FontWeight.w800, color: _darkGreen),
+                      ),
+                    ),
+                    if (pendingCount > 0)
+                      ElevatedButton.icon(
+                        onPressed: _isSubmitting.value ? null : () => _approveAllPendingForTab(modeTab),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _green,
+                          foregroundColor: Colors.white,
+                          padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.r)),
+                        ),
+                        icon: const Icon(Icons.done_all_rounded, size: 14),
+                        label: Text('Approve All ($pendingCount)', style: TextStyle(fontSize: 10.5.sp, fontWeight: FontWeight.bold)),
+                      ),
+                  ],
                 ),
+                SizedBox(height: 6.h),
                 SizedBox(
-                  width: 140.w,
-                  height: 32.h,
+                  height: 34.h,
                   child: TextField(
                     onChanged: (val) => setState(() => _searchQuery = val),
-                    style: TextStyle(fontSize: 10.5.sp),
+                    style: TextStyle(fontSize: 11.sp),
                     decoration: InputDecoration(
-                      hintText: 'Search...',
+                      hintText: 'Search by Client Name, Code, or Loan No...',
+                      hintStyle: TextStyle(fontSize: 10.5.sp, color: _muted),
                       isDense: true,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 6.h),
-                      prefixIcon: Icon(Icons.search, size: 14.sp, color: _muted),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
+                      prefixIcon: Icon(Icons.search, size: 15.sp, color: _muted),
                       filled: true,
                       fillColor: Colors.white,
                       border: OutlineInputBorder(
@@ -674,6 +867,46 @@ class _CollectionApprovalState extends State<CollectionApproval>
               ],
             ),
           ),
+          // Collapsible Denomination Breakdown Card
+          if (_denominationByCenter.isNotEmpty) ...[
+            InkWell(
+              onTap: () => setState(() => _showDenominationSummary = !_showDenominationSummary),
+              child: Container(
+                padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 6.h),
+                color: const Color(0xFFF1F5F9),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Center Cash & Denomination Breakdown (${_denominationByCenter.length} Centers)',
+                      style: TextStyle(fontSize: 10.5.sp, fontWeight: FontWeight.bold, color: _darkText),
+                    ),
+                    Icon(_showDenominationSummary ? Icons.expand_less : Icons.expand_more, size: 18.sp, color: _muted),
+                  ],
+                ),
+              ),
+            ),
+            if (_showDenominationSummary)
+              Container(
+                constraints: BoxConstraints(maxHeight: 120.h),
+                color: Colors.white,
+                child: ListView.separated(
+                  padding: EdgeInsets.all(8.w),
+                  itemCount: _denominationByCenter.length,
+                  separatorBuilder: (_, __) => Divider(height: 6.h),
+                  itemBuilder: (_, index) {
+                    final d = _denominationByCenter[index];
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('${d['centerCode'] ?? ''} - ${d['centerName'] ?? ''}', style: TextStyle(fontSize: 10.5.sp, fontWeight: FontWeight.w700)),
+                        Text('₹${(d['totalAmount'] ?? 0).toString()}', style: TextStyle(fontSize: 10.5.sp, fontWeight: FontWeight.w800, color: _green)),
+                      ],
+                    );
+                  },
+                ),
+              ),
+          ],
           Expanded(
             child: rows.isEmpty
                 ? Center(
@@ -893,5 +1126,155 @@ class _CollectionApprovalState extends State<CollectionApproval>
         ],
       ),
     );
+  }
+
+  Widget _buildCloseLoansTabContent() {
+    final isAdmin = _userRole == 'ADMIN';
+    return Container(
+      padding: EdgeInsets.all(20.w),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.shield_outlined, size: 48.sp, color: isAdmin ? _green : _muted),
+          SizedBox(height: 12.h),
+          Text(
+            'Close Loans / Write-off',
+            style: TextStyle(fontSize: 15.sp, fontWeight: FontWeight.bold, color: _darkText),
+          ),
+          SizedBox(height: 6.h),
+          Text(
+            isAdmin
+                ? 'Review and execute write-off or manual loan closure actions.'
+                : 'Only Admin can close or write off loans. This tab is view-only for your role.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 11.sp, color: _muted),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAllocateEodTabContent() {
+    return Obx(() {
+      if (_isLoadingEodAllocation.value) {
+        return const Center(child: CircularProgressIndicator(color: _green));
+      }
+
+      return SingleChildScrollView(
+        padding: EdgeInsets.all(14.w),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.all(12.w),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: _border),
+                borderRadius: BorderRadius.circular(10.r),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Allocate Approved Collections for EOD',
+                        style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.bold, color: _darkText),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.refresh, size: 18),
+                        onPressed: _fetchEodAllocations,
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 4.h),
+                  Text(
+                    'Post approved collections into funder GL ledgers for EOD closing.',
+                    style: TextStyle(fontSize: 11.sp, color: _muted),
+                  ),
+                  SizedBox(height: 10.h),
+                  ElevatedButton.icon(
+                    onPressed: _isAllocatingEod.value ? null : () => _allocateEodForFunder(null),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _green,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 10.h),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.r)),
+                    ),
+                    icon: _isAllocatingEod.value
+                        ? SizedBox(width: 14.sp, height: 14.sp, child: const CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.send_rounded, size: 16),
+                    label: Text('Allocate All Funders for EOD', style: TextStyle(fontSize: 11.5.sp, fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(height: 14.h),
+            if (_funderAllocations.isEmpty)
+              Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24.w),
+                  child: Text(
+                    'No approved unallocated collections found for this branch & date.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 11.5.sp, color: _muted),
+                  ),
+                ),
+              )
+            else
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _funderAllocations.length,
+                separatorBuilder: (_, __) => SizedBox(height: 10.h),
+                itemBuilder: (_, index) {
+                  final f = _funderAllocations[index];
+                  final fName = f['funderName']?.toString() ?? 'Funder';
+                  final fId = f['funderId']?.toString();
+                  final totalAmt = double.tryParse('${f['totalAmount']}') ?? 0.0;
+                  final principal = double.tryParse('${f['principalAmount']}') ?? 0.0;
+                  final interest = double.tryParse('${f['interestAmount']}') ?? 0.0;
+
+                  return Container(
+                    padding: EdgeInsets.all(12.w),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border.all(color: _border),
+                      borderRadius: BorderRadius.circular(10.r),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(fName, style: TextStyle(fontSize: 12.5.sp, fontWeight: FontWeight.w800, color: _darkText)),
+                              SizedBox(height: 3.h),
+                              Text('Total: ₹${totalAmt.toStringAsFixed(2)}  (Prin: ₹${principal.toStringAsFixed(2)}, Int: ₹${interest.toStringAsFixed(2)})', style: TextStyle(fontSize: 10.5.sp, color: _muted)),
+                            ],
+                          ),
+                        ),
+                        ElevatedButton(
+                          onPressed: _isAllocatingEod.value ? null : () => _allocateEodForFunder(fId),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _green,
+                            foregroundColor: Colors.white,
+                            padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.r)),
+                          ),
+                          child: Text('Allocate', style: TextStyle(fontSize: 11.sp)),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+          ],
+        ),
+      );
+    });
   }
 }

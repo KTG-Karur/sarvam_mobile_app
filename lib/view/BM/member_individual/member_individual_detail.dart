@@ -1952,7 +1952,7 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
                             );
 
                             if (active != null) {
-                              sessionId = active['sessionId']?.toString() ?? active['id']?.toString();
+                              sessionId = active['id']?.toString() ?? active['sessionId']?.toString();
                             } else if (mounted) {
                               sessionId = await showDialog<String>(
                                 context: context,

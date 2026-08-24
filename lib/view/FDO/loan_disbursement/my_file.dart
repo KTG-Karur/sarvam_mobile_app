@@ -7,6 +7,7 @@ import 'package:sarvam/view/BM/group_assignment/group_assignment.dart';
 import 'package:sarvam/view/BM/member_approval.dart';
 import 'package:sarvam/view/BM/loan_index_approval/loan_index_approval.dart';
 import 'package:sarvam/view/BM/member_individual/member_individual.dart';
+import 'package:sarvam/view/BM/collection_approval/collection_approval.dart';
 import 'package:sarvam/view/BM/final_disbursement/final_disbursement.dart';
 import 'package:sarvam/view/FDO/loan_disbursement/center_list.dart';
 import 'package:sarvam/view/FDO/new_member_create/new_member_create.dart';
@@ -88,7 +89,7 @@ class _MyFileState extends State<MyFile> {
           ),
         ),
       ),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: EdgeInsets.all(16.w),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -149,6 +150,16 @@ class _MyFileState extends State<MyFile> {
                 'Final Disbursement',
                 'Disburse AM-approved loans with attendance entry',
                 'assets/images/final_disbursement.png',
+                const Color(0xFF008A3D),
+                const Color(0xFFE5F6EC),
+              ),
+              SizedBox(height: 8.h),
+
+              _menuItem(
+                context,
+                'Collection Approval',
+                'Review and approve pending collection entries',
+                'assets/images/loan_index_approval.png',
                 const Color(0xFF008A3D),
                 const Color(0xFFE5F6EC),
               ),
@@ -242,6 +253,12 @@ class _MyFileState extends State<MyFile> {
           Navigator.of(
             context,
           ).push(MaterialPageRoute(builder: (_) => const FinalDisbursement()));
+          return;
+        }
+        if (title == 'Collection Approval') {
+          Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => const CollectionApproval()));
           return;
         }
         if (title == 'New Centre') {

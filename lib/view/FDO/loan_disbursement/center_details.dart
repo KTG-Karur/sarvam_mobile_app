@@ -181,7 +181,7 @@ class _CenterDetailsState extends State<CenterDetails> {
             : '—';
         final kmVal = detail['kmFromBranch'] ?? detail['distanceFromBranch'];
         final km = (kmVal != null && kmVal.toString().isNotEmpty && kmVal.toString() != '—')
-            ? "${kmVal} km"
+            ? "$kmVal km"
             : '—';
 
         final contactPerson = (detail['contactPerson']?.toString().trim().isNotEmpty == true)
@@ -195,9 +195,7 @@ class _CenterDetailsState extends State<CenterDetails> {
         final formationDate = _formatDateOnly(
           detail['formationDate']?.toString(),
         );
-        final nextMeetingDate = _formatDateOnly(
-          detail['nextMeetingDate']?.toString(),
-        );
+
         final meetingDay = (detail['meetingDay']?.toString().trim().isNotEmpty == true && detail['meetingDay'].toString().trim() != 'null')
             ? detail['meetingDay'].toString().trim()
             : '—';
@@ -293,7 +291,6 @@ class _CenterDetailsState extends State<CenterDetails> {
               ),
               const SizedBox(height: 14),
               _detailGrid([
-                _Detail('Next Meeting Date', nextMeetingDate),
                 _Detail('Meeting Day', meetingDay),
                 _Detail('Meeting Time', meetingTime),
                 _Detail('Meeting Place', meetingPlace),

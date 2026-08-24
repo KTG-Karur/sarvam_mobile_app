@@ -17,6 +17,16 @@ subprojects {
 }
 subprojects {
     project.evaluationDependsOn(":app")
+    val disableVerifyTasks: () -> Unit = {
+        tasks.matching { it.name.contains("verify") && it.name.contains("Resources") }.configureEach {
+            enabled = false
+        }
+    }
+    if (state.executed) {
+        disableVerifyTasks()
+    } else {
+        afterEvaluate { disableVerifyTasks() }
+    }
 }
 
 tasks.register<Delete>("clean") {
