@@ -1267,7 +1267,7 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
     final center = controller.center;
     final branch = controller.branch;
     final visit = controller.houseHoldVisit;
-    final client = controller.record.value?['client'] as Map?;
+    final client = controller.client;
 
     // Center -> Branch
     dynamic kmBranchVal = center['kmFromBranch'];

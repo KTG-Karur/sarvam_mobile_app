@@ -90,6 +90,8 @@ class MemberIndividualDetailController extends GetxController {
 
   Map<String, dynamic> get loan => _sub('loan');
   Map<String, dynamic> get center => _sub('center');
+  Map<String, dynamic> get branch => _sub('branch');
+  Map<String, dynamic> get client => _sub('client');
   Map<String, dynamic> get cashFlow => _sub('cashFlow');
   Map<String, dynamic> get loanAppraisal => _sub('loanAppraisal');
   Map<String, dynamic> get houseHoldVisit => _sub('houseHoldVisit');
@@ -208,8 +210,6 @@ class MemberIndividualDetailController extends GetxController {
       isCompletingAppraisal.value = false;
     }
   }
-
-  Map<String, dynamic> get branch => _sub('branch');
 
   final isLoadingProductData = false.obs;
   final isUpdatingProduct = false.obs;

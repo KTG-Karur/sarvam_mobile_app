@@ -780,6 +780,8 @@ class _MemberVerificationBottomSheetState
   bool _isLoading = true;
   String? _errorMessage;
   Map<String, dynamic>? _data;
+  final Map<String, String> _signedUrlCache = {};
+  final Set<String> _resolvingKeys = {};
 
   @override
   void initState() {
@@ -807,10 +809,68 @@ class _MemberVerificationBottomSheetState
     }
   }
 
+  Future<void> _resolveSignedUrl(String rawKey) async {
+    final key = rawKey.trim();
+    if (key.isEmpty ||
+        key.startsWith('http://') ||
+        key.startsWith('https://') ||
+        key.startsWith('data:')) {
+      return;
+    }
+    if (key.startsWith('/')) {
+      _signedUrlCache[key] = '${Api.baseUrl}$key';
+      return;
+    }
+    if (_signedUrlCache.containsKey(key) || _resolvingKeys.contains(key)) {
+      return;
+    }
+
+    _resolvingKeys.add(key);
+    try {
+      final api = MemberIndividualApiService(Get.find<ApiClient>());
+      final rawUrl = await api.getSignedUrl(key);
+      if (rawUrl != null && rawUrl.isNotEmpty) {
+        String finalUrl = rawUrl;
+        if (finalUrl.startsWith('/')) {
+          finalUrl = '${Api.baseUrl}$finalUrl';
+        }
+        if (mounted) {
+          setState(() {
+            _signedUrlCache[key] = finalUrl;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to resolve signed URL for key $key: $e');
+    } finally {
+      _resolvingKeys.remove(key);
+    }
+  }
+
+  String _getResolvedUrl(String rawKey) {
+    final key = rawKey.trim();
+    if (key.isEmpty) return '';
+    if (key.startsWith('http://') ||
+        key.startsWith('https://') ||
+        key.startsWith('data:')) {
+      return key;
+    }
+    if (key.startsWith('/')) {
+      return '${Api.baseUrl}$key';
+    }
+    if (_signedUrlCache.containsKey(key)) {
+      return _signedUrlCache[key]!;
+    }
+    _resolveSignedUrl(key);
+    return '';
+  }
+
   void _showFullImage(String url, String title, String uploader, String date) {
-    String fullUrl = url;
-    if (fullUrl.isNotEmpty && !fullUrl.startsWith('http')) {
-      fullUrl = '${Api.baseUrl}$fullUrl';
+    String fullUrl = _getResolvedUrl(url);
+    if (fullUrl.isEmpty) {
+      fullUrl = url.isNotEmpty && !url.startsWith('http')
+          ? (url.startsWith('/') ? '${Api.baseUrl}$url' : '${Api.baseUrl}/$url')
+          : url;
     }
     showDialog(
       context: context,
@@ -1190,9 +1250,45 @@ class _MemberVerificationBottomSheetState
     List<Widget>? badges,
     bool isThumbnail = false,
   }) {
-    String fullUrl = url;
-    if (fullUrl.isNotEmpty && !fullUrl.startsWith('http')) {
-      fullUrl = '${Api.baseUrl}$fullUrl';
+    final resolvedUrl = _getResolvedUrl(url);
+    final isResolving = url.trim().isNotEmpty &&
+        !url.startsWith('http://') &&
+        !url.startsWith('https://') &&
+        !url.startsWith('/') &&
+        resolvedUrl.isEmpty;
+
+    Widget imageWidget;
+    if (isResolving) {
+      imageWidget = Container(
+        width: isThumbnail ? 70.w : 90.w,
+        height: isThumbnail ? 70.w : 70.h,
+        color: const Color(0xFFEFF3F1),
+        alignment: Alignment.center,
+        child: SizedBox(
+          width: 16.sp,
+          height: 16.sp,
+          child: const CircularProgressIndicator(strokeWidth: 2, color: _green),
+        ),
+      );
+    } else {
+      final displayUrl = resolvedUrl.isNotEmpty ? resolvedUrl : (
+        url.isNotEmpty && !url.startsWith('http')
+            ? (url.startsWith('/') ? '${Api.baseUrl}$url' : '${Api.baseUrl}/$url')
+            : url
+      );
+
+      imageWidget = Image.network(
+        displayUrl,
+        width: isThumbnail ? 70.w : 90.w,
+        height: isThumbnail ? 70.w : 70.h,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => Container(
+          width: isThumbnail ? 70.w : 90.w,
+          height: isThumbnail ? 70.w : 70.h,
+          color: const Color(0xFFEFF3F1),
+          child: Icon(Icons.image_outlined, size: isThumbnail ? 20.sp : 24.sp, color: _muted),
+        ),
+      );
     }
 
     if (isThumbnail) {
@@ -1200,18 +1296,7 @@ class _MemberVerificationBottomSheetState
         onTap: () => _showFullImage(url, title, uploadedBy, createdAt),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(8.r),
-          child: Image.network(
-            fullUrl,
-            width: 70.w,
-            height: 70.w,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => Container(
-              width: 70.w,
-              height: 70.w,
-              color: const Color(0xFFEFF3F1),
-              child: Icon(Icons.image_outlined, size: 20.sp, color: _muted),
-            ),
-          ),
+          child: imageWidget,
         ),
       );
     }
@@ -1232,18 +1317,7 @@ class _MemberVerificationBottomSheetState
               children: [
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8.r),
-                  child: Image.network(
-                    fullUrl,
-                    width: 90.w,
-                    height: 70.h,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      width: 90.w,
-                      height: 70.h,
-                      color: const Color(0xFFEFF3F1),
-                      child: Icon(Icons.image_outlined, size: 24.sp, color: _muted),
-                    ),
-                  ),
+                  child: imageWidget,
                 ),
                 SizedBox(width: 12.w),
                 Expanded(
