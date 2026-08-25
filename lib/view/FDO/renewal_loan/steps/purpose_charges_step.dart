@@ -70,7 +70,7 @@ class PurposeChargesStep extends StatelessWidget {
             ),
             if (typeSelected && purposes.isEmpty)
               Padding(
-                padding: EdgeInsets.only(bottom: 13.h, top: -6.h),
+                padding: EdgeInsets.only(bottom: 13.h),
                 child: Text(
                   'No purposes available for the selected type.',
                   style: TextStyle(fontSize: 10.5.sp, color: const Color(0xFFB45309)),

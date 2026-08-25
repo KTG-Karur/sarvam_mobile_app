@@ -539,6 +539,14 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
     });
   }
 
+  Widget _buildLoanTypeTag(Map<String, dynamic> loan) {
+    final isRenewal = loan['isRenewal'] == true;
+    final label = loan['loanType']?.toString() ?? (isRenewal ? 'Renewal Loan' : 'New Loan');
+    final bg = isRenewal ? const Color(0xFFF3E8FF) : const Color(0xFFE0F2FE);
+    final fg = isRenewal ? const Color(0xFF7C3AED) : const Color(0xFF0369A1);
+    return _tag(label, bg, fg);
+  }
+
   Widget _buildHighmarkTag(Map<String, dynamic> loan) {
     final hmScoreRaw = loan['highmarkScore'] ?? loan['highMarkScore'] ?? loan['creditScore'];
     final hmStatusRaw = loan['highmarkStatus'] ?? loan['highMarkStatus'] ?? loan['status'];
@@ -719,6 +727,7 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
               runSpacing: 6.h,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
+                _buildLoanTypeTag(loan),
                 _buildHighmarkTag(loan),
                 _tag(_field(loan, 'purpose')),
                 _tag(_field(loan, 'product')),

@@ -85,7 +85,7 @@ class LoanProductStep extends StatelessWidget {
               ),
               if (typeSelected && products.isEmpty)
                 Padding(
-                  padding: EdgeInsets.only(bottom: 13.h, top: -6.h),
+                  padding: EdgeInsets.only(bottom: 13.h),
                   child: Text(
                     'No products available for the selected type and frequency.',
                     style: TextStyle(fontSize: 10.5.sp, color: const Color(0xFFB45309)),

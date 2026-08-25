@@ -110,7 +110,7 @@ class CenterMemberStep extends StatelessWidget {
               ),
               if (centerSelected)
                 Padding(
-                  padding: EdgeInsets.only(bottom: 13.h, top: -6.h),
+                  padding: EdgeInsets.only(bottom: 13.h),
                   child: Text(
                     clients.isEmpty
                         ? 'No members eligible for renewal. They must be verified, have at least one prior loan, and no loan still awaiting indexation.'
@@ -138,7 +138,7 @@ class CenterMemberStep extends StatelessWidget {
               ),
               if (clientSelected && coApplicants.isEmpty)
                 Padding(
-                  padding: EdgeInsets.only(bottom: 13.h, top: -6.h),
+                  padding: EdgeInsets.only(bottom: 13.h),
                   child: Text(
                     'This member has no approved co-applicants yet — the loan can still be created without one.',
                     style: TextStyle(fontSize: 10.5.sp, color: enrollmentHelperColor),

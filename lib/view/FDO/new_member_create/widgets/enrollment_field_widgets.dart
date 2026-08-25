@@ -3,6 +3,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:intl/intl.dart';
 
+extension SafeNumExt on num {
+  double get wSafe => w < 0 ? 0.0 : w;
+  double get hSafe => h < 0 ? 0.0 : h;
+  double get rSafe => r < 0 ? 0.0 : r;
+  double get spSafe => sp < 0 ? 0.0 : sp;
+}
+
 /// Shared visual language for the Member Enrollment wizard — extracted from
 /// the original static mockup so every tab renders fields identically.
 const enrollmentGreen = Color(0xFF00843D);
@@ -19,14 +26,17 @@ InputDecoration enrollmentDecoration(
   Widget? suffixIcon,
 }) => InputDecoration(
   hintText: hint,
-  hintStyle: TextStyle(fontSize: 12.sp, color: enrollmentHintColor),
+  hintStyle: TextStyle(fontSize: 12.spSafe, color: enrollmentHintColor),
   prefixIcon: icon == null
       ? null
-      : Icon(icon, color: enrollmentGreen, size: 19.sp),
+      : Icon(icon, color: enrollmentGreen, size: 19.spSafe),
   suffixIcon: suffixIcon,
   filled: true,
   fillColor: enrollmentFieldFill,
-  contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 13.h),
+  contentPadding: EdgeInsets.symmetric(
+    horizontal: 12.wSafe,
+    vertical: 13.hSafe,
+  ),
   border: _enrollmentBorder,
   enabledBorder: _enrollmentBorder,
   disabledBorder: _enrollmentBorder,
@@ -36,7 +46,7 @@ InputDecoration enrollmentDecoration(
 );
 
 OutlineInputBorder get _enrollmentBorder => OutlineInputBorder(
-  borderRadius: BorderRadius.circular(8.r),
+  borderRadius: BorderRadius.circular(8.rSafe),
   borderSide: BorderSide(color: enrollmentBorderColor),
 );
 
@@ -48,12 +58,12 @@ Widget enrollmentLabel(String label, {bool required = false, String? helper}) =>
           if (helper != null)
             TextSpan(
               text: '  $helper',
-              style: TextStyle(fontSize: 10.sp, color: enrollmentHelperColor),
+              style: TextStyle(fontSize: 10.spSafe, color: enrollmentHelperColor),
             )
           else if (!required)
             TextSpan(
               text: '  (Optional)',
-              style: TextStyle(fontSize: 10.sp, color: enrollmentHelperColor),
+              style: TextStyle(fontSize: 10.spSafe, color: enrollmentHelperColor),
             ),
           if (required)
             const TextSpan(
@@ -63,7 +73,7 @@ Widget enrollmentLabel(String label, {bool required = false, String? helper}) =>
         ],
       ),
       style: TextStyle(
-        fontSize: 12.sp,
+        fontSize: 12.spSafe,
         fontWeight: FontWeight.w600,
         color: enrollmentLabelColor,
       ),
@@ -90,7 +100,7 @@ class EnrollmentSectionShell extends StatelessWidget {
     decoration: BoxDecoration(
       color: Colors.white,
       border: Border.all(color: const Color(0xFFBFE5CC)),
-      borderRadius: BorderRadius.circular(12.r),
+      borderRadius: BorderRadius.circular(12.rSafe),
       boxShadow: const [
         BoxShadow(
           color: Color(0x11085430),
@@ -104,10 +114,10 @@ class EnrollmentSectionShell extends StatelessWidget {
       children: [
         Container(
           width: double.infinity,
-          padding: EdgeInsets.all(16.w),
+          padding: EdgeInsets.all(16.wSafe),
           decoration: BoxDecoration(
             color: const Color(0xFFF0FAF4),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(12.r)),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(12.rSafe)),
             border: const Border(bottom: BorderSide(color: Color(0xFFBFE5CC))),
           ),
           child: Column(
@@ -115,23 +125,23 @@ class EnrollmentSectionShell extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Icon(icon, size: 18.sp, color: enrollmentGreen),
-                  SizedBox(width: 8.w),
+                  Icon(icon, size: 18.spSafe, color: enrollmentGreen),
+                  SizedBox(width: 8.wSafe),
                   Text(
                     title,
                     style: TextStyle(
-                      fontSize: 16.sp,
+                      fontSize: 16.spSafe,
                       fontWeight: FontWeight.w800,
                       color: const Color(0xFF064524),
                     ),
                   ),
                 ],
               ),
-              SizedBox(height: 5.h),
+              SizedBox(height: 5.hSafe),
               Text(
                 subtitle,
                 style: TextStyle(
-                  fontSize: 10.5.sp,
+                  fontSize: 10.5.spSafe,
                   color: const Color(0xFF3D7658),
                 ),
               ),
@@ -139,7 +149,7 @@ class EnrollmentSectionShell extends StatelessWidget {
           ),
         ),
         Padding(
-          padding: EdgeInsets.all(16.w),
+          padding: EdgeInsets.all(16.wSafe),
           child: Column(children: children),
         ),
       ],

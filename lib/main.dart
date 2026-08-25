@@ -17,7 +17,7 @@ class MyApp extends StatelessWidget {
       designSize: const Size(390, 844),
       minTextAdapt: true,
       splitScreenMode: true,
-      builder: (_, child) {
+      builder: (context, child) {
         return GetMaterialApp(
           title: 'Sarvam',
           debugShowCheckedModeBanner: false,
@@ -26,10 +26,9 @@ class MyApp extends StatelessWidget {
             useMaterial3: true,
             textTheme: GoogleFonts.poppinsTextTheme(),
           ),
-          home: child,
+          home: const SplashScreen(),
         );
       },
-      child: const SplashScreen(),
     );
   }
 }

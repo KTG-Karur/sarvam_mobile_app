@@ -464,8 +464,13 @@ class AuthController extends GetxController {
       }
 
       String errorMsg = 'Incorrect MPIN. Please try again.';
-      if (response.body != null && response.body is Map && response.body['error'] != null) {
-        errorMsg = response.body['error'].toString();
+      if (response.body != null && response.body is Map) {
+        final map = response.body as Map;
+        if (map['message'] != null && map['message'].toString().isNotEmpty) {
+          errorMsg = map['message'].toString();
+        } else if (map['error'] != null && map['error'].toString().isNotEmpty) {
+          errorMsg = map['error'].toString();
+        }
       }
       Get.snackbar(
         'Verification Failed',

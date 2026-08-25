@@ -98,7 +98,12 @@ class _PunchOutDialogState extends State<PunchOutDialog> {
           : Get.put(AuthController());
 
       final bool isVerified = await authController.verifyMpin(mpin: mpin);
-      if (!isVerified) return;
+      if (!isVerified) {
+        for (var c in _mpinControllers) {
+          c.clear();
+        }
+        return;
+      }
 
       if (!mounted) return;
       Navigator.of(context).pop();

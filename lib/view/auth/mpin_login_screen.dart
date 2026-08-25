@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/view/auth/login_screen.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
+import 'package:sarvam/view/auth/set_mpin_screen.dart';
 import 'package:sarvam/view/auth/face_verification_screen.dart';
 import 'package:sarvam/view/auth/face_training_screen.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
@@ -82,7 +83,18 @@ class _MpinLoginScreenState extends State<MpinLoginScreen> {
       } else {
         Get.offAll(() => const FaceVerificationScreen());
       }
+    } else {
+      for (var c in _mpinControllers) {
+        c.clear();
+      }
+      if (_mpinFocusNodes.isNotEmpty) {
+        _mpinFocusNodes[0].requestFocus();
+      }
     }
+  }
+
+  void _handleForgotMpin() {
+    Get.off(() => const SetMpinScreen());
   }
 
   @override
@@ -338,7 +350,7 @@ class _MpinLoginScreenState extends State<MpinLoginScreen> {
 
                           // Forgot MPIN TextButton
                           TextButton(
-                            onPressed: () => Get.off(() => const LoginScreen()),
+                            onPressed: _handleForgotMpin,
                             style: TextButton.styleFrom(
                               padding: EdgeInsets.zero,
                               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
