@@ -1027,9 +1027,298 @@ class _MemberVerificationBottomSheetState
     );
   }
 
+  Widget _buildStatusPill(String label, bool isDone) {
+    final color = isDone ? const Color(0xFF00843D) : const Color(0xFFD97706);
+    final bg = isDone ? const Color(0xFFE8F7EE) : const Color(0xFFFEF3C7);
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 5.h),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(20.r),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isDone ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+            size: 13.sp,
+            color: color,
+          ),
+          SizedBox(width: 4.w),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10.5.sp,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoanInfoCard(Map loan) {
+    if (loan.isEmpty) return const SizedBox.shrink();
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(12.w),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        borderRadius: BorderRadius.circular(12.r),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Loan Details',
+                style: TextStyle(
+                  fontSize: 13.sp,
+                  fontWeight: FontWeight.w800,
+                  color: _darkText,
+                ),
+              ),
+              if (loan['loanNumber'] != null)
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 3.h),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(6.r),
+                  ),
+                  child: Text(
+                    loan['loanNumber'].toString(),
+                    style: TextStyle(
+                      fontSize: 10.5.sp,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF475569),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          SizedBox(height: 10.h),
+          Wrap(
+            spacing: 16.w,
+            runSpacing: 8.h,
+            children: [
+              if (loan['amount'] != null)
+                _infoStat('Loan Amount', '₹${loan['amount']}'),
+              if (loan['productName'] != null)
+                _infoStat('Product', loan['productName'].toString()),
+              if (loan['tenureMonths'] != null)
+                _infoStat('Tenure', '${loan['tenureMonths']} Months'),
+              if (loan['frequency'] != null)
+                _infoStat('Frequency', loan['frequency'].toString()),
+              if (loan['interestRate'] != null)
+                _infoStat('Interest Rate', '${loan['interestRate']}%'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCashFlowCard(Map cashFlow) {
+    final monthlyExp = cashFlow['monthlyExpense'];
+    final food = cashFlow['foodExpense'];
+    final medical = cashFlow['medicalExpense'];
+    final cooking = cashFlow['cookingFuelExpense'];
+    final elec = cashFlow['electricityExpense'];
+    final transport = cashFlow['transportExpense'];
+    final water = cashFlow['waterExpense'];
+    final edu = cashFlow['educationalExpense'];
+
+    final hasExpenses = monthlyExp != null || food != null || medical != null;
+    if (!hasExpenses) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(12.w),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        borderRadius: BorderRadius.circular(12.r),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Cash Flow Assessment',
+                style: TextStyle(
+                  fontSize: 12.5.sp,
+                  fontWeight: FontWeight.w800,
+                  color: _darkText,
+                ),
+              ),
+              if (monthlyExp != null)
+                Text(
+                  'Total: ₹$monthlyExp / mo',
+                  style: TextStyle(
+                    fontSize: 11.sp,
+                    fontWeight: FontWeight.w800,
+                    color: _green,
+                  ),
+                ),
+            ],
+          ),
+          SizedBox(height: 8.h),
+          Wrap(
+            spacing: 12.w,
+            runSpacing: 6.h,
+            children: [
+              if (food != null) _infoStat('Food', '₹$food'),
+              if (medical != null) _infoStat('Medical', '₹$medical'),
+              if (cooking != null) _infoStat('Cooking Fuel', '₹$cooking'),
+              if (elec != null) _infoStat('Electricity', '₹$elec'),
+              if (transport != null) _infoStat('Transport', '₹$transport'),
+              if (water != null) _infoStat('Water', '₹$water'),
+              if (edu != null) _infoStat('Education', '₹$edu'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGrtQuestionsList(List grtQuestions) {
+    if (grtQuestions.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'GRT Questionnaire Answers',
+          style: TextStyle(
+            fontSize: 12.sp,
+            fontWeight: FontWeight.w800,
+            color: _darkText,
+          ),
+        ),
+        SizedBox(height: 8.h),
+        ListView.separated(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: grtQuestions.length,
+          separatorBuilder: (_, __) => SizedBox(height: 6.h),
+          itemBuilder: (_, index) {
+            final q = Map<String, dynamic>.from(grtQuestions[index] as Map);
+            final questionText = q['question']?.toString() ?? '';
+            final qType = q['questionType']?.toString() ?? '';
+            final photos = q['photos'] is List ? (q['photos'] as List) : [];
+
+            String answerDisplay = '—';
+            if (qType == 'TEXT') {
+              answerDisplay = q['answerText']?.toString() ?? '—';
+            } else if (qType == 'YES_OR_NO') {
+              final boolVal = q['answerBool'];
+              answerDisplay = boolVal == null ? '—' : (boolVal == true ? 'Yes' : 'No');
+            } else if (qType == 'SINGLE_CHOICE' || qType == 'MULTIPLE_CHOICE') {
+              final choices = q['choices'] is List ? (q['choices'] as List) : [];
+              final ansChoiceIds = q['answerChoiceIds'] is List
+                  ? (q['answerChoiceIds'] as List).map((id) => id.toString()).toSet()
+                  : <String>{};
+              final selectedLabels = choices
+                  .where((c) => ansChoiceIds.contains(c['id']?.toString()))
+                  .map((c) => c['choice']?.toString() ?? '')
+                  .where((l) => l.isNotEmpty)
+                  .toList();
+              answerDisplay = selectedLabels.isNotEmpty ? selectedLabels.join(', ') : '—';
+            }
+
+            return Container(
+              padding: EdgeInsets.all(10.w),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+                borderRadius: BorderRadius.circular(8.r),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${index + 1}. $questionText',
+                    style: TextStyle(
+                      fontSize: 11.sp,
+                      fontWeight: FontWeight.w700,
+                      color: _darkText,
+                    ),
+                  ),
+                  SizedBox(height: 4.h),
+                  Text(
+                    'Answer: $answerDisplay',
+                    style: TextStyle(
+                      fontSize: 11.sp,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF0284C7),
+                    ),
+                  ),
+                  if (photos.isNotEmpty) ...[
+                    SizedBox(height: 6.h),
+                    Wrap(
+                      spacing: 6.w,
+                      runSpacing: 6.h,
+                      children: photos.map((p) {
+                        final photoMap = Map<String, dynamic>.from(p);
+                        return _photoTile(
+                          url: photoMap['photoUrl'].toString(),
+                          title: questionText,
+                          uploadedBy: photoMap['uploadedByName']?.toString() ?? '',
+                          createdAt: photoMap['createdAt']?.toString() ?? '',
+                          isThumbnail: true,
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _infoStat(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(fontSize: 10.sp, color: _muted),
+        ),
+        SizedBox(height: 2.h),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 12.sp,
+            fontWeight: FontWeight.w700,
+            color: _darkText,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildContent() {
     final d = _data!;
+    final loan = d['loan'] is Map ? Map<String, dynamic>.from(d['loan']) : {};
     final center = d['center'] is Map ? Map<String, dynamic>.from(d['center']) : {};
+    final cashFlow = d['cashFlow'] is Map ? Map<String, dynamic>.from(d['cashFlow']) : {};
+    final loanAppraisal = d['loanAppraisal'] is Map ? Map<String, dynamic>.from(d['loanAppraisal']) : {};
     final houseHoldVisit = d['houseHoldVisit'] is Map ? Map<String, dynamic>.from(d['houseHoldVisit']) : {};
     final fdoHouseImage = houseHoldVisit['fdoHouseImage'] is Map ? Map<String, dynamic>.from(houseHoldVisit['fdoHouseImage']) : null;
     final photos = houseHoldVisit['photos'] is List ? (houseHoldVisit['photos'] as List) : [];
@@ -1037,15 +1326,60 @@ class _MemberVerificationBottomSheetState
     final grtQuestions = grt['questions'] is List ? (grt['questions'] as List) : [];
     final grtSessionPhotos = grt['sessionPhotos'] is List ? (grt['sessionPhotos'] as List) : [];
     final client = d['client'] is Map ? Map<String, dynamic>.from(d['client']) : {};
+    final isComplete = d['isComplete'] == true;
 
     final mandatoryPhoto = photos.firstWhereOrNull((p) => p['isMandatory'] == true);
     final optionalPhotos = photos.where((p) => p['isMandatory'] != true).toList();
+
+    final isCashFlowDone = cashFlow['completedAt'] != null;
+    final isAppraisalDone = loanAppraisal['reviewedAt'] != null;
+    final isHouseVisitDone = houseHoldVisit['completedAt'] != null;
+    final isGrtDone = grt['completedAt'] != null;
 
     return SingleChildScrollView(
       padding: EdgeInsets.all(16.w),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 1. Verification Progress Status Badges
+          Wrap(
+            spacing: 6.w,
+            runSpacing: 6.h,
+            children: [
+              _buildStatusPill('Cash Flow', isCashFlowDone),
+              _buildStatusPill('Loan Appraisal', isAppraisalDone),
+              _buildStatusPill('House Visit', isHouseVisitDone),
+              _buildStatusPill('GRT', isGrtDone),
+            ],
+          ),
+          SizedBox(height: 10.h),
+
+          if (!isComplete) ...[
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.all(10.w),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFFBEB),
+                border: Border.all(color: const Color(0xFFFCD34D)),
+                borderRadius: BorderRadius.circular(8.r),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, size: 16.sp, color: const Color(0xFFD97706)),
+                  SizedBox(width: 8.w),
+                  Expanded(
+                    child: Text(
+                      'Member Individual / GRT not complete — cannot approve for disbursement until all steps above are completed.',
+                      style: TextStyle(fontSize: 10.5.sp, color: const Color(0xFFB45309), fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(height: 12.h),
+          ],
+
+          // 2. Center Info Card
           if (center['name'] != null) ...[
             Container(
               width: double.infinity,
@@ -1069,9 +1403,21 @@ class _MemberVerificationBottomSheetState
                 ],
               ),
             ),
-            SizedBox(height: 14.h),
+            SizedBox(height: 12.h),
           ],
 
+          // 3. Loan Application Overview Card
+          _buildLoanInfoCard(loan),
+          SizedBox(height: 12.h),
+
+          // 4. Cash Flow Assessment Card
+          _buildCashFlowCard(cashFlow),
+          if (cashFlow.isNotEmpty) SizedBox(height: 14.h),
+
+          const Divider(),
+          SizedBox(height: 8.h),
+
+          // 5. FDO Enrollment House Image & Location
           _sectionHeader('FDO Enrollment House Image', Icons.home_rounded),
           SizedBox(height: 8.h),
           if (fdoHouseImage != null && fdoHouseImage['photoUrl'] != null) ...[
@@ -1100,7 +1446,9 @@ class _MemberVerificationBottomSheetState
 
           SizedBox(height: 16.h),
           const Divider(),
+          SizedBox(height: 8.h),
 
+          // 6. BM Verification Photos (House Assessment)
           _sectionHeader('BM Verification Photos (House Assessment)', Icons.verified_user_rounded),
           SizedBox(height: 8.h),
           if (mandatoryPhoto != null) ...[
@@ -1146,41 +1494,23 @@ class _MemberVerificationBottomSheetState
 
           SizedBox(height: 16.h),
           const Divider(),
+          SizedBox(height: 8.h),
 
-          _sectionHeader('GRT Session Photos', Icons.fact_check_rounded),
+          // 7. GRT Questionnaire & Session Details
+          _sectionHeader('GRT Verification & Questionnaire', Icons.fact_check_rounded),
           SizedBox(height: 8.h),
           if (grt['completedSessionId'] != null) ...[
             Text(
-              'Session ID: ${grt['completedSessionId']}',
+              'Session ID: ${grt['completedSessionId']}${grt['questionnaireTitle'] != null ? ' — ${grt['questionnaireTitle']}' : ''}',
               style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700, color: _green),
-            ),
-            SizedBox(height: 8.h),
-          ],
-          if (grtQuestions.any((q) => q['photos'] is List && (q['photos'] as List).isNotEmpty)) ...[
-            Text(
-              'Questionnaire Photos:',
-              style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700, color: _muted),
-            ),
-            SizedBox(height: 6.h),
-            Wrap(
-              spacing: 8.w,
-              runSpacing: 8.h,
-              children: grtQuestions.expand((q) {
-                final qList = q['photos'] is List ? (q['photos'] as List) : [];
-                return qList.map((p) {
-                  final pMap = Map<String, dynamic>.from(p);
-                  return _photoTile(
-                    url: pMap['photoUrl'].toString(),
-                    title: q['question']?.toString() ?? 'GRT Photo',
-                    uploadedBy: pMap['uploadedByName']?.toString() ?? '',
-                    createdAt: pMap['createdAt']?.toString() ?? '',
-                    isThumbnail: true,
-                  );
-                });
-              }).toList(),
             ),
             SizedBox(height: 10.h),
           ],
+
+          // GRT Questions & Answers
+          _buildGrtQuestionsList(grtQuestions),
+          if (grtQuestions.isNotEmpty) SizedBox(height: 12.h),
+
           if (grtSessionPhotos.isNotEmpty) ...[
             Text(
               'Center Session Photos:',
@@ -1201,7 +1531,7 @@ class _MemberVerificationBottomSheetState
                 );
               }).toList(),
             ),
-          ] else if (!grtQuestions.any((q) => q['photos'] is List && (q['photos'] as List).isNotEmpty)) ...[
+          ] else if (grtQuestions.isEmpty && !grtQuestions.any((q) => q['photos'] is List && (q['photos'] as List).isNotEmpty)) ...[
             _noPhotoCard('No GRT session photos uploaded.'),
           ],
         ],
