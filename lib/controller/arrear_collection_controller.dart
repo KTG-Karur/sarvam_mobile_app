@@ -1,9 +1,13 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/services/api_client.dart';
 import 'package:sarvam/services/offline_collection_service.dart';
+import 'package:sarvam/utils/center_formatter.dart';
 
 class ArrearCollectionController extends GetxController {
   final ApiClient _connect = ApiClient();
@@ -62,8 +66,16 @@ class ArrearCollectionController extends GetxController {
             if (centersList.isNotEmpty) {
               final firstCenter = centersList.first;
               selectedCenterId.value = firstCenter['id'] ?? '';
-              selectedCenterName.value =
-                  "${firstCenter['name']} (${firstCenter['code']})";
+              // Must match the exact string the dropdown's own items are
+              // built with (formatCenterDisplay), not a raw concat — the
+              // formatter can reformat the code (e.g. pad "6" to "06"), and
+              // a mismatch here means Flutter can't find this value among
+              // the dropdown's items, breaking the initial selection.
+              selectedCenterName.value = formatCenterDisplay(
+                firstCenter['name'],
+                firstCenter['code'],
+                parenthetical: true,
+              );
             }
             return centersList;
           }
@@ -152,10 +164,28 @@ class ArrearCollectionController extends GetxController {
     }
   }
 
+  /// `POST /api/collections/arrear` (multipart) — mirrors the web's
+  /// `handleFinalSubmit` in `ArrearCollectionClient.tsx` exactly. The
+  /// backend requires a multipart request with a mandatory `photo` field
+  /// (`if (!photo) return errorResponse('Meeting photo is required', 400)`)
+  /// and parses `collections`/`attendance`/`denomination` as JSON-encoded
+  /// form fields — a plain JSON POST (the previous implementation here)
+  /// can never succeed against this endpoint.
+  ///
+  /// [collections]: one entry per loan — `{loanId, amountCollected,
+  /// loanAdvanceAmount}`. [attendance]: `{clientId: bool}` map (NOT the
+  /// array-of-objects shape Demand Collection uses — the arrear route reads
+  /// it via `Object.entries(attendance)`). [denomination]: `d500`..`d1` +
+  /// `upi` keys, matching `DenominationCounts` on the backend.
   Future<bool> submitArrearCollection({
     required String centerId,
-    required String date,
-    required List<dynamic> arrearData,
+    required String collectionDate,
+    required List<Map<String, dynamic>> collections,
+    required Map<String, dynamic> attendance,
+    required Map<String, dynamic> denomination,
+    required Uint8List photoBytes,
+    double? latitude,
+    double? longitude,
   }) async {
     try {
       isLoading.value = true;
@@ -163,25 +193,42 @@ class ArrearCollectionController extends GetxController {
       final prefs = await SharedPreferences.getInstance();
       final accessToken = prefs.getString('accessToken') ?? '';
 
-      final url = Api.arrearCollectionUrl;
-      debugPrint("Request POST URL: $url");
-
-      final body = {
-        "centerId": centerId,
-        "collectionDate": date,
-        "arrearCollections": arrearData,
+      final payload = {
+        'centerId': centerId,
+        'collectionDate': collectionDate,
+        'collections': collections,
+        'attendance': attendance,
+        'denomination': denomination,
       };
-      debugPrint("Request Body: $body");
 
-      _connect.timeout = const Duration(seconds: 30);
+      final formData = FormData({
+        'centerId': centerId,
+        'collectionDate': collectionDate,
+        'collections': jsonEncode(collections),
+        'attendance': jsonEncode(attendance),
+        'denomination': jsonEncode(denomination),
+        'photo': MultipartFile(
+          photoBytes,
+          filename: 'meeting_$collectionDate.jpg',
+          contentType: 'image/jpeg',
+        ),
+        if (latitude != null) 'latitude': latitude.toString(),
+        if (longitude != null) 'longitude': longitude.toString(),
+      });
+
+      debugPrint("Request POST URL: ${Api.arrearCollectionUrl}");
+      debugPrint(
+        "Request Fields: centerId=$centerId, collectionDate=$collectionDate, "
+        "collections=${jsonEncode(collections)}, attendance=${jsonEncode(attendance)}, "
+        "denomination=${jsonEncode(denomination)}",
+      );
+
+      _connect.timeout = const Duration(seconds: 60);
 
       final response = await _connect.post(
-        url,
-        body,
-        headers: {
-          'Authorization': 'Bearer $accessToken',
-          'Content-Type': 'application/json',
-        },
+        Api.arrearCollectionUrl,
+        formData,
+        headers: {'Authorization': 'Bearer $accessToken'},
       );
 
       // Check for network error / no connection
@@ -195,7 +242,7 @@ class ArrearCollectionController extends GetxController {
           debugPrint("No internet detected. Saving arrear collection offline.");
           final saved = await _offlineService.saveOfflineCollection(
             type: 'ARREAR',
-            payload: body,
+            payload: payload,
             title: 'Arrear Collection ($selectedCenterName)',
           );
           if (saved) return true;
@@ -207,7 +254,9 @@ class ArrearCollectionController extends GetxController {
         if (resBody != null && resBody['success'] == true) {
           Get.snackbar(
             'Success',
-            resBody['message'] ?? 'Arrear collection submitted successfully.',
+            resBody['data']?['message'] ??
+                resBody['message'] ??
+                'Arrear collection submitted for Review.',
             snackPosition: SnackPosition.BOTTOM,
             backgroundColor: const Color(0xFF008A3D),
             colorText: Colors.white,
@@ -233,9 +282,11 @@ class ArrearCollectionController extends GetxController {
       final saved = await _offlineService.saveOfflineCollection(
         type: 'ARREAR',
         payload: {
-          "centerId": centerId,
-          "collectionDate": date,
-          "arrearCollections": arrearData,
+          'centerId': centerId,
+          'collectionDate': collectionDate,
+          'collections': collections,
+          'attendance': attendance,
+          'denomination': denomination,
         },
         title: 'Arrear Collection ($selectedCenterName)',
       );

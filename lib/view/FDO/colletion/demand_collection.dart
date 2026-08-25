@@ -7,6 +7,7 @@ import 'package:sarvam/controller/collection_controller.dart';
 import 'package:sarvam/controller/live_collection_controller.dart';
 import 'package:sarvam/view/FDO/colletion/collection_submission_flow.dart';
 import 'package:sarvam/utils/center_formatter.dart';
+import 'package:sarvam/view/shared/eod_pending_banner.dart';
 
 class DemandCollection extends StatefulWidget {
   const DemandCollection({super.key, this.initialDate});
@@ -649,7 +650,13 @@ class _DemandCollectionState extends State<DemandCollection> {
       if (raw is Map) {
         final item = Map<String, dynamic>.from(raw);
         list[i] = item;
-        _selectedClientKeys.add(_clientKey(item, i));
+        // Pre-select only clients with remaining demand — mirrors the web's
+        // `initialSelected[item.loanId] = item.remainingDue > 0`. Already
+        // fully-collected clients start unchecked so their historical
+        // collected amount isn't swept into a new submission.
+        if (!_isFullyCollected(item)) {
+          _selectedClientKeys.add(_clientKey(item, i));
+        }
         if (_quickFullAdvance) {
           final num target = _asNum(
             item['loanAdvance'] ??
@@ -670,20 +677,19 @@ class _DemandCollectionState extends State<DemandCollection> {
     final prefs = await SharedPreferences.getInstance();
     final branchId = prefs.getString('branchId') ?? '';
     if (branchId.isNotEmpty) {
-      final centers = await _liveCollectionController.getEligibleCenters(
-        branchId,
-      );
-      if (centers != null && centers.isNotEmpty) {
-        if (_liveCollectionController.collectionDate.value.isNotEmpty) {
-          try {
-            final apiDate = DateTime.parse(
-              _liveCollectionController.collectionDate.value,
-            );
-            setState(() {
-              _date = apiDate;
-            });
-          } catch (_) {}
-        }
+      await _liveCollectionController.getEligibleCenters(branchId);
+      // Sync regardless of whether any centers came back — the resolved
+      // working date is still the correct one to lock the field/banner to,
+      // even on a day with nothing left to collect.
+      if (_liveCollectionController.collectionDate.value.isNotEmpty && mounted) {
+        try {
+          final apiDate = DateTime.parse(
+            _liveCollectionController.collectionDate.value,
+          );
+          setState(() {
+            _date = apiDate;
+          });
+        } catch (_) {}
       }
     }
   }
@@ -852,37 +858,38 @@ class _DemandCollectionState extends State<DemandCollection> {
           style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w600),
         ),
         SizedBox(height: 6.h),
-        InkWell(
-          onTap: _pickDate,
-          borderRadius: BorderRadius.circular(8.r),
-          child: Container(
-            height: 47.h,
-            padding: EdgeInsets.symmetric(horizontal: 12.w),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF4FAF6),
-              border: Border.all(color: const Color(0xFFD2E9DB)),
-              borderRadius: BorderRadius.circular(8.r),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _dateText,
-                    style: TextStyle(
-                      fontSize: 12.sp,
-                      color: const Color(0xFF385046),
-                    ),
+        // Locked to the branch's current EOD working date, exactly like the
+        // software's Demand Collection date field (readOnly/disabled there)
+        // — demand collection is always for the branch's active working
+        // date, never a date the FDO picks.
+        Container(
+          height: 47.h,
+          padding: EdgeInsets.symmetric(horizontal: 12.w),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF4FAF6),
+            border: Border.all(color: const Color(0xFFD2E9DB)),
+            borderRadius: BorderRadius.circular(8.r),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _dateText,
+                  style: TextStyle(
+                    fontSize: 12.sp,
+                    color: const Color(0xFF385046),
                   ),
                 ),
-                Icon(
-                  Icons.calendar_today_outlined,
-                  color: const Color(0xFF4B8A68),
-                  size: 18.sp,
-                ),
-              ],
-            ),
+              ),
+              Icon(
+                Icons.lock_outline_rounded,
+                color: const Color(0xFF4B8A68),
+                size: 18.sp,
+              ),
+            ],
           ),
         ),
+        EodPendingBanner(workingDate: _date),
         SizedBox(height: 13.h),
         Text(
           'Center Name',
@@ -1021,21 +1028,6 @@ class _DemandCollectionState extends State<DemandCollection> {
     ),
   );
 
-  Future<void> _pickDate() async {
-    final selected = await showDatePicker(
-      context: context,
-      initialDate: _date,
-      firstDate: DateTime(2024),
-      lastDate: DateTime(2030),
-    );
-    if (selected != null) {
-      setState(() {
-        _date = selected;
-        _loaded = false;
-      });
-    }
-  }
-
   String get _dateText =>
       '${_date.day.toString().padLeft(2, '0')}-${_date.month.toString().padLeft(2, '0')}-${_date.year}';
   InputDecoration _inputDecoration() => InputDecoration(
@@ -1112,9 +1104,14 @@ class _DemandCollectionState extends State<DemandCollection> {
         ? (collectedSum / totalDemand) * 100
         : 0;
 
+    // "Select All" only ever selects clients still owing something — a
+    // fully-collected client has no checkbox to toggle (see
+    // `_clientDemandCard`), so it must never be counted here either or
+    // `allSelected` could never read true.
     final allKeys = {
       for (var i = 0; i < list.length; i++)
-        _clientKey(list[i] as Map<String, dynamic>, i),
+        if (!_isFullyCollected(list[i] as Map<String, dynamic>))
+          _clientKey(list[i] as Map<String, dynamic>, i),
     };
     final allSelected =
         allKeys.isNotEmpty && allKeys.every(_selectedClientKeys.contains);
@@ -1446,6 +1443,17 @@ class _DemandCollectionState extends State<DemandCollection> {
   String _clientKey(Map<String, dynamic> item, int index) =>
       '${item['clientId'] ?? item['clientCode'] ?? 'client'}-${item['loanNumber'] ?? index}';
 
+  /// `totalDemand` in this response is actually the NET remaining due
+  /// (server field `remainingDue`, mirrors the web's `CollectionItem.status`
+  /// === 'COLLECTED' when `remainingDue === 0`) — a client can already show
+  /// a nonzero `collectedAmount` (their collection history) while having
+  /// nothing left to collect today. Such clients must never be pre-checked
+  /// or summed into the submission total, or the FDO ends up re-submitting
+  /// their historical collected amount as a brand-new collection.
+  bool _isFullyCollected(Map<String, dynamic> item) =>
+      item['status']?.toString().toUpperCase() == 'COLLECTED' ||
+      _asNum(item['totalDemand']) <= 0;
+
   Widget _clientDemandCard(
     Map<String, dynamic> item, {
     required bool selected,
@@ -1463,6 +1471,7 @@ class _DemandCollectionState extends State<DemandCollection> {
     final arrearInterest = item['arrearInterest'] ?? 0;
     final isOverdue = item['isOverdue'] == true;
     final status = item['status']?.toString() ?? 'PENDING';
+    final isFullyCollected = _isFullyCollected(item);
 
     return Semantics(
       button: true,
@@ -1485,9 +1494,14 @@ class _DemandCollectionState extends State<DemandCollection> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Checkbox(
-                    value: selected,
+                    // Never shows checked for a fully-collected client, even
+                    // if a stale `selected` flag slipped through — mirrors
+                    // the web's `disabled={item.remainingDue === 0}`.
+                    value: isFullyCollected ? false : selected,
                     activeColor: const Color(0xFF008A3D),
-                    onChanged: (value) => onSelected(value ?? false),
+                    onChanged: isFullyCollected
+                        ? null
+                        : (value) => onSelected(value ?? false),
                   ),
                   Expanded(
                     child: Column(
@@ -1589,7 +1603,9 @@ class _DemandCollectionState extends State<DemandCollection> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Collected Amount (₹)',
+                          isFullyCollected
+                              ? 'Already Collected (₹)'
+                              : 'Collected Amount (₹)',
                           style: TextStyle(
                             fontSize: 10.sp,
                             fontWeight: FontWeight.w700,
@@ -1600,18 +1616,28 @@ class _DemandCollectionState extends State<DemandCollection> {
                         TextFormField(
                           key: ValueKey('coll_${item['clientId']}_${item['loanNumber']}'),
                           initialValue: (item['collectedAmount'] ?? item['totalDemand'] ?? 0).toString(),
+                          // Read-only for a fully-collected client — nothing
+                          // remains to collect, so this just shows their
+                          // collection history, not an editable submission
+                          // amount (mirrors the web disabling this input
+                          // when `remainingDue === 0`).
+                          readOnly: isFullyCollected,
                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
                           style: TextStyle(
                             fontSize: 12.sp,
                             fontWeight: FontWeight.w700,
-                            color: const Color(0xFF10472A),
+                            color: isFullyCollected
+                                ? const Color(0xFF64748B)
+                                : const Color(0xFF10472A),
                           ),
                           decoration: InputDecoration(
                             isDense: true,
                             prefixText: '₹ ',
                             contentPadding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 8.h),
                             filled: true,
-                            fillColor: const Color(0xFFF4FAF6),
+                            fillColor: isFullyCollected
+                                ? const Color(0xFFEFF3F1)
+                                : const Color(0xFFF4FAF6),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8.r),
                               borderSide: const BorderSide(color: Color(0xFFD2E9DB)),
@@ -1722,6 +1748,7 @@ class _DemandCollectionState extends State<DemandCollection> {
     final selected = <Map<String, dynamic>>[];
     for (var index = 0; index < list.length; index++) {
       final item = Map<String, dynamic>.from(list[index]);
+      if (_isFullyCollected(item)) continue;
       if (_selectedClientKeys.contains(_clientKey(item, index))) {
         // The demand API returns collectedAmount: 0 (not null) for clients
         // who haven't been individually edited yet, so `??` never falls

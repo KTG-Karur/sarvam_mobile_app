@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:sarvam/controller/member_individual_detail_controller.dart';
@@ -1093,21 +1092,6 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
     );
   }
 
-  double? _calcDistanceMeters(dynamic sourceLat, dynamic sourceLng, dynamic targetLat, dynamic targetLng) {
-    if (sourceLat == null || sourceLng == null || targetLat == null || targetLng == null) return null;
-    final sLat = double.tryParse('$sourceLat');
-    final sLng = double.tryParse('$sourceLng');
-    final tLat = double.tryParse('$targetLat');
-    final tLng = double.tryParse('$targetLng');
-    if (sLat == null || sLng == null || tLat == null || tLng == null) return null;
-    if (sLat == 0 || sLng == 0 || tLat == 0 || tLng == 0) return null;
-    try {
-      return Geolocator.distanceBetween(sLat, sLng, tLat, tLng);
-    } catch (_) {
-      return null;
-    }
-  }
-
   Widget _storageImageWidget({
     required String? photoKey,
     required double width,
@@ -1217,149 +1201,6 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
     );
   }
 
-  Widget _distanceMetricBox({
-    required String label,
-    required String value,
-    required IconData icon,
-  }) {
-    return Container(
-      padding: EdgeInsets.all(8.w),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8.r),
-        border: Border.all(color: const Color(0xFFE1EAE4)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 16.sp, color: _green),
-          SizedBox(width: 8.w),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 8.5.sp,
-                    fontWeight: FontWeight.w700,
-                    color: _muted,
-                    letterSpacing: 0.3,
-                  ),
-                ),
-                SizedBox(height: 2.h),
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 12.sp,
-                    fontWeight: FontWeight.w800,
-                    color: _darkText,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDistanceSummaryCard() {
-    final center = controller.center;
-    final branch = controller.branch;
-    final visit = controller.houseHoldVisit;
-    final client = controller.client;
-
-    // Center -> Branch
-    dynamic kmBranchVal = center['kmFromBranch'];
-    double? centerToBranchMeters = kmBranchVal != null && double.tryParse('$kmBranchVal') != null
-        ? double.parse('$kmBranchVal') * 1000
-        : null;
-    centerToBranchMeters ??= _calcDistanceMeters(
-      center['latitude'], center['longitude'],
-      branch['latitude'], branch['longitude'],
-    );
-
-    // Visit / Client -> Center
-    double? visitToCenterMeters = visit['distanceMeters'] != null
-        ? double.tryParse('${visit['distanceMeters']}')
-        : null;
-    visitToCenterMeters ??= _calcDistanceMeters(
-      visit['latitude'] ?? client?['latitude'], visit['longitude'] ?? client?['longitude'],
-      center['latitude'], center['longitude'],
-    );
-
-    // Visit / Client -> Branch
-    double? visitToBranchMeters = visit['distanceFromBranchMeters'] != null
-        ? double.tryParse('${visit['distanceFromBranchMeters']}')
-        : null;
-    visitToBranchMeters ??= _calcDistanceMeters(
-      visit['latitude'] ?? client?['latitude'], visit['longitude'] ?? client?['longitude'],
-      branch['latitude'], branch['longitude'],
-    );
-
-    String formatKm(double? meters) {
-      if (meters == null) return 'N/A';
-      return '${(meters / 1000).toStringAsFixed(2)} KM';
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.all(12.w),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF0FAF4),
-        border: Border.all(color: const Color(0xFFC6E7D2)),
-        borderRadius: BorderRadius.circular(12.r),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.alt_route_rounded, size: 16.sp, color: _green),
-              SizedBox(width: 6.w),
-              Text(
-                'Distance Metrics Summary',
-                style: TextStyle(
-                  fontSize: 12.sp,
-                  fontWeight: FontWeight.w800,
-                  color: _darkText,
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: 10.h),
-          Row(
-            children: [
-              Expanded(
-                child: _distanceMetricBox(
-                  label: 'KM FROM BRANCH',
-                  value: formatKm(centerToBranchMeters),
-                  icon: Icons.account_balance_rounded,
-                ),
-              ),
-              SizedBox(width: 8.w),
-              Expanded(
-                child: _distanceMetricBox(
-                  label: 'KM FROM CENTER',
-                  value: formatKm(visitToCenterMeters),
-                  icon: Icons.storefront_rounded,
-                ),
-              ),
-            ],
-          ),
-          if (visitToBranchMeters != null) ...[
-            SizedBox(height: 8.h),
-            _distanceMetricBox(
-              label: 'VISIT KM FROM BRANCH',
-              value: formatKm(visitToBranchMeters),
-              icon: Icons.home_rounded,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
   Widget _buildFdoHouseImageCard(Map<String, dynamic>? fdoHouseImage) {
     if (fdoHouseImage == null || fdoHouseImage['photoUrl'] == null || fdoHouseImage['photoUrl'].toString().trim().isEmpty) {
       return Container(
@@ -1453,8 +1294,6 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
                 'House Hold Visit completed on ${_formatDateTime(controller.houseHoldVisit['completedAt'])}',
               ),
             SizedBox(height: 10.h),
-            _buildDistanceSummaryCard(),
-            SizedBox(height: 12.h),
             _buildFdoHouseImageCard(fdoMap),
             SizedBox(height: 14.h),
             Container(
@@ -1590,24 +1429,69 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
     });
   }
 
+  double? _asDouble(dynamic v) => v == null ? null : double.tryParse('$v');
+
+  /// Legacy photos uploaded before the backend started persisting
+  /// `distanceMeters`/`distanceFromBranchMeters`/`distanceFromClientMeters`
+  /// have those fields null. Rather than estimating straight-line (which
+  /// would read as "different" from the road distance the software always
+  /// shows), fetch and cache the same road-distance figure the backend
+  /// would have computed, via the shared `/api/geo/driving-distance`
+  /// endpoint — kicked off here, read back from the cache inside the Obx
+  /// below once resolved.
+  void _ensureLegacyDistancesResolved(
+    Map<String, dynamic> photo,
+    double? photoLat,
+    double? photoLng,
+    Map center,
+    Map branch,
+    Map? client,
+  ) {
+    if (photoLat == null || photoLng == null) return;
+    if (photo['distanceMeters'] == null) {
+      controller.resolveDrivingDistance(
+        photoLat, photoLng, _asDouble(center['latitude']), _asDouble(center['longitude']),
+      );
+    }
+    if (photo['distanceFromBranchMeters'] == null) {
+      controller.resolveDrivingDistance(
+        photoLat, photoLng, _asDouble(branch['latitude']), _asDouble(branch['longitude']),
+      );
+    }
+    if (photo['distanceFromClientMeters'] == null) {
+      controller.resolveDrivingDistance(
+        photoLat, photoLng, _asDouble(client?['latitude']), _asDouble(client?['longitude']),
+      );
+    }
+  }
+
   Widget _photoCard(Map<String, dynamic> photo) {
     final isMandatory = photo['isMandatory'] == true;
-    final photoLat = photo['latitude'];
-    final photoLng = photo['longitude'];
+    final photoLat = _asDouble(photo['latitude']);
+    final photoLng = _asDouble(photo['longitude']);
     final center = controller.center;
     final branch = controller.branch;
     final client = controller.record.value?['client'] as Map?;
 
-    final fallbackCenter = _calcDistanceMeters(photoLat, photoLng, center['latitude'], center['longitude']);
-    final fallbackBranch = _calcDistanceMeters(photoLat, photoLng, branch['latitude'], branch['longitude']);
-    final fallbackFdo = _calcDistanceMeters(photoLat, photoLng, client?['latitude'], client?['longitude']);
-
-    final distanceCenter = photo['distanceMeters'] ?? fallbackCenter;
     final photoId = photo['id']?.toString() ?? '';
-    final outOfRange = isMandatory && distanceCenter is num && distanceCenter > 500;
     final photoKey = photo['photoUrl']?.toString() ?? '';
 
     return Obx(() {
+      _ensureLegacyDistancesResolved(photo, photoLat, photoLng, center, branch, client);
+
+      final fallbackCenter = controller.cachedDrivingDistance(
+        photoLat, photoLng, _asDouble(center['latitude']), _asDouble(center['longitude']),
+      );
+      final fallbackBranch = controller.cachedDrivingDistance(
+        photoLat, photoLng, _asDouble(branch['latitude']), _asDouble(branch['longitude']),
+      );
+      final fallbackFdo = controller.cachedDrivingDistance(
+        photoLat, photoLng, _asDouble(client?['latitude']), _asDouble(client?['longitude']),
+      );
+
+      final distanceCenter = photo['distanceMeters'] ?? fallbackCenter;
+      final outOfRange = isMandatory && distanceCenter is num && distanceCenter > 500;
+
       final deleting = controller.deletingPhotoId.value == photoId;
       return Container(
         padding: EdgeInsets.all(10.w),

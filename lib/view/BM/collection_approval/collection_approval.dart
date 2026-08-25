@@ -35,7 +35,11 @@ class _CollectionApprovalState extends State<CollectionApproval>
   final RxBool _isLoadingFilters = false.obs;
   final RxBool _isSubmitting = false.obs;
   final RxBool _isLoadingEodAllocation = false.obs;
-  final RxBool _isAllocatingEod = false.obs;
+  // Which single funder-group (or 'LOAN_ADVANCE') is currently posting — used
+  // both to disable every allocate button while any one is in flight (mirrors
+  // the web's `disabled={!!processingKey}`) and to show the spinner on only
+  // that one button (`processingKey === mergedKey`).
+  final Rxn<String> _processingAllocationKey = Rxn<String>();
 
   final RxList<dynamic> _branches = <dynamic>[].obs;
   final RxList<dynamic> _centers = <dynamic>[].obs;
@@ -50,8 +54,13 @@ class _CollectionApprovalState extends State<CollectionApproval>
   final RxList<Map<String, dynamic>> _denominationByCenter = <Map<String, dynamic>>[].obs;
   final RxSet<String> _approvedIds = <String>{}.obs;
 
-  // EOD Allocation State
+  // EOD Allocation State — mirrors the web's `AllocateForEodTab.tsx`: one
+  // merged group per funder (+ Gold/Normal split), built client-side by
+  // grouping the API's separate demandRows/advanceRows/arrearRows/
+  // preclosureRows/writeoffRows the same way `buildFunderGroups` does, plus
+  // the standalone (non-funder) Loan Advance bucket.
   final RxList<Map<String, dynamic>> _funderAllocations = <Map<String, dynamic>>[].obs;
+  final Rxn<Map<String, dynamic>> _loanAdvanceAllocation = Rxn<Map<String, dynamic>>();
 
   String _userRole = '';
   String _searchQuery = '';
@@ -451,6 +460,78 @@ class _CollectionApprovalState extends State<CollectionApproval>
     }
   }
 
+  /// `${funderId ?? 'OWN'}:${isGoldLoan ? 'GOLD' : 'NORMAL'}` — must match the
+  /// grouping key `buildFunderGroups()` uses on the web app so a funder that
+  /// has both gold and normal loans shows as two independently-allocatable
+  /// groups, not merged into one.
+  String _funderGroupKey(dynamic funderId, bool isGoldLoan) =>
+      '${(funderId?.toString().isNotEmpty ?? false) ? funderId : 'OWN'}:${isGoldLoan ? 'GOLD' : 'NORMAL'}';
+
+  /// Client-side mirror of the web's `buildFunderGroups()` — merges the
+  /// API's separately-returned demandRows/advanceRows/arrearRows/
+  /// preclosureRows/writeoffRows into one card per funder(+gold-flag), each
+  /// with a single "Allocate For EOD" action covering everything pending for
+  /// that funder on this date, exactly like the software's per-funder cards
+  /// (no "allocate everything for every funder" bulk action exists there).
+  List<Map<String, dynamic>> _buildFunderGroups(Map<String, dynamic> data) {
+    final groups = <String, Map<String, dynamic>>{};
+
+    void mergeRows(dynamic rows, {required bool isClosure}) {
+      if (rows is! List) return;
+      for (final raw in rows) {
+        if (raw is! Map) continue;
+        final row = Map<String, dynamic>.from(raw);
+        final funderId = row['funderId'];
+        final isGoldLoan = row['isGoldLoan'] == true;
+        final key = _funderGroupKey(funderId, isGoldLoan);
+        final group = groups.putIfAbsent(
+          key,
+          () => {
+            'funderId': funderId,
+            'funderName': row['funderName']?.toString() ?? (funderId == null ? 'own fund' : 'Funder'),
+            'isGoldLoan': isGoldLoan,
+            'principalAmount': 0.0,
+            'interestAmount': 0.0,
+            'totalAmount': 0.0,
+            'hasPending': false,
+            'hasAnyAllocated': false,
+            'overAllocated': false,
+          },
+        );
+
+        final batches = row['batches'];
+        if (batches is List) {
+          for (final b in batches) {
+            if (b is! Map) continue;
+            final status = b['status']?.toString();
+            if (status == 'PENDING') {
+              group['hasPending'] = true;
+              group['principalAmount'] = (group['principalAmount'] as double) + (double.tryParse('${b['principalAmount'] ?? 0}') ?? 0);
+              group['interestAmount'] = (group['interestAmount'] as double) + (double.tryParse('${b['interestAmount'] ?? 0}') ?? 0);
+              group['totalAmount'] = (group['totalAmount'] as double) + (double.tryParse('${b['totalAmount'] ?? 0}') ?? 0);
+            } else if (status == 'ALLOCATED') {
+              group['hasAnyAllocated'] = true;
+            }
+          }
+        }
+
+        // Pre-Closure/Loan Closing rows carry no overAllocated flag (see
+        // ClosureAllocationRow on the backend) — only Demand/Advance/Arrear do.
+        if (!isClosure && row['overAllocated'] == true) {
+          group['overAllocated'] = true;
+        }
+      }
+    }
+
+    mergeRows(data['demandRows'], isClosure: false);
+    mergeRows(data['advanceRows'], isClosure: false);
+    mergeRows(data['arrearRows'], isClosure: false);
+    mergeRows(data['preclosureRows'], isClosure: true);
+    mergeRows(data['writeoffRows'], isClosure: true);
+
+    return groups.values.toList();
+  }
+
   Future<void> _fetchEodAllocations() async {
     final branchId = _selectedBranchId.value;
     if (branchId.isEmpty) return;
@@ -462,50 +543,53 @@ class _CollectionApprovalState extends State<CollectionApproval>
       final dateStr = DateFormat('yyyy-MM-dd').format(_collectionDate);
 
       final res = await _client.get(
-        '${Api.baseUrl}/api/collections/approved-unallocated?branchId=$branchId&date=$dateStr',
+        '${Api.eodAllocationUrl}?branchId=$branchId&date=$dateStr',
         headers: {'Authorization': 'Bearer $token'},
       );
 
-      if (res.statusCode == 200 && res.body != null) {
-        final data = res.body['data'];
-        if (data is Map && data['funders'] is List) {
-          _funderAllocations.assignAll(
-            (data['funders'] as List).map((f) => f is Map ? Map<String, dynamic>.from(f) : <String, dynamic>{}).toList(),
-          );
-        } else if (data is List) {
-          _funderAllocations.assignAll(
-            data.map((f) => f is Map ? Map<String, dynamic>.from(f) : <String, dynamic>{}).toList(),
-          );
-        } else {
-          _funderAllocations.clear();
-        }
+      if (res.statusCode == 200 && res.body != null && res.body['data'] is Map) {
+        final data = Map<String, dynamic>.from(res.body['data']);
+        _funderAllocations.assignAll(_buildFunderGroups(data));
+        _loanAdvanceAllocation.value = data['loanAdvance'] is Map
+            ? Map<String, dynamic>.from(data['loanAdvance'])
+            : null;
       } else {
         _funderAllocations.clear();
+        _loanAdvanceAllocation.value = null;
       }
     } catch (e) {
       debugPrint('Failed to load EOD allocations: $e');
       _funderAllocations.clear();
+      _loanAdvanceAllocation.value = null;
     } finally {
       _isLoadingEodAllocation.value = false;
     }
   }
 
-  Future<void> _allocateEodForFunder(String? funderId) async {
+  /// Allocates one funder(+gold-flag) group's entire pending balance across
+  /// Demand/Advance/Arrear/Pre-Closure/Loan Closing in a single merged
+  /// voucher — mirrors the web's `handleAllocateMerged` (`mergedFunderAllocation:
+  /// true`). There is no equivalent "allocate every funder at once" call on
+  /// the backend; each funder must be posted separately, same as software.
+  Future<void> _allocateFunderGroup(dynamic funderId, bool isGoldLoan) async {
     final branchId = _selectedBranchId.value;
     if (branchId.isEmpty) return;
 
-    _isAllocatingEod.value = true;
+    final key = 'MERGED:${_funderGroupKey(funderId, isGoldLoan)}';
+    _processingAllocationKey.value = key;
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('accessToken') ?? '';
       final dateStr = DateFormat('yyyy-MM-dd').format(_collectionDate);
 
       final res = await _client.post(
-        '${Api.baseUrl}/api/collections/allocate-eod',
+        Api.eodAllocationUrl,
         {
           'branchId': branchId,
           'date': dateStr,
-          if (funderId != null && funderId.isNotEmpty) 'funderId': funderId,
+          'funderId': funderId,
+          'isGoldLoan': isGoldLoan,
+          'mergedFunderAllocation': true,
         },
         headers: {
           'Authorization': 'Bearer $token',
@@ -514,12 +598,8 @@ class _CollectionApprovalState extends State<CollectionApproval>
       );
 
       if (res.statusCode == 200 || res.statusCode == 201) {
-        Get.snackbar(
-          'EOD Allocated',
-          'Approved collections successfully allocated for EOD.',
-          backgroundColor: _green,
-          colorText: Colors.white,
-        );
+        final msg = res.body?['message']?.toString() ?? 'Allocated to EOD successfully.';
+        Get.snackbar('Allocated', msg, backgroundColor: _green, colorText: Colors.white);
         await _fetchEodAllocations();
       } else {
         final err = res.body?['error'] ?? res.body?['message'] ?? 'Allocation failed';
@@ -528,7 +608,46 @@ class _CollectionApprovalState extends State<CollectionApproval>
     } catch (e) {
       Get.snackbar('Error', '$e', backgroundColor: Colors.redAccent, colorText: Colors.white);
     } finally {
-      _isAllocatingEod.value = false;
+      _processingAllocationKey.value = null;
+    }
+  }
+
+  /// Loan Advance is not funder-specific — it's the client's own advance
+  /// payment, posted branch/date-wide into a single shared ledger, so it
+  /// gets its own bucket and endpoint entirely separate from any funder
+  /// card (mirrors the web's `handleAllocateLoanAdvance`).
+  Future<void> _allocateLoanAdvance() async {
+    final branchId = _selectedBranchId.value;
+    if (branchId.isEmpty) return;
+
+    const key = 'LOAN_ADVANCE';
+    _processingAllocationKey.value = key;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('accessToken') ?? '';
+      final dateStr = DateFormat('yyyy-MM-dd').format(_collectionDate);
+
+      final res = await _client.post(
+        Api.eodAllocationLoanAdvanceUrl,
+        {'branchId': branchId, 'date': dateStr},
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        final msg = res.body?['message']?.toString() ?? 'Loan Advance allocated to EOD successfully.';
+        Get.snackbar('Allocated', msg, backgroundColor: _green, colorText: Colors.white);
+        await _fetchEodAllocations();
+      } else {
+        final err = res.body?['error'] ?? res.body?['message'] ?? 'Allocation failed';
+        Get.snackbar('Allocation Failed', '$err', backgroundColor: Colors.redAccent, colorText: Colors.white);
+      }
+    } catch (e) {
+      Get.snackbar('Error', '$e', backgroundColor: Colors.redAccent, colorText: Colors.white);
+    } finally {
+      _processingAllocationKey.value = null;
     }
   }
 
@@ -1154,125 +1273,231 @@ class _CollectionApprovalState extends State<CollectionApproval>
     );
   }
 
+  /// (background, label, textColor) for a funder/Loan-Advance group's action
+  /// slot — mirrors the web's three mutually-exclusive states: an active
+  /// merged voucher already posted ("Revert EOD First"), over-posted vs.
+  /// current approved total (same message — the guard is server-side and
+  /// this app has no Allocation Revert screen to send the user to directly,
+  /// so it just names the web page), or nothing pending at all.
+  Widget _eodStatusBadge(String label, Color bg, Color fg) => Container(
+    padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
+    decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(6.r)),
+    child: Text(label, style: TextStyle(fontSize: 10.sp, fontWeight: FontWeight.w700, color: fg)),
+  );
+
+  Widget _eodAllocateButton({
+    required String processingKey,
+    required VoidCallback onPressed,
+  }) {
+    return Obx(() {
+      final anyProcessing = _processingAllocationKey.value != null;
+      final isThisOne = _processingAllocationKey.value == processingKey;
+      return ElevatedButton.icon(
+        onPressed: anyProcessing ? null : onPressed,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _green,
+          foregroundColor: Colors.white,
+          padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.r)),
+        ),
+        icon: isThisOne
+            ? SizedBox(width: 13.sp, height: 13.sp, child: const CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+            : const Icon(Icons.send_rounded, size: 15),
+        label: Text('Allocate For EOD', style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700)),
+      );
+    });
+  }
+
   Widget _buildAllocateEodTabContent() {
     return Obx(() {
       if (_isLoadingEodAllocation.value) {
         return const Center(child: CircularProgressIndicator(color: _green));
       }
 
-      return SingleChildScrollView(
-        padding: EdgeInsets.all(14.w),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: double.infinity,
-              padding: EdgeInsets.all(12.w),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border.all(color: _border),
-                borderRadius: BorderRadius.circular(10.r),
+      final loanAdvance = _loanAdvanceAllocation.value;
+      final loanAdvancePending = (double.tryParse('${loanAdvance?['pendingAmount'] ?? 0}') ?? 0) > 0.01;
+      final loanAdvanceOverAllocated = loanAdvance?['overAllocated'] == true;
+      final loanAdvancePosted = (double.tryParse('${loanAdvance?['postedAmount'] ?? 0}') ?? 0) > 0.01;
+
+      return RefreshIndicator(
+        color: _green,
+        onRefresh: _fetchEodAllocations,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: EdgeInsets.all(14.w),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.all(10.w),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF8E6),
+                  border: Border.all(color: const Color(0xFFFFE0B2)),
+                  borderRadius: BorderRadius.circular(8.r),
+                ),
+                child: Text(
+                  'Allocate for EOD should be done after all collections are done and approved. '
+                  'Each funder is posted separately — there is no single action that allocates '
+                  'every funder at once.',
+                  style: TextStyle(fontSize: 10.5.sp, color: const Color(0xFF9A6B00)),
+                ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              SizedBox(height: 12.h),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Allocate Approved Collections for EOD',
-                        style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.bold, color: _darkText),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.refresh, size: 18),
-                        onPressed: _fetchEodAllocations,
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 4.h),
                   Text(
-                    'Post approved collections into funder GL ledgers for EOD closing.',
-                    style: TextStyle(fontSize: 11.sp, color: _muted),
+                    'Allocate Approved Collections for EOD',
+                    style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.bold, color: _darkText),
                   ),
-                  SizedBox(height: 10.h),
-                  ElevatedButton.icon(
-                    onPressed: _isAllocatingEod.value ? null : () => _allocateEodForFunder(null),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _green,
-                      foregroundColor: Colors.white,
-                      padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 10.h),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.r)),
-                    ),
-                    icon: _isAllocatingEod.value
-                        ? SizedBox(width: 14.sp, height: 14.sp, child: const CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : const Icon(Icons.send_rounded, size: 16),
-                    label: Text('Allocate All Funders for EOD', style: TextStyle(fontSize: 11.5.sp, fontWeight: FontWeight.bold)),
+                  IconButton(
+                    icon: const Icon(Icons.refresh, size: 18),
+                    onPressed: _fetchEodAllocations,
                   ),
                 ],
               ),
-            ),
-            SizedBox(height: 14.h),
-            if (_funderAllocations.isEmpty)
-              Center(
-                child: Padding(
-                  padding: EdgeInsets.all(24.w),
-                  child: Text(
-                    'No approved unallocated collections found for this branch & date.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 11.5.sp, color: _muted),
-                  ),
-                ),
-              )
-            else
-              ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _funderAllocations.length,
-                separatorBuilder: (_, __) => SizedBox(height: 10.h),
-                itemBuilder: (_, index) {
-                  final f = _funderAllocations[index];
-                  final fName = f['funderName']?.toString() ?? 'Funder';
-                  final fId = f['funderId']?.toString();
-                  final totalAmt = double.tryParse('${f['totalAmount']}') ?? 0.0;
-                  final principal = double.tryParse('${f['principalAmount']}') ?? 0.0;
-                  final interest = double.tryParse('${f['interestAmount']}') ?? 0.0;
+              SizedBox(height: 10.h),
 
-                  return Container(
-                    padding: EdgeInsets.all(12.w),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border.all(color: _border),
-                      borderRadius: BorderRadius.circular(10.r),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(fName, style: TextStyle(fontSize: 12.5.sp, fontWeight: FontWeight.w800, color: _darkText)),
-                              SizedBox(height: 3.h),
-                              Text('Total: ₹${totalAmt.toStringAsFixed(2)}  (Prin: ₹${principal.toStringAsFixed(2)}, Int: ₹${interest.toStringAsFixed(2)})', style: TextStyle(fontSize: 10.5.sp, color: _muted)),
-                            ],
-                          ),
-                        ),
-                        ElevatedButton(
-                          onPressed: _isAllocatingEod.value ? null : () => _allocateEodForFunder(fId),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _green,
-                            foregroundColor: Colors.white,
-                            padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.r)),
-                          ),
-                          child: Text('Allocate', style: TextStyle(fontSize: 11.sp)),
+              // Loan Advance — not funder-specific, one branch/date-wide bucket
+              // with its own action, entirely separate from the funder cards below.
+              if (loanAdvance != null && (loanAdvancePending || loanAdvancePosted)) ...[
+                Container(
+                  width: double.infinity,
+                  padding: EdgeInsets.all(12.w),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border.all(color: _border),
+                    borderRadius: BorderRadius.circular(10.r),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('Loan Advance', style: TextStyle(fontSize: 12.5.sp, fontWeight: FontWeight.w800, color: _darkText)),
+                          if (loanAdvanceOverAllocated)
+                            _eodStatusBadge('Revert EOD First', const Color(0xFFFDECEC), Colors.red)
+                          else if (!loanAdvancePending)
+                            _eodStatusBadge('Allocated', const Color(0xFFDCFCE7), const Color(0xFF15803D))
+                          else
+                            _eodAllocateButton(processingKey: 'LOAN_ADVANCE', onPressed: _allocateLoanAdvance),
+                        ],
+                      ),
+                      SizedBox(height: 4.h),
+                      Text(
+                        'Not funder-specific — client\'s own advance payment, posted to the shared Loan Advance ledger.',
+                        style: TextStyle(fontSize: 10.sp, color: _muted),
+                      ),
+                      if (loanAdvancePending) ...[
+                        SizedBox(height: 6.h),
+                        Text(
+                          'Pending: ₹${(double.tryParse('${loanAdvance['pendingAmount'] ?? 0}') ?? 0).toStringAsFixed(2)}',
+                          style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700, color: _darkText),
                         ),
                       ],
+                    ],
+                  ),
+                ),
+                SizedBox(height: 10.h),
+              ],
+
+              if (_funderAllocations.isEmpty && loanAdvance == null)
+                Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24.w),
+                    child: Text(
+                      'No approved collections to allocate for this date.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 11.5.sp, color: _muted),
                     ),
-                  );
-                },
-              ),
-          ],
+                  ),
+                )
+              else
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: _funderAllocations.length,
+                  separatorBuilder: (_, __) => SizedBox(height: 10.h),
+                  itemBuilder: (_, index) {
+                    final f = _funderAllocations[index];
+                    final fName = f['funderName']?.toString() ?? 'Funder';
+                    final fId = f['funderId'];
+                    final isGoldLoan = f['isGoldLoan'] == true;
+                    final hasPending = f['hasPending'] == true;
+                    final hasAnyAllocated = f['hasAnyAllocated'] == true;
+                    final overAllocated = f['overAllocated'] == true;
+                    final totalAmt = f['totalAmount'] as double? ?? 0.0;
+                    final principal = f['principalAmount'] as double? ?? 0.0;
+                    final interest = f['interestAmount'] as double? ?? 0.0;
+                    final processingKey = 'MERGED:${_funderGroupKey(fId, isGoldLoan)}';
+
+                    return Container(
+                      padding: EdgeInsets.all(12.w),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        border: Border.all(color: _border),
+                        borderRadius: BorderRadius.circular(10.r),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Wrap(
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  spacing: 6.w,
+                                  children: [
+                                    Text('Funder: $fName', style: TextStyle(fontSize: 12.5.sp, fontWeight: FontWeight.w800, color: _darkText)),
+                                    if (isGoldLoan)
+                                      Container(
+                                        padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 2.h),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFFEF3C7),
+                                          borderRadius: BorderRadius.circular(10.r),
+                                        ),
+                                        child: Text('GOLD', style: TextStyle(fontSize: 8.5.sp, fontWeight: FontWeight.w800, color: const Color(0xFF92400E))),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              if (hasPending)
+                                (overAllocated || hasAnyAllocated)
+                                    ? _eodStatusBadge('Revert EOD First', const Color(0xFFFDECEC), Colors.red)
+                                    : _eodAllocateButton(
+                                        processingKey: processingKey,
+                                        onPressed: () => _allocateFunderGroup(fId, isGoldLoan),
+                                      )
+                              else
+                                _eodStatusBadge('Allocated', const Color(0xFFDCFCE7), const Color(0xFF15803D)),
+                            ],
+                          ),
+                          SizedBox(height: 6.h),
+                          Text(
+                            hasPending
+                                ? 'Pending: ₹${totalAmt.toStringAsFixed(2)}  (Prin: ₹${principal.toStringAsFixed(2)}, Int: ₹${interest.toStringAsFixed(2)})'
+                                : 'Nothing pending for this funder on this date.',
+                            style: TextStyle(fontSize: 10.5.sp, color: _muted),
+                          ),
+                          if (overAllocated) ...[
+                            SizedBox(height: 6.h),
+                            Text(
+                              'GL posting for this funder/date is higher than the current approved total — most '
+                              'likely a collection was reverted after allocation. Revert the EOD allocation for '
+                              'this funder/date (web: Admin → EOD Allocation Revert) before allocating again.',
+                              style: TextStyle(fontSize: 9.5.sp, color: Colors.red),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  },
+                ),
+            ],
+          ),
         ),
       );
     });

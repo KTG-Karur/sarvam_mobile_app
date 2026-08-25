@@ -34,6 +34,10 @@ class Api {
       "$baseUrl/api/collections/client/non-demand";
   static const String reverseCollectionUrl =
       "$baseUrl/api/collections/client/reverse";
+  static const String eodAllocationUrl =
+      "$baseUrl/api/collections/eod-allocation";
+  static const String eodAllocationLoanAdvanceUrl =
+      "$baseUrl/api/collections/eod-allocation/loan-advance";
   static const String branchesUrl = "$baseUrl/api/branches";
   static const String dashboardStatsUrl = "$baseUrl/api/dashboard/v2";
   static const String taskDetailsUrl =

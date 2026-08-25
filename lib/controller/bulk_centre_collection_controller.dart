@@ -1,9 +1,13 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/services/api_client.dart';
 import 'package:sarvam/services/offline_collection_service.dart';
+import 'package:sarvam/utils/center_formatter.dart';
 
 class BulkCentreCollectionController extends GetxController {
   final ApiClient _connect = ApiClient();
@@ -62,8 +66,14 @@ class BulkCentreCollectionController extends GetxController {
             if (centersList.isNotEmpty) {
               final firstCenter = centersList.first;
               selectedCenterId.value = firstCenter['id'] ?? '';
-              selectedCenterName.value =
-                  "${firstCenter['name']} (${firstCenter['code']})";
+              // Must match the dropdown items' own formatCenterDisplay
+              // output, not a raw concat — see single_collection_controller
+              // for why a mismatch here breaks the initial selection.
+              selectedCenterName.value = formatCenterDisplay(
+                firstCenter['name'],
+                firstCenter['code'],
+                parenthetical: true,
+              );
             }
             return centersList;
           }
@@ -149,36 +159,57 @@ class BulkCentreCollectionController extends GetxController {
     }
   }
 
+  /// `POST /api/collections/bulk-collection` (multipart) — mirrors the
+  /// web's `handleFinalSubmit` in `BulkCollectionClient.tsx` exactly. The
+  /// backend requires a multipart request with a mandatory `photo` field
+  /// and parses `collections` as a JSON-encoded form field (`{clientId,
+  /// loanId, amount, loanAdvance, isSelected}` per entry, filtered
+  /// server-side to `isSelected && amount > 0`) — the previous plain-JSON
+  /// `demandSheet` body could never succeed against this endpoint.
   Future<bool> submitBulkCollection({
     required String centerId,
-    required String date,
-    required List<dynamic> updatedDemandSheet,
+    required String collectionDate,
+    required String collectionType,
+    required List<Map<String, dynamic>> collections,
+    required Map<String, dynamic> denomination,
+    required Uint8List photoBytes,
+    double? latitude,
+    double? longitude,
   }) async {
     try {
       isLoading.value = true;
 
-      final prefs = await SharedPreferences.getInstance();
-      final accessToken = prefs.getString('accessToken') ?? '';
-
-      final url = Api.bulkCollectionUrl;
-      debugPrint("Request POST URL: $url");
-
-      final body = {
-        "centerId": centerId,
-        "collectionDate": date,
-        "demandSheet": updatedDemandSheet,
+      final payload = {
+        'centerId': centerId,
+        'collectionDate': collectionDate,
+        'collectionType': collectionType,
+        'collections': collections,
+        'denomination': denomination,
       };
-      debugPrint("Request Body: $body");
 
-      _connect.timeout = const Duration(seconds: 30);
+      final formData = FormData({
+        'centerId': centerId,
+        'collectionDate': collectionDate,
+        'collectionType': collectionType,
+        'collections': jsonEncode(collections),
+        'denomination': jsonEncode(denomination),
+        'photo': MultipartFile(
+          photoBytes,
+          filename: 'meeting_$collectionDate.jpg',
+          contentType: 'image/jpeg',
+        ),
+        if (latitude != null) 'latitude': latitude.toString(),
+        if (longitude != null) 'longitude': longitude.toString(),
+      });
+
+      debugPrint("Request POST URL: ${Api.bulkCollectionUrl}");
+      debugPrint("Request Fields: $payload");
+
+      _connect.timeout = const Duration(seconds: 60);
 
       final response = await _connect.post(
-        url,
-        body,
-        headers: {
-          'Authorization': 'Bearer $accessToken',
-          'Content-Type': 'application/json',
-        },
+        Api.bulkCollectionUrl,
+        formData,
       );
 
       debugPrint("Response Status Code: ${response.statusCode}");
@@ -196,7 +227,7 @@ class BulkCentreCollectionController extends GetxController {
           debugPrint("No internet detected. Saving bulk collection offline.");
           final saved = await _offlineService.saveOfflineCollection(
             type: 'BULK',
-            payload: body,
+            payload: payload,
             title: 'Bulk Collection ($selectedCenterName)',
           );
           if (saved) return true;
@@ -208,7 +239,7 @@ class BulkCentreCollectionController extends GetxController {
         if (resBody != null && resBody['success'] == true) {
           Get.snackbar(
             'Success',
-            resBody['message'] ?? 'Bulk collection approved successfully.',
+            resBody['message'] ?? 'Collections submitted for Review.',
             snackPosition: SnackPosition.BOTTOM,
             backgroundColor: const Color(0xFF008A3D),
             colorText: Colors.white,
@@ -232,9 +263,11 @@ class BulkCentreCollectionController extends GetxController {
       final saved = await _offlineService.saveOfflineCollection(
         type: 'BULK',
         payload: {
-          "centerId": centerId,
-          "collectionDate": date,
-          "demandSheet": updatedDemandSheet,
+          'centerId': centerId,
+          'collectionDate': collectionDate,
+          'collectionType': collectionType,
+          'collections': collections,
+          'denomination': denomination,
         },
         title: 'Bulk Collection ($selectedCenterName)',
       );

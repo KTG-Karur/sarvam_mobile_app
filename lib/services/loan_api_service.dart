@@ -228,6 +228,23 @@ class LoanApiService {
     return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
   }
 
+  /// `DELETE /api/loan-indexes/{indexId}` — releases the index's loans
+  /// (clears `indexId`/`indexedAmount`, leaving `disbursementStatus`
+  /// untouched) and soft-deletes the index. This is the recovery path for
+  /// an index whose "approve & forward to AM" call failed after creation —
+  /// mirrors the web app's "Delete Index" action in
+  /// `LoanIndexationClient.tsx`, which the mobile screen previously lacked,
+  /// leaving BMs with no way to un-stick a batch stuck at "Pending".
+  Future<void> deleteLoanIndex(String indexId) async {
+    final token = await _authToken();
+    _client.timeout = const Duration(seconds: 20);
+    final response = await _client.delete(
+      "${Api.loanIndexesUrl}/$indexId",
+      headers: _authHeaders(token),
+    );
+    _unwrap(response);
+  }
+
   /// `GET /api/loans/{loanId}/passbook?firstDueDate=` — passbook details
   /// and installment schedule preview.
   Future<Map<String, dynamic>> getPassbookData(

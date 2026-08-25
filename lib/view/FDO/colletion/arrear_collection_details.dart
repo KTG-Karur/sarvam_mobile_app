@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -6,7 +8,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/arrear_collection_controller.dart';
 import 'package:sarvam/controller/live_collection_controller.dart';
 import 'package:sarvam/view/FDO/colletion/arrear_collection_client_details.dart';
+import 'package:sarvam/view/FDO/colletion/collection_submission_flow.dart';
 import 'package:sarvam/utils/center_formatter.dart';
+import 'package:sarvam/view/shared/eod_pending_banner.dart';
 
 class ArrearCollectionDetails extends StatefulWidget {
   const ArrearCollectionDetails({super.key});
@@ -21,12 +25,24 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
     ArrearCollectionController(),
   );
   late DateTime _date;
+  // The branch's actual resolved EOD working date — distinct from `_date`,
+  // which the user can move earlier to browse older arrears (mirrors the
+  // web's `max={eodWorkingDate}` cap: never later than this, but any
+  // earlier date is fair game). The "EOD not completed" banner is keyed to
+  // this, not to whichever past date is currently being browsed.
+  late DateTime _workingDate;
   bool _loaded = false;
 
   final List<TextEditingController> _amounts = [];
   final List<TextEditingController> _advances = [];
   final List<String> _attendance = [];
   final Set<String> _selectedKeys = <String>{};
+  // Explicit controller for the arrear table's horizontal Scrollbar —
+  // Scrollbar(thumbVisibility: true) requires one; without it, Flutter
+  // falls back to the PrimaryScrollController, which doesn't exist for a
+  // horizontal SingleChildScrollView and crashes with
+  // "A ScrollController is required when Scrollbar.thumbVisibility is true."
+  final ScrollController _tableScrollController = ScrollController();
 
   bool _quickPresent = false;
   bool _quickFullCollection = false;
@@ -38,6 +54,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
   void initState() {
     super.initState();
     _date = DateTime.now();
+    _workingDate = DateTime.now();
     _controller.arrearCollections.clear();
     _loaded = false;
     _loadEodWorkingDate();
@@ -54,6 +71,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
       if (eodDate != null && mounted) {
         setState(() {
           _date = eodDate;
+          _workingDate = eodDate;
         });
       }
     }
@@ -61,6 +79,13 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
 
   String _clientKey(Map<String, dynamic> item, int index) =>
       '${item['clientId'] ?? item['clientCode'] ?? 'client'}-${item['loanNumber'] ?? index}';
+
+  /// A loan whose arrear was already collected (server `status: 'COLLECTED'`)
+  /// must never be re-selectable — matches Demand Collection's guard so a
+  /// client already showing the "Collected" badge can't be checked again and
+  /// re-submitted for a loan that has nothing left to collect.
+  bool _isFullyCollected(Map<String, dynamic> item) =>
+      (item['status'] ?? '').toString().toUpperCase() == 'COLLECTED';
 
   String _amountText(dynamic value) {
     final num n = value is num
@@ -217,11 +242,16 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
   }
 
   Future<void> _pickDate() async {
+    // Arrears legitimately span past dates, so this stays editable (unlike
+    // Demand Collection's locked field) — but capped at the branch's actual
+    // working date, mirroring the web app's `max={eodWorkingDate}`, so a
+    // collection can never be backdated past today yet postdated beyond
+    // what the branch has actually reached.
     final selected = await showDatePicker(
       context: context,
-      initialDate: _date,
+      initialDate: _date.isAfter(_workingDate) ? _workingDate : _date,
       firstDate: DateTime(2024),
-      lastDate: DateTime(2030),
+      lastDate: _workingDate,
     );
     if (selected != null) {
       setState(() {
@@ -233,6 +263,9 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
 
   String get _dateText =>
       '${_date.day.toString().padLeft(2, '0')}-${_date.month.toString().padLeft(2, '0')}-${_date.year}';
+
+  String get _apiDate =>
+      '${_date.year}-${_date.month.toString().padLeft(2, '0')}-${_date.day.toString().padLeft(2, '0')}';
 
   double get _totalArrearPrincipal {
     double total = 0;
@@ -292,6 +325,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
     for (final controller in [..._amounts, ..._advances]) {
       controller.dispose();
     }
+    _tableScrollController.dispose();
     super.dispose();
   }
 
@@ -471,10 +505,18 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
               onChanged: (value) {
                 if (value != null) {
                   _controller.selectedCenterName.value = value;
-                  final matched = centers.firstWhere(
-                    (c) => "${c['name']} (${c['code']})" == value,
+                  // Match against the same formatter the dropdown items were
+                  // built with (not a raw concat) — formatCenterDisplay can
+                  // reformat the code (e.g. pad "6" to "06"), so a raw
+                  // rebuild here could never match any center and crash
+                  // with "Bad state: No element".
+                  final matched = centers.cast<Map?>().firstWhere(
+                    (c) => c != null && formatCenterDisplay(c['name'], c['code'], parenthetical: true) == value,
+                    orElse: () => null,
                   );
-                  _controller.selectedCenterId.value = matched['id'] ?? '';
+                  if (matched != null) {
+                    _controller.selectedCenterId.value = matched['id'] ?? '';
+                  }
                   setState(() {
                     _loaded = false;
                   });
@@ -490,6 +532,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
             borderRadius: BorderRadius.circular(10.r),
             child: _dropdown(_dateText, icon: Icons.calendar_month_outlined),
           ),
+          EodPendingBanner(workingDate: _workingDate),
           SizedBox(height: 17.h),
           SizedBox(
             width: double.infinity,
@@ -655,9 +698,13 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
 
   Widget _clients() {
     final list = _controller.arrearCollections;
+    // "Select All" only ever selects still-collectible clients — a
+    // collected row has no checkbox to toggle (see the DataRow below), so
+    // it must never be counted here either.
     final allKeys = {
       for (var i = 0; i < list.length; i++)
-        _clientKey(list[i] as Map<String, dynamic>, i),
+        if (!_isFullyCollected(list[i] as Map<String, dynamic>))
+          _clientKey(list[i] as Map<String, dynamic>, i),
     };
     final allSelected =
         allKeys.isNotEmpty && allKeys.every(_selectedKeys.contains);
@@ -762,8 +809,10 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
           Padding(
             padding: EdgeInsets.only(left: 14.w, right: 14.w, bottom: 10.h),
             child: Scrollbar(
+              controller: _tableScrollController,
               thumbVisibility: true,
               child: SingleChildScrollView(
+                controller: _tableScrollController,
                 scrollDirection: Axis.horizontal,
                 child: DataTable(
                   columnSpacing: 14.w,
@@ -795,20 +844,23 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
                   rows: List.generate(list.length, (index) {
                     final item = list[index] as Map<String, dynamic>;
                     final key = _clientKey(item, index);
-                    final isCollected =
-                        (item['status'] ?? '').toString().toUpperCase() ==
-                        'COLLECTED';
+                    final isCollected = _isFullyCollected(item);
                     final isOverdue = item['isOverdue'] == true;
 
                     return DataRow(
-                      selected: _selectedKeys.contains(key),
-                      onSelectChanged: (val) => setState(() {
-                        if (val == true) {
-                          _selectedKeys.add(key);
-                        } else {
-                          _selectedKeys.remove(key);
-                        }
-                      }),
+                      // Never shows selected for an already-collected loan,
+                      // even if a stale key somehow lingered in
+                      // _selectedKeys — mirrors Demand Collection's guard.
+                      selected: !isCollected && _selectedKeys.contains(key),
+                      onSelectChanged: isCollected
+                          ? null
+                          : (val) => setState(() {
+                              if (val == true) {
+                                _selectedKeys.add(key);
+                              } else {
+                                _selectedKeys.remove(key);
+                              }
+                            }),
                       cells: [
                         DataCell(
                           Text(
@@ -889,12 +941,18 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
                         ),
                         DataCell(
                           hasControllers
-                              ? _amountFieldCell(_amounts[index])
+                              ? _amountFieldCell(
+                                  _amounts[index],
+                                  readOnly: isCollected,
+                                )
                               : const Text('-'),
                         ),
                         DataCell(
                           hasControllers
-                              ? _amountFieldCell(_advances[index])
+                              ? _amountFieldCell(
+                                  _advances[index],
+                                  readOnly: isCollected,
+                                )
                               : const Text('-'),
                         ),
                         DataCell(
@@ -1000,18 +1058,26 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
     ),
   );
 
-  Widget _amountFieldCell(TextEditingController controller) => SizedBox(
+  Widget _amountFieldCell(
+    TextEditingController controller, {
+    bool readOnly = false,
+  }) => SizedBox(
     width: 72.w,
     child: TextField(
       controller: controller,
+      readOnly: readOnly,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       onChanged: (_) => setState(() {}),
-      style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700),
+      style: TextStyle(
+        fontSize: 11.sp,
+        fontWeight: FontWeight.w700,
+        color: readOnly ? const Color(0xFF64748B) : null,
+      ),
       decoration: InputDecoration(
         isDense: true,
         contentPadding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 6.h),
         filled: true,
-        fillColor: const Color(0xFFFFFDF5),
+        fillColor: readOnly ? const Color(0xFFEFF3F1) : const Color(0xFFFFFDF5),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(6.r),
           borderSide: const BorderSide(color: Color(0xFFC8E6D4)),
@@ -1078,21 +1144,95 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
     ],
   );
 
+  /// Builds the arrear-shaped `collections`/`attendance` payload for
+  /// whichever clients are currently selected, and submits it via the
+  /// software's own `POST /api/collections/arrear` contract (multipart,
+  /// mandatory meeting photo + denomination) — mirrors
+  /// `ArrearCollectionClient.tsx`'s `handleFinalSubmit`. Returns false
+  /// (without navigating) if there's nothing valid to send, so the
+  /// submission wizard stays open instead of silently "succeeding".
+  Future<bool> _submitArrear(
+    Uint8List photoBytes,
+    Map<String, dynamic> denomination,
+    double calculatedTotal,
+  ) async {
+    final list = _controller.arrearCollections;
+    final collections = <Map<String, dynamic>>[];
+    final attendance = <String, dynamic>{};
+
+    for (var i = 0; i < list.length; i++) {
+      final item = list[i] as Map<String, dynamic>;
+      if (_isFullyCollected(item)) continue;
+      final key = _clientKey(item, i);
+      if (!_selectedKeys.contains(key)) continue;
+
+      final amount = i < _amounts.length
+          ? (double.tryParse(_amounts[i].text.trim()) ?? 0)
+          : 0.0;
+      if (amount <= 0) continue;
+      final advance = i < _advances.length
+          ? (double.tryParse(_advances[i].text.trim()) ?? 0)
+          : 0.0;
+
+      collections.add({
+        'loanId': item['loanId'],
+        'amountCollected': amount,
+        'loanAdvanceAmount': advance,
+      });
+
+      final clientId = item['clientId']?.toString();
+      if (clientId != null && clientId.isNotEmpty) {
+        attendance[clientId] = i < _attendance.length
+            ? _attendance[i] == 'P'
+            : true;
+      }
+    }
+
+    if (collections.isEmpty) {
+      Get.snackbar(
+        'Nothing to Submit',
+        'Enter a collection amount greater than zero for at least one selected client.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.orangeAccent,
+        colorText: Colors.white,
+      );
+      return false;
+    }
+
+    return _controller.submitArrearCollection(
+      centerId: _controller.selectedCenterId.value,
+      collectionDate: _apiDate,
+      collections: collections,
+      attendance: attendance,
+      denomination: denomination,
+      photoBytes: photoBytes,
+    );
+  }
+
   Widget _submit() => SizedBox(
     width: double.infinity,
     height: 49.h,
     child: ElevatedButton.icon(
       onPressed: _selectedKeys.isEmpty
           ? null
-          : () {
-              setState(() => _submissionComplete = true);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Arrear collection of ₹${_selectedTotalCollected.toStringAsFixed(2)} (Adv: ₹${_selectedTotalAdvances.toStringAsFixed(2)}) submitted successfully for ${_selectedKeys.length} client(s)!',
+          : () async {
+              final submitted = await Navigator.of(context).push<bool>(
+                MaterialPageRoute(
+                  builder: (_) => CollectionSubmissionFlowPage(
+                    collectedAmount:
+                        _selectedTotalCollected + _selectedTotalAdvances,
+                    selectedClients: const [],
+                    allClients: const [],
+                    centerId: _controller.selectedCenterId.value,
+                    collectionDate: _apiDate,
+                    onSubmit: _submitArrear,
                   ),
                 ),
               );
+              if (submitted == true && mounted) {
+                setState(() => _submissionComplete = true);
+                await _loadData();
+              }
             },
       icon: Icon(
         _submissionComplete ? Icons.check_circle : Icons.check_circle_outline,

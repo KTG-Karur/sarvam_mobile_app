@@ -1308,6 +1308,11 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
   Widget _recordCard(Map<String, dynamic> record) {
     final status = _field(record, 'status', 'PENDING');
     final statusMeta = _statusMeta(status);
+    final indexId = record['id']?.toString() ?? '';
+    // Only a batch that never got forwarded to the AM (create succeeded,
+    // approve didn't) is safe to release — once any loan in it has moved
+    // past PENDING_LEVEL1 the AM/disbursement flow already depends on it.
+    final canDelete = indexId.isNotEmpty && status == 'PENDING';
     return Container(
       padding: EdgeInsets.all(12.w),
       decoration: BoxDecoration(
@@ -1321,12 +1326,14 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                _field(record, 'indexNo'),
-                style: TextStyle(
-                  fontSize: 12.5.sp,
-                  fontWeight: FontWeight.w800,
-                  color: _darkText,
+              Expanded(
+                child: Text(
+                  _field(record, 'indexNo'),
+                  style: TextStyle(
+                    fontSize: 12.5.sp,
+                    fontWeight: FontWeight.w800,
+                    color: _darkText,
+                  ),
                 ),
               ),
               Container(
@@ -1344,6 +1351,34 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
                   ),
                 ),
               ),
+              if (canDelete) ...[
+                SizedBox(width: 6.w),
+                Obx(() {
+                  final deleting = controller.deletingIndexIds.contains(indexId);
+                  return InkWell(
+                    onTap: deleting ? null : () => _confirmDeleteIndex(record),
+                    borderRadius: BorderRadius.circular(20.r),
+                    child: Container(
+                      padding: EdgeInsets.all(5.w),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFDECEC),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: const Color(0xFFF5B5B5)),
+                      ),
+                      child: deleting
+                          ? SizedBox(
+                              width: 13.sp,
+                              height: 13.sp,
+                              child: const CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.red,
+                              ),
+                            )
+                          : Icon(Icons.delete_outline_rounded, size: 15.sp, color: Colors.red),
+                    ),
+                  );
+                }),
+              ],
             ],
           ),
           SizedBox(height: 6.h),
@@ -1369,9 +1404,45 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
               ),
             ],
           ),
+          if (canDelete)
+            Padding(
+              padding: EdgeInsets.only(top: 6.h),
+              child: Text(
+                'Stuck at Pending — never forwarded to Area Manager. Delete to release the loan(s) back to Unindexed Loans and redo.',
+                style: TextStyle(fontSize: 9.5.sp, color: const Color(0xFF9A3412)),
+              ),
+            ),
         ],
       ),
     );
+  }
+
+  Future<void> _confirmDeleteIndex(Map<String, dynamic> record) async {
+    final indexId = record['id']?.toString() ?? '';
+    if (indexId.isEmpty) return;
+    final indexNo = _field(record, 'indexNo');
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Loan Index?'),
+        content: Text(
+          'This releases the loan(s) in $indexNo back to Unindexed Loans so the index can be redone. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await controller.deleteLoanIndexRecord(indexId);
+    }
   }
 
   /// (background, label, textColor) — mirrors the web's `getStatusBadge`.

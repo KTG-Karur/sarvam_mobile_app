@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:sarvam/controller/bulk_centre_collection_controller.dart';
 import 'package:sarvam/view/FDO/colletion/single_collection_controller.dart';
+import 'package:sarvam/utils/center_formatter.dart';
 
 /// Read-only Single / Bulk-Centre Collection view for AM and BM.
 ///
@@ -261,8 +262,12 @@ class _SingleCollectionViewState extends State<SingleCollectionView> {
               ? _singleCtrl.selectedCenterName.value
               : null,
           hint: const Text('-- SELECT CENTER --'),
+          // formatCenterDisplay, not a raw concat — must match what
+          // SingleCollectionController.getCenters() sets selectedCenterName
+          // to (it can reformat the code, e.g. pad "6" to "06"), or the
+          // initial dropdown selection breaks and this onChanged mismatches.
           items: centers.map((c) {
-            final display = '${c['name']} (${c['code']})';
+            final display = formatCenterDisplay(c['name'], c['code'], parenthetical: true);
             return DropdownMenuItem<String>(
               value: display,
               child: Text(
@@ -277,9 +282,11 @@ class _SingleCollectionViewState extends State<SingleCollectionView> {
               return;
             }
             _singleCtrl.selectedCenterName.value = value;
-            final matched = _singleCtrl.centersList.firstWhere(
-              (c) => '${c['name']} (${c['code']})' == value,
+            final matched = _singleCtrl.centersList.cast<Map?>().firstWhere(
+              (c) => c != null && formatCenterDisplay(c['name'], c['code'], parenthetical: true) == value,
+              orElse: () => null,
             );
+            if (matched == null) return;
             _singleCtrl.selectedCenterId.value = matched['id'] ?? '';
             await _singleCtrl.getClients(matched['id'] ?? '');
           },
@@ -318,11 +325,13 @@ class _SingleCollectionViewState extends State<SingleCollectionView> {
               return;
             }
             _singleCtrl.selectedClientName.value = value;
-            final matched = _singleCtrl.clientsList.firstWhere(
+            final matched = _singleCtrl.clientsList.cast<Map?>().firstWhere(
               (c) =>
-                  '${c['firstName']} ${c['lastName']} (${c['clientId']})' ==
-                  value,
+                  c != null &&
+                  '${c['firstName']} ${c['lastName']} (${c['clientId']})' == value,
+              orElse: () => null,
             );
+            if (matched == null) return;
             _singleCtrl.selectedClientId.value = matched['id'] ?? '';
             await _singleCtrl.getSingleCollection(
               matched['id'] ?? '',
@@ -457,8 +466,11 @@ class _SingleCollectionViewState extends State<SingleCollectionView> {
               ? _bulkCtrl.selectedCenterName.value
               : null,
           hint: const Text('-- SELECT CENTER --'),
+          // formatCenterDisplay, not a raw concat — must match what
+          // BulkCentreCollectionController.getCenters() sets
+          // selectedCenterName to.
           items: centers.map((c) {
-            final display = '${c['name']} (${c['code']})';
+            final display = formatCenterDisplay(c['name'], c['code'], parenthetical: true);
             return DropdownMenuItem<String>(
               value: display,
               child: Text(
@@ -473,9 +485,11 @@ class _SingleCollectionViewState extends State<SingleCollectionView> {
               return;
             }
             _bulkCtrl.selectedCenterName.value = value;
-            final matched = _bulkCtrl.centersList.firstWhere(
-              (c) => '${c['name']} (${c['code']})' == value,
+            final matched = _bulkCtrl.centersList.cast<Map?>().firstWhere(
+              (c) => c != null && formatCenterDisplay(c['name'], c['code'], parenthetical: true) == value,
+              orElse: () => null,
             );
+            if (matched == null) return;
             _bulkCtrl.selectedCenterId.value = matched['id'] ?? '';
             await _bulkCtrl.getBulkCollection(
               centerId: matched['id'] ?? '',

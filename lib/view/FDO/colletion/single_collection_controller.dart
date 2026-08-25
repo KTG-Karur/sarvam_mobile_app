@@ -1,9 +1,13 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/services/api_client.dart';
 import 'package:sarvam/services/offline_collection_service.dart';
+import 'package:sarvam/utils/center_formatter.dart';
 
 class SingleCollectionController extends GetxController {
   final ApiClient _connect = ApiClient();
@@ -65,8 +69,15 @@ class SingleCollectionController extends GetxController {
             if (centersList.isNotEmpty) {
               final firstCenter = centersList.first;
               selectedCenterId.value = firstCenter['id'] ?? '';
-              selectedCenterName.value =
-                  "${firstCenter['name']} (${firstCenter['code']})";
+              // Must match the dropdown items' own formatCenterDisplay
+              // output, not a raw concat — the formatter can reformat the
+              // code (e.g. pad "6" to "06"), and a mismatch here breaks the
+              // initial dropdown selection.
+              selectedCenterName.value = formatCenterDisplay(
+                firstCenter['name'],
+                firstCenter['code'],
+                parenthetical: true,
+              );
               // Trigger client list loading for the first center
               await getClients(selectedCenterId.value);
             }
@@ -237,31 +248,66 @@ class SingleCollectionController extends GetxController {
     }
   }
 
+  /// `POST /api/collections/single-collection` (multipart) — mirrors the
+  /// web's `handleFinalSubmit` in `SingleCollectionClient.tsx` exactly. The
+  /// backend requires a multipart request with a mandatory `photo` field —
+  /// a plain JSON POST (the previous implementation here) can never
+  /// succeed against this endpoint, and neither can the wrong field names
+  /// it used (`collectedAmount`/`advanceAmount` instead of `amount`/
+  /// `loanAdvance`, no `loanId`, no `denomination`).
   Future<bool> submitSingleCollection({
     required String clientId,
+    required String loanId,
     required String collectionDate,
-    required double collectedAmount,
-    required double advanceAmount,
+    required double amount,
+    required double loanAdvance,
     required String collectionType,
+    required Map<String, dynamic> denomination,
+    required Uint8List photoBytes,
+    double? latitude,
+    double? longitude,
   }) async {
     try {
       isLoading.value = true;
 
-      final url = Api.singleCollectionUrl;
-      debugPrint("Request POST URL: $url");
-
-      final body = {
-        "clientId": clientId,
-        "collectionDate": collectionDate,
-        "collectedAmount": collectedAmount,
-        "advanceAmount": advanceAmount,
-        "collectionType": collectionType,
+      final payload = {
+        'clientId': clientId,
+        'loanId': loanId,
+        'collectionDate': collectionDate,
+        'amount': amount,
+        'loanAdvance': loanAdvance,
+        'collectionType': collectionType,
+        'denomination': denomination,
       };
-      debugPrint("Request Body: $body");
 
-      _connect.timeout = const Duration(seconds: 30);
+      final formData = FormData({
+        'clientId': clientId,
+        'loanId': loanId,
+        'collectionType': collectionType,
+        'amount': amount.toString(),
+        'loanAdvance': loanAdvance.toString(),
+        'paymentMode': 'CASH',
+        'collectionDate': collectionDate,
+        'remarks': 'Single collection - $collectionType',
+        'denomination': jsonEncode(denomination),
+        'photo': MultipartFile(
+          photoBytes,
+          filename: 'meeting_$collectionDate.jpg',
+          contentType: 'image/jpeg',
+        ),
+        if (latitude != null) 'latitude': latitude.toString(),
+        if (longitude != null) 'longitude': longitude.toString(),
+      });
 
-      final response = await _connect.post(url, body);
+      debugPrint("Request POST URL: ${Api.singleCollectionUrl}");
+      debugPrint("Request Fields: $payload");
+
+      _connect.timeout = const Duration(seconds: 60);
+
+      final response = await _connect.post(
+        Api.singleCollectionUrl,
+        formData,
+      );
 
       debugPrint("Response Status Code: ${response.statusCode}");
       debugPrint("Response Status Text: ${response.statusText}");
@@ -278,7 +324,7 @@ class SingleCollectionController extends GetxController {
           debugPrint("No internet detected. Saving single collection offline.");
           final saved = await _offlineService.saveOfflineCollection(
             type: 'SINGLE',
-            payload: body,
+            payload: payload,
             title: 'Single Collection ($clientId)',
           );
           if (saved) {
@@ -293,7 +339,7 @@ class SingleCollectionController extends GetxController {
         if (resBody != null && resBody['success'] == true) {
           Get.snackbar(
             'Success',
-            resBody['message'] ?? 'Collection submitted successfully.',
+            resBody['message'] ?? 'Collection submitted for Review.',
             snackPosition: SnackPosition.BOTTOM,
             backgroundColor: const Color(0xFF008A3D),
             colorText: Colors.white,
@@ -320,11 +366,13 @@ class SingleCollectionController extends GetxController {
       final saved = await _offlineService.saveOfflineCollection(
         type: 'SINGLE',
         payload: {
-          "clientId": clientId,
-          "collectionDate": collectionDate,
-          "collectedAmount": collectedAmount,
-          "advanceAmount": advanceAmount,
-          "collectionType": collectionType,
+          'clientId': clientId,
+          'loanId': loanId,
+          'collectionDate': collectionDate,
+          'amount': amount,
+          'loanAdvance': loanAdvance,
+          'collectionType': collectionType,
+          'denomination': denomination,
         },
         title: 'Single Collection ($clientId)',
       );

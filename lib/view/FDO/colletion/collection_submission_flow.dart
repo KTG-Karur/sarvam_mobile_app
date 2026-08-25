@@ -13,6 +13,7 @@ class CollectionSubmissionFlowPage extends StatefulWidget {
     required this.centerId,
     required this.collectionDate,
     required this.allClients,
+    this.onSubmit,
   });
 
   final double collectedAmount;
@@ -20,6 +21,19 @@ class CollectionSubmissionFlowPage extends StatefulWidget {
   final String centerId;
   final String collectionDate;
   final List<Map<String, dynamic>> allClients;
+
+  /// When provided, this replaces the built-in Demand Collection submit
+  /// logic entirely — the caller builds and sends its own payload (e.g.
+  /// Arrear Collection's different `collections`/`attendance` shape and
+  /// endpoint) using the captured photo, denomination breakdown (`d500`,
+  /// `d200`, ... `d1`, `upi` keys) and the matched total. Return true on
+  /// success to close this flow with the same confirmation UX Demand gets.
+  final Future<bool> Function(
+    Uint8List photoBytes,
+    Map<String, dynamic> denomination,
+    double calculatedTotal,
+  )?
+  onSubmit;
 
   @override
   State<CollectionSubmissionFlowPage> createState() =>
@@ -507,6 +521,27 @@ class _CollectionSubmissionFlowPageState
       },
       'upi': upi,
     };
+
+    final customSubmit = widget.onSubmit;
+    if (customSubmit != null) {
+      final success = await customSubmit(
+        _meetingPhotoBytes!,
+        denomination,
+        _calculatedTotal,
+      );
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      if (!success) return;
+      Get.snackbar(
+        'Success',
+        'Submitted for BM Approval successfully!',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: const Color(0xFF008A3D),
+        colorText: Colors.white,
+      );
+      Navigator.pop(context, true);
+      return;
+    }
 
     final collections = widget.selectedClients.map((client) {
       final amount = _asNum(

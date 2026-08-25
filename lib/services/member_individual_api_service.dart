@@ -193,6 +193,27 @@ class MemberIndividualApiService {
     return _patchMap(url, payload);
   }
 
+  /// `GET /api/geo/driving-distance?fromLat=&fromLng=&toLat=&toLng=` — road
+  /// (driving) distance in meters, via the same OSRM-backed endpoint the web
+  /// app's `useDrivingDistance` hook and Create Center's "KM From Branch"
+  /// use. Falls back to straight-line server-side if OSRM is unreachable, so
+  /// this always returns *some* value the software would agree with, unlike
+  /// a client-computed haversine estimate.
+  Future<double?> getDrivingDistanceMeters({
+    required double fromLat,
+    required double fromLng,
+    required double toLat,
+    required double toLng,
+  }) async {
+    final data = await _getMap(
+      "${Api.geoDrivingDistanceUrl}?fromLat=$fromLat&fromLng=$fromLng&toLat=$toLat&toLng=$toLng",
+    );
+    final km = data['distanceKm'];
+    if (km == null) return null;
+    final kmVal = km is num ? km.toDouble() : double.tryParse('$km');
+    return kmVal == null ? null : kmVal * 1000;
+  }
+
   /// `GET /api/storage/signed-url?key=` — resolves a private-bucket object
   /// key into a viewable signed URL.
   Future<String?> getSignedUrl(String key) async {

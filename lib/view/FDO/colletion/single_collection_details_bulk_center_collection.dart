@@ -6,10 +6,12 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/bulk_centre_collection_controller.dart';
 import 'package:sarvam/controller/live_collection_controller.dart';
+import 'package:sarvam/view/FDO/colletion/collection_submission_flow.dart';
 import 'package:sarvam/view/FDO/colletion/demand_collection.dart'
     show ClientCollectionDetailsPage;
 import 'package:sarvam/view/FDO/colletion/single_collection_controller.dart';
 import 'package:sarvam/utils/center_formatter.dart';
+import 'package:sarvam/view/shared/eod_pending_banner.dart';
 
 class SingleCollectionDetailsBulkCenterCollection extends StatefulWidget {
   const SingleCollectionDetailsBulkCenterCollection({super.key});
@@ -174,19 +176,6 @@ class _SingleCollectionDetailsBulkCenterCollectionState
     }
 
     return _asDouble(item['duePrincipal']) + _asDouble(item['dueInterest']);
-  }
-
-  Future<void> _pickCollectionDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _collectionDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2035),
-    );
-    if (picked == null || !mounted) return;
-    setState(() => _collectionDate = picked);
-    final centerId = _bulkController.selectedCenterId.value;
-    if (_isBulk && centerId.isNotEmpty) await _loadBulkClients(centerId);
   }
 
   Future<void> _handleRefresh() async {
@@ -392,17 +381,34 @@ class _SingleCollectionDetailsBulkCenterCollectionState
                   onChanged: (value) async {
                     if (value != null) {
                       _controller.selectedCenterName.value = value;
-                      final matched = centers.firstWhere(
-                        (c) => "${c['name']} (${c['code']})" == value,
+                      // Match the same formatter dropdownItems was built
+                      // with — formatCenterDisplay can reformat the code
+                      // (e.g. pad "6" to "06"), so a raw concat here could
+                      // fail to match and crash with "Bad state: No element".
+                      final matched = centers.cast<Map?>().firstWhere(
+                        (c) => c != null && formatCenterDisplay(c['name'], c['code'], parenthetical: true) == value,
+                        orElse: () => null,
                       );
-                      _controller.selectedCenterId.value = matched['id'] ?? '';
-                      await _controller.getClients(matched['id'] ?? '');
+                      if (matched != null) {
+                        _controller.selectedCenterId.value = matched['id'] ?? '';
+                        await _controller.getClients(matched['id'] ?? '');
+                      }
                       setState(() {});
                     }
                   },
                   decoration: _dropdownDecoration(),
                 );
               }),
+              SizedBox(height: 13.h),
+              // Locked to the branch's current EOD working date, same as
+              // Bulk Collection — single collection is always for the
+              // branch's active meeting day.
+              _readField(
+                'Collection Date',
+                _displayDate,
+                icon: Icons.lock_outline_rounded,
+              ),
+              EodPendingBanner(workingDate: _collectionDate),
               SizedBox(height: 13.h),
               Text(
                 'Client Name',
@@ -457,11 +463,13 @@ class _SingleCollectionDetailsBulkCenterCollectionState
                   onChanged: (value) async {
                     if (value != null) {
                       _controller.selectedClientName.value = value;
-                      final matched = clients.firstWhere(
+                      final matched = clients.cast<Map?>().firstWhere(
                         (c) =>
-                            "${c['firstName']} ${c['lastName']} (${c['clientId']})" ==
-                            value,
+                            c != null &&
+                            "${c['firstName']} ${c['lastName']} (${c['clientId']})" == value,
+                        orElse: () => null,
                       );
+                      if (matched == null) return;
                       _controller.selectedClientId.value = matched['id'] ?? '';
                       await _controller.getSingleCollection(
                         matched['id'] ?? '',
@@ -650,9 +658,15 @@ class _SingleCollectionDetailsBulkCenterCollectionState
                   onChanged: (value) async {
                     if (value != null) {
                       _controller.selectedCenterName.value = value;
-                      final matched = centers.firstWhere(
-                        (c) => "${c['name']} (${c['code']})" == value,
+                      // Match the same formatter dropdownItems was built
+                      // with — see the single-collection center dropdown's
+                      // onChanged above for why a raw concat here can fail
+                      // to match and crash with "Bad state: No element".
+                      final matched = centers.cast<Map?>().firstWhere(
+                        (c) => c != null && formatCenterDisplay(c['name'], c['code'], parenthetical: true) == value,
+                        orElse: () => null,
                       );
+                      if (matched == null) return;
                       _controller.selectedCenterId.value = matched['id'] ?? '';
                       _bulkController.selectedCenterId.value =
                           matched['id'] ?? '';
@@ -663,15 +677,15 @@ class _SingleCollectionDetailsBulkCenterCollectionState
                 );
               }),
               SizedBox(height: 14.h),
-              InkWell(
-                onTap: _pickCollectionDate,
-                borderRadius: BorderRadius.circular(10.r),
-                child: _readField(
-                  'Collection Date',
-                  _displayDate,
-                  icon: Icons.calendar_today_outlined,
-                ),
+              // Locked to the branch's current EOD working date — bulk
+              // collection is for the active meeting day, not a date the
+              // FDO should be able to pick freely.
+              _readField(
+                'Collection Date',
+                _displayDate,
+                icon: Icons.lock_outline_rounded,
               ),
+              EodPendingBanner(workingDate: _collectionDate),
               SizedBox(height: 14.h),
               Text(
                 'Collection Type',
@@ -1400,72 +1414,123 @@ class _SingleCollectionDetailsBulkCenterCollectionState
             flex: 2,
             child: ElevatedButton.icon(
               onPressed: () async {
-                      if (!_isBulk) {
-                        final clientId = _controller.selectedClientId.value;
-                        if (clientId.isEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Please select a client first.'),
-                            ),
-                          );
-                          return;
-                        }
+                if (!_isBulk) {
+                  final clientId = _controller.selectedClientId.value;
+                  if (clientId.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Please select a client first.'),
+                      ),
+                    );
+                    return;
+                  }
+                  final loanId = _controller.singleCollectionData['loanId']
+                      ?.toString();
+                  if (loanId == null || loanId.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'No active loan found for this client.',
+                        ),
+                      ),
+                    );
+                    return;
+                  }
 
-                        final double collectVal =
-                            double.tryParse(_singleAmount.text) ?? 0.0;
-                        final double advVal =
-                            double.tryParse(_advance.text) ?? 0.0;
+                  final double collectVal =
+                      double.tryParse(_singleAmount.text) ?? 0.0;
+                  final double advVal = double.tryParse(_advance.text) ?? 0.0;
 
-                        final success = await _controller
-                            .submitSingleCollection(
+                  final submitted = await Navigator.of(context).push<bool>(
+                    MaterialPageRoute(
+                      builder: (_) => CollectionSubmissionFlowPage(
+                        collectedAmount: collectVal + advVal,
+                        selectedClients: const [],
+                        allClients: const [],
+                        centerId: _controller.selectedCenterId.value,
+                        collectionDate: _apiDate,
+                        onSubmit: (photoBytes, denomination, total) =>
+                            _controller.submitSingleCollection(
                               clientId: clientId,
+                              loanId: loanId,
                               collectionDate: _apiDate,
-                              collectedAmount: collectVal,
-                              advanceAmount: advVal,
+                              amount: collectVal,
+                              loanAdvance: advVal,
                               collectionType: _singleCollectionType,
-                            );
+                              denomination: denomination,
+                              photoBytes: photoBytes,
+                            ),
+                      ),
+                    ),
+                  );
+                  if (submitted == true && mounted) {
+                    Navigator.maybePop(context);
+                  }
+                } else {
+                  final centerId = _bulkController.selectedCenterId.value;
+                  final sheet = _bulkController.demandSheet;
 
-                        if (success && mounted) {
-                          Navigator.maybePop(context);
-                        }
-                      } else {
-                        final centerId = _bulkController.selectedCenterId.value;
-                        final date = _apiDate;
+                  final collections = <Map<String, dynamic>>[];
+                  double totalCollected = 0;
+                  for (int i = 0; i < sheet.length; i++) {
+                    final bool isSel = i < _bulkSelections.length
+                        ? _bulkSelections[i]
+                        : false;
+                    if (!isSel) continue;
+                    final item = sheet[i] as Map<String, dynamic>;
+                    final double amount = i < _bulkAmounts.length
+                        ? (double.tryParse(_bulkAmounts[i].text) ?? 0.0)
+                        : 0.0;
+                    if (amount <= 0) continue;
+                    final double advance = i < _bulkAdvances.length
+                        ? (double.tryParse(_bulkAdvances[i].text) ?? 0.0)
+                        : 0.0;
+                    collections.add({
+                      'clientId': item['clientId'],
+                      'loanId': item['loanId'],
+                      'amount': amount,
+                      'loanAdvance': advance,
+                      'isSelected': true,
+                    });
+                    totalCollected += amount + advance;
+                  }
 
-                        // Construct demandSheet payload
-                        final List<dynamic> updatedDemandSheet = [];
-                        final sheet = _bulkController.demandSheet;
-                        for (int i = 0; i < sheet.length; i++) {
-                          final item = Map<String, dynamic>.from(sheet[i]);
-                          final bool isSel = i < _bulkSelections.length
-                              ? _bulkSelections[i]
-                              : false;
-                          final double collAmt = i < _bulkAmounts.length
-                              ? (double.tryParse(_bulkAmounts[i].text) ?? 0.0)
-                              : 0.0;
-                          final double advAmt = i < _bulkAdvances.length
-                              ? (double.tryParse(_bulkAdvances[i].text) ?? 0.0)
-                              : 0.0;
+                  if (collections.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Select at least one client with a collection amount greater than zero.',
+                        ),
+                      ),
+                    );
+                    return;
+                  }
 
-                          item['isSelected'] = isSel;
-                          item['collectedAmount'] = collAmt;
-                          item['advanceAmount'] = advAmt;
-
-                          updatedDemandSheet.add(item);
-                        }
-
-                        final success = await _bulkController
-                            .submitBulkCollection(
+                  final submitted = await Navigator.of(context).push<bool>(
+                    MaterialPageRoute(
+                      builder: (_) => CollectionSubmissionFlowPage(
+                        collectedAmount: totalCollected,
+                        selectedClients: const [],
+                        allClients: const [],
+                        centerId: centerId,
+                        collectionDate: _apiDate,
+                        onSubmit: (photoBytes, denomination, total) =>
+                            _bulkController.submitBulkCollection(
                               centerId: centerId,
-                              date: date,
-                              updatedDemandSheet: updatedDemandSheet,
-                            );
-
-                        if (success && mounted) {
-                          Navigator.maybePop(context);
-                        }
-                      }
-                    },
+                              collectionDate: _apiDate,
+                              collectionType: _bulkCollectionType,
+                              collections: collections,
+                              denomination: denomination,
+                              photoBytes: photoBytes,
+                            ),
+                      ),
+                    ),
+                  );
+                  if (submitted == true && mounted) {
+                    Navigator.maybePop(context);
+                  }
+                }
+              },
               icon: const Icon(Icons.check_circle_outline),
               label: Text(_isBulk ? 'Approve Collection' : 'Submit Collection'),
               style: ElevatedButton.styleFrom(

@@ -263,6 +263,43 @@ class LoanIndexApprovalController extends GetxController {
     return meetingDayMismatch;
   }
 
+  final RxSet<String> deletingIndexIds = <String>{}.obs;
+
+  /// Releases a batch stuck without AM forwarding (e.g. the "approve" half
+  /// of [submit] failed after the index was already created) back into
+  /// "unindexed loans" so it can be redone — mirrors the web app's
+  /// "Delete Index" action in `LoanIndexationClient.tsx`. Returns true on
+  /// success.
+  Future<bool> deleteLoanIndexRecord(String indexId) async {
+    deletingIndexIds.add(indexId);
+    try {
+      await api.deleteLoanIndex(indexId);
+      Get.snackbar(
+        'Index Deleted',
+        'Loan index released. Its loan(s) are available under Unindexed Loans again.',
+        backgroundColor: const Color(0xFF00843D),
+        colorText: Colors.white,
+      );
+      final currentCenter = centerId.value;
+      if (currentCenter != null) {
+        await onCenterChanged(currentCenter);
+      } else {
+        await fetchLoanIndexes();
+      }
+      return true;
+    } catch (e) {
+      Get.snackbar(
+        'Error',
+        'Failed to delete loan index: $e',
+        backgroundColor: Colors.redAccent,
+        colorText: Colors.white,
+      );
+      return false;
+    } finally {
+      deletingIndexIds.remove(indexId);
+    }
+  }
+
   Future<Map<String, dynamic>?> fetchPassbook(String loanId) async {
     try {
       final res = await api.getPassbookData(

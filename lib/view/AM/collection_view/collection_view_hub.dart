@@ -302,10 +302,11 @@ class _CollectionViewHubState extends State<CollectionViewHub>
                 .toList(),
             onChanged: (value) {
               if (value == null) return;
-              final matched = branches.firstWhere(
-                (b) => '${b['id'] ?? ''}' == value,
+              final matched = branches.cast<Map?>().firstWhere(
+                (b) => b != null && '${b['id'] ?? ''}' == value,
+                orElse: () => null,
               );
-              _controller.selectBranch(value, '${matched['name'] ?? ''}');
+              _controller.selectBranch(value, '${matched?['name'] ?? ''}');
             },
           ),
         ),

@@ -411,6 +411,58 @@ class MemberIndividualDetailController extends GetxController {
   final RxMap<String, String> signedUrlCache = <String, String>{}.obs;
   final Set<String> _resolvingKeys = <String>{};
 
+  /// Meters, keyed by `"$fromLat,$fromLng-$toLat,$toLng"`. Only populated
+  /// when a photo predates this field being stored server-side (normal
+  /// uploads already have `distanceMeters`/`distanceFromBranchMeters`/
+  /// `distanceFromClientMeters` computed and saved at upload time — see
+  /// `household-visit/photos/route.ts`). Road (driving) distance via the
+  /// same `/api/geo/driving-distance` endpoint the web app uses, so a
+  /// missing legacy value doesn't fall back to a straight-line estimate
+  /// that would read as "different" from what the software shows.
+  final RxMap<String, double> drivingDistanceCache = <String, double>{}.obs;
+  final Set<String> _resolvingDistanceKeys = <String>{};
+
+  Future<void> resolveDrivingDistance(
+    double? fromLat,
+    double? fromLng,
+    double? toLat,
+    double? toLng,
+  ) async {
+    if (fromLat == null || fromLng == null || toLat == null || toLng == null) {
+      return;
+    }
+    final key = '$fromLat,$fromLng-$toLat,$toLng';
+    if (drivingDistanceCache.containsKey(key) || _resolvingDistanceKeys.contains(key)) {
+      return;
+    }
+    _resolvingDistanceKeys.add(key);
+    try {
+      final meters = await api.getDrivingDistanceMeters(
+        fromLat: fromLat,
+        fromLng: fromLng,
+        toLat: toLat,
+        toLng: toLng,
+      );
+      if (meters != null) drivingDistanceCache[key] = meters;
+    } catch (e) {
+      debugPrint('Failed to resolve driving distance: $e');
+    } finally {
+      _resolvingDistanceKeys.remove(key);
+    }
+  }
+
+  double? cachedDrivingDistance(
+    double? fromLat,
+    double? fromLng,
+    double? toLat,
+    double? toLng,
+  ) {
+    if (fromLat == null || fromLng == null || toLat == null || toLng == null) {
+      return null;
+    }
+    return drivingDistanceCache['$fromLat,$fromLng-$toLat,$toLng'];
+  }
+
   /// Resolves a private storage key (e.g. GCS/S3 object key) to a viewable signed URL.
   Future<void> resolveSignedUrl(String key) async {
     if (key.isEmpty || signedUrlCache.containsKey(key) || _resolvingKeys.contains(key)) {
