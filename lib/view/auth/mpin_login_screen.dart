@@ -6,10 +6,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/view/auth/login_screen.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
-import 'package:sarvam/view/auth/set_mpin_screen.dart';
 import 'package:sarvam/view/auth/face_verification_screen.dart';
 import 'package:sarvam/view/auth/face_training_screen.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
+import 'package:sarvam/services/secure_session_service.dart';
 
 class MpinLoginScreen extends StatefulWidget {
   const MpinLoginScreen({super.key});
@@ -93,8 +93,19 @@ class _MpinLoginScreenState extends State<MpinLoginScreen> {
     }
   }
 
-  void _handleForgotMpin() {
-    Get.off(() => const SetMpinScreen());
+  Future<void> _handleForgotMpin() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isMpinSet', false);
+    await SecureSessionService.clearPendingToken();
+    Get.snackbar(
+      'Reset MPIN',
+      'Please sign in with your password to set a new MPIN.',
+      snackPosition: SnackPosition.BOTTOM,
+      backgroundColor: const Color(0xFF0D6842),
+      colorText: Colors.white,
+      duration: const Duration(seconds: 3),
+    );
+    Get.offAll(() => const LoginScreen());
   }
 
   @override

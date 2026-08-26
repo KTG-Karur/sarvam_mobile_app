@@ -330,6 +330,20 @@ class AuthController extends GetxController {
       final prefs = await SharedPreferences.getInstance();
       final token = await SecureSessionService.readPendingToken() ?? await SecureSessionService.readAccessToken();
 
+      if (token == null || token.isEmpty) {
+        Get.snackbar(
+          'Authentication Required',
+          'Please sign in with your password to set a new MPIN.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.redAccent,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+        await prefs.setBool('isMpinSet', false);
+        Get.offAll(() => const LoginScreen());
+        return false;
+      }
+
       final response = await _connect.post(
         Api.mpinSetupUrl,
         {
@@ -338,7 +352,7 @@ class AuthController extends GetxController {
         },
         headers: {
           'Content-Type': 'application/json',
-          if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+          'Authorization': 'Bearer $token',
         },
       );
 
@@ -356,6 +370,20 @@ class AuthController extends GetxController {
           await SecureSessionService.clearPendingToken();
           return true;
         }
+      }
+
+      if (response.statusCode == 401 || response.statusCode == 409) {
+        Get.snackbar(
+          'Authentication Required',
+          'Please sign in with your password to set a new MPIN.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.redAccent,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+        await prefs.setBool('isMpinSet', false);
+        Get.offAll(() => const LoginScreen());
+        return false;
       }
 
       String errorMsg = 'Failed to set MPIN.';
