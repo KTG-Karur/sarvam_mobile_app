@@ -572,7 +572,6 @@ class _GrtSessionConductScreenState extends State<GrtSessionConductScreen> {
   Widget _buildQuestionsSection(bool isComplete) {
     final questions =
         (_sessionData?['questionnaire']?['questions'] as List?) ?? [];
-    final photos = (_sessionData?['photos'] as List?) ?? [];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -595,9 +594,6 @@ class _GrtSessionConductScreenState extends State<GrtSessionConductScreen> {
             final q = questions[index];
             final qId = q['id'].toString();
             final qText = q['question']?.toString() ?? '';
-            final qPhotos = photos
-                .where((p) => p['questionId']?.toString() == qId)
-                .toList();
 
             return Container(
               padding: EdgeInsets.all(12.w),
@@ -650,90 +646,6 @@ class _GrtSessionConductScreenState extends State<GrtSessionConductScreen> {
                             _toggleAnswerBtn(qId, false, 'No', isComplete),
                           ],
                         ),
-                        SizedBox(height: 8.h),
-                        TextField(
-                          controller: _answersTextCtrl[qId],
-                          enabled: !isComplete,
-                          decoration: InputDecoration(
-                            hintText: 'Notes / Answer text (optional)...',
-                            hintStyle: TextStyle(
-                              fontSize: 11.sp,
-                              color: _muted,
-                            ),
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 10.w,
-                              vertical: 8.h,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8.r),
-                            ),
-                          ),
-                        ),
-                        SizedBox(height: 8.h),
-                        if (qPhotos.isNotEmpty)
-                          SizedBox(
-                            height: 65.h,
-                            child: ListView.separated(
-                              scrollDirection: Axis.horizontal,
-                              itemCount: qPhotos.length,
-                              separatorBuilder: (_, __) => SizedBox(width: 6.w),
-                              itemBuilder: (_, pIdx) {
-                                final p = qPhotos[pIdx];
-                                final pId = p['id'].toString();
-                                final key = p['photoUrl']?.toString();
-                                return Stack(
-                                  children: [
-                                    _storageImageWidget(
-                                      key,
-                                      width: 65.h,
-                                      height: 65.h,
-                                    ),
-                                    if (!isComplete)
-                                      Positioned(
-                                        top: 2,
-                                        right: 2,
-                                        child: GestureDetector(
-                                          onTap: () => _deletePhoto(pId),
-                                          child: CircleAvatar(
-                                            radius: 10.r,
-                                            backgroundColor: Colors.black54,
-                                            child: Icon(
-                                              Icons.close,
-                                              size: 12.sp,
-                                              color: Colors.white,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                );
-                              },
-                            ),
-                          ),
-                        if (!isComplete) ...[
-                          SizedBox(height: 6.h),
-                          TextButton.icon(
-                            onPressed: _isUploadingPhoto
-                                ? null
-                                : () => _uploadPhoto(
-                                    questionId: qId,
-                                    useCamera: true,
-                                  ),
-                            icon: Icon(
-                              Icons.camera_alt_outlined,
-                              size: 14.sp,
-                              color: _green,
-                            ),
-                            label: Text(
-                              'Attach Question Photo',
-                              style: TextStyle(
-                                fontSize: 11.sp,
-                                color: _green,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
                       ],
                     ),
                   ),

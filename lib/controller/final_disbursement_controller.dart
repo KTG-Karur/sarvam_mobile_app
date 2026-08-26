@@ -180,22 +180,27 @@ class FinalDisbursementController extends GetxController {
       final newFees = <String, double>{};
       final newClients = <String, bool>{};
       for (final l in loans) {
-        if (l is Map && l['id'] != null && l['clientId'] != null) {
+        if (l is Map && l['id'] != null) {
           final loanId = l['id'].toString();
-          final clientId = l['clientId'].toString();
-          try {
-            final res = await api.getClientIsNew(clientId);
-            final isNew = res['isNew'] == true;
-            newClients[loanId] = isNew;
-            if (isNew) {
-              final feeVal = double.tryParse(res['admissionFees']?.toString() ?? '') ?? 50.0;
-              newFees[loanId] = feeVal;
-            } else {
+          final clientId = l['clientId']?.toString() ??
+              l['clientDbId']?.toString() ??
+              l['client']?['id']?.toString() ??
+              '';
+          if (clientId.isNotEmpty) {
+            try {
+              final res = await api.getClientIsNew(clientId);
+              final isNew = res['isNew'] == true;
+              newClients[loanId] = isNew;
+              if (isNew) {
+                final feeVal = double.tryParse(res['admissionFees']?.toString() ?? '') ?? 50.0;
+                newFees[loanId] = feeVal;
+              } else {
+                newFees[loanId] = 0.0;
+              }
+            } catch (_) {
+              newClients[loanId] = false;
               newFees[loanId] = 0.0;
             }
-          } catch (_) {
-            newClients[loanId] = false;
-            newFees[loanId] = 0.0;
           }
         }
       }
@@ -365,10 +370,7 @@ class FinalDisbursementController extends GetxController {
     return sum;
   }
 
-  double get netDisbursementAmount {
-    final net = totalLoanAmount - totalAdmissionFee;
-    return net < 0 ? 0.0 : net;
-  }
+  double get netDisbursementAmount => totalLoanAmount;
 
   List<dynamic> get missingFirstDueDateLoans =>
       selectedLoans.where((l) => l is Map && l['firstDueDate'] == null).toList();

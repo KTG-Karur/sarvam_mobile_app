@@ -5,8 +5,10 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/controller/disbursement_approval_controller.dart';
 import 'package:sarvam/services/api_client.dart';
+import 'package:sarvam/services/enrollment_api_service.dart';
 import 'package:sarvam/services/member_individual_api_service.dart';
 import 'package:sarvam/view/BM/group_assignment/widgets/id_dropdown.dart';
+import 'package:sarvam/view/shared/highmark_report_sheet.dart';
 
 const _green = Color(0xFF0D6842);
 const _darkText = Color(0xFF172033);
@@ -16,8 +18,7 @@ const _muted = Color(0xFF64748B);
 /// app's `components/loan-module/DisbursementClient.tsx`: pick a branch (+
 /// optional date range), review index batches of loans pending AM approval,
 /// select batches, and Approve (→ ready for the BM's final disbursement) or
-/// Reject. Product-edit, Highmark and the ongoing-loans review dialog stay
-/// web-only for now.
+/// Reject.
 class DisbursementApproval extends StatefulWidget {
   const DisbursementApproval({super.key});
 
@@ -30,6 +31,28 @@ class _DisbursementApprovalState extends State<DisbursementApproval> {
       Get.isRegistered<DisbursementApprovalController>()
       ? Get.find<DisbursementApprovalController>()
       : Get.put(DisbursementApprovalController());
+
+  final EnrollmentApiService _highmarkApi =
+      Get.isRegistered<EnrollmentApiService>()
+          ? Get.find<EnrollmentApiService>()
+          : Get.put(
+              EnrollmentApiService(
+                Get.isRegistered<ApiClient>()
+                    ? Get.find<ApiClient>()
+                    : Get.put(ApiClient()),
+              ),
+            );
+
+  final MemberIndividualApiService _memberService =
+      Get.isRegistered<MemberIndividualApiService>()
+          ? Get.find<MemberIndividualApiService>()
+          : Get.put(
+              MemberIndividualApiService(
+                Get.isRegistered<ApiClient>()
+                    ? Get.find<ApiClient>()
+                    : Get.put(ApiClient()),
+              ),
+            );
 
   String _field(Map data, String key, [String fallback = 'N/A']) {
     final v = data[key];
@@ -511,11 +534,332 @@ class _DisbursementApprovalState extends State<DisbursementApproval> {
     );
   }
 
+  Future<void> _showEditProductSheet(Map<String, dynamic> loan) async {
+    final loanId = loan['id']?.toString() ?? '';
+    if (loanId.isEmpty) return;
+
+    final currentProductId = loan['loanProductId']?.toString() ?? '';
+    final branchId = controller.branchId.value ?? loan['branchId']?.toString() ?? '';
+
+    final selectedTypeId = RxnString();
+    final selectedFrequency = RxnString();
+    final selectedProductId = RxnString(
+      currentProductId.isEmpty ? null : currentProductId,
+    );
+
+    final isLoading = true.obs;
+    final isSaving = false.obs;
+    final productTypes = <dynamic>[].obs;
+    final allProducts = <dynamic>[].obs;
+    bool initialized = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20.r)),
+      ),
+      builder: (ctx) {
+        if (isLoading.value && productTypes.isEmpty && allProducts.isEmpty) {
+          Future.microtask(() async {
+            try {
+              final types = await _memberService.getLoanProductTypes();
+              final prods = await _memberService.getProductsForBranch(branchId);
+              productTypes.assignAll(types);
+              allProducts.assignAll(prods);
+            } catch (e) {
+              Get.snackbar(
+                'Error',
+                'Failed to load products: $e',
+                backgroundColor: Colors.redAccent,
+                colorText: Colors.white,
+              );
+            } finally {
+              isLoading.value = false;
+            }
+          });
+        }
+
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            16.w,
+            16.h,
+            16.w,
+            24.h + MediaQuery.of(ctx).viewInsets.bottom,
+          ),
+          child: Obx(() {
+            if (isLoading.value) {
+              return Container(
+                height: 250.h,
+                alignment: Alignment.center,
+                child: const CircularProgressIndicator(color: _green),
+              );
+            }
+
+            final types = productTypes;
+            final products = allProducts;
+
+            if (!initialized && products.isNotEmpty) {
+              initialized = true;
+              final curr = products.cast<Map<String, dynamic>?>().firstWhere(
+                (p) => p?['id']?.toString() == currentProductId,
+                orElse: () => null,
+              );
+              if (curr != null) {
+                selectedTypeId.value = curr['loanProductTypeId']?.toString();
+                selectedFrequency.value = curr['frequency']?.toString().toLowerCase();
+                selectedProductId.value = curr['id']?.toString();
+              }
+            }
+
+            final maxAmount = (loan['maxAllowedAmount'] is num)
+                ? (loan['maxAllowedAmount'] as num).toDouble()
+                : double.tryParse(loan['maxAllowedAmount']?.toString() ?? '') ??
+                    ((loan['amount'] is num)
+                        ? (loan['amount'] as num).toDouble()
+                        : double.tryParse(loan['amount']?.toString() ?? '') ?? double.infinity);
+
+            var typeProducts = products.where((p) {
+              if (p is! Map) return false;
+              final pAmount = _amount(p, 'loanAmount');
+              if (maxAmount > 0 && maxAmount < double.infinity && pAmount > maxAmount) return false;
+              if (selectedTypeId.value == null || selectedTypeId.value!.isEmpty) return true;
+              return p['loanProductTypeId']?.toString() == selectedTypeId.value;
+            }).toList();
+
+            if (typeProducts.isEmpty && products.isNotEmpty) {
+              typeProducts = products.where((p) {
+                if (p is! Map) return false;
+                if (selectedTypeId.value == null || selectedTypeId.value!.isEmpty) return true;
+                return p['loanProductTypeId']?.toString() == selectedTypeId.value;
+              }).toList();
+            }
+
+            final availableFreqs = typeProducts
+                .map((p) => p['frequency']?.toString().toLowerCase() ?? '')
+                .where((f) => f.isNotEmpty)
+                .toSet()
+                .toList();
+
+            final filteredProducts = typeProducts.where((p) {
+              if (selectedFrequency.value == null || selectedFrequency.value!.isEmpty) return true;
+              return p['frequency']?.toString().toLowerCase() == selectedFrequency.value;
+            }).toList();
+
+            final selectedProduct = filteredProducts.cast<Map<String, dynamic>?>().firstWhere(
+              (p) => p?['id']?.toString() == selectedProductId.value,
+              orElse: () => null,
+            );
+
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Edit Loan Product',
+                      style: TextStyle(
+                        fontSize: 16.sp,
+                        fontWeight: FontWeight.w800,
+                        color: _darkText,
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, color: _muted),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 12.h),
+
+                Text(
+                  'Loan Product Type',
+                  style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700, color: _darkText),
+                ),
+                SizedBox(height: 6.h),
+                IdDropdown(
+                  label: 'Product Type',
+                  value: selectedTypeId.value,
+                  items: types,
+                  labelBuilder: (_, id) {
+                    final t = types.cast<Map<String, dynamic>?>().firstWhere(
+                      (e) => e?['id']?.toString() == id,
+                      orElse: () => null,
+                    );
+                    return t != null ? '${t['name']}' : id;
+                  },
+                  onChanged: (val) {
+                    selectedTypeId.value = val;
+                    selectedFrequency.value = null;
+                    selectedProductId.value = null;
+                  },
+                ),
+                SizedBox(height: 12.h),
+
+                Text(
+                  'Frequency',
+                  style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700, color: _darkText),
+                ),
+                SizedBox(height: 6.h),
+                DropdownButtonFormField<String>(
+                  initialValue: selectedFrequency.value,
+                  decoration: InputDecoration(
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10.r)),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10.r),
+                      borderSide: const BorderSide(color: _green, width: 1.4),
+                    ),
+                  ),
+                  hint: const Text('Select Frequency'),
+                  items: availableFreqs.map<DropdownMenuItem<String>>((f) {
+                    final label = f.isEmpty ? f : '${f[0].toUpperCase()}${f.substring(1)}';
+                    return DropdownMenuItem<String>(
+                      value: f,
+                      child: Text(label, style: TextStyle(fontSize: 12.5.sp)),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    selectedFrequency.value = val;
+                    selectedProductId.value = null;
+                  },
+                ),
+                SizedBox(height: 12.h),
+
+                Text(
+                  'Loan Product',
+                  style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700, color: _darkText),
+                ),
+                SizedBox(height: 6.h),
+                IdDropdown(
+                  label: 'Loan Product',
+                  value: selectedProductId.value,
+                  items: filteredProducts,
+                  labelBuilder: (_, id) {
+                    final p = filteredProducts.cast<Map<String, dynamic>?>().firstWhere(
+                      (e) => e?['id']?.toString() == id,
+                      orElse: () => null,
+                    );
+                    if (p == null) return id;
+                    final amount = _currency(_amount(p, 'loanAmount'));
+                    return '${p['productName']} ($amount)';
+                  },
+                  onChanged: (val) {
+                    selectedProductId.value = val;
+                  },
+                ),
+                SizedBox(height: 16.h),
+
+                if (selectedProduct != null)
+                  Container(
+                    padding: EdgeInsets.all(12.w),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FAF4),
+                      borderRadius: BorderRadius.circular(10.r),
+                      border: Border.all(color: const Color(0xFFE1EAE4)),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('New Amount:', style: TextStyle(fontSize: 11.sp, color: _muted)),
+                            Text(_currency(_amount(selectedProduct, 'loanAmount')), style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w800, color: _green)),
+                          ],
+                        ),
+                        SizedBox(height: 4.h),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('Interest Rate:', style: TextStyle(fontSize: 11.sp, color: _muted)),
+                            Text('${_amount(selectedProduct, 'interestRate')}%', style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700, color: _darkText)),
+                          ],
+                        ),
+                        SizedBox(height: 4.h),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('Dues / Tenure:', style: TextStyle(fontSize: 11.sp, color: _muted)),
+                            Text('${selectedProduct['numberOfDues']} dues', style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700, color: _darkText)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                SizedBox(height: 18.h),
+
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: selectedProductId.value == null || isSaving.value
+                        ? null
+                        : () async {
+                            isSaving.value = true;
+                            try {
+                              await _memberService.updateLoanProduct(
+                                loanId,
+                                loanProductId: selectedProductId.value!,
+                                isIndexed: true,
+                                stage: 'DISBURSEMENT',
+                              );
+                              Get.snackbar(
+                                'Success',
+                                'Loan product updated successfully.',
+                                backgroundColor: const Color(0xFF00843D),
+                                colorText: Colors.white,
+                              );
+                              if (ctx.mounted) Navigator.pop(ctx);
+                              controller.fetchPending();
+                            } catch (e) {
+                              Get.snackbar(
+                                'Error',
+                                'Failed to update loan product: $e',
+                                backgroundColor: Colors.redAccent,
+                                colorText: Colors.white,
+                              );
+                            } finally {
+                              isSaving.value = false;
+                            }
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _green,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(vertical: 13.h),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.r)),
+                    ),
+                    child: isSaving.value
+                        ? SizedBox(
+                            width: 16.sp,
+                            height: 16.sp,
+                            child: const CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text('Save Changes', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            );
+          }),
+        );
+      },
+    );
+  }
+
   Widget _loanRow(Map<String, dynamic> loan, String centerName) {
     final verified = loan['isVerified'] == true;
     final loanId = loan['id']?.toString() ?? '';
     final clientName = _field(loan, 'clientName');
     final clientId = _field(loan, 'clientId');
+    final clientDbId = loan['clientDbId']?.toString() ??
+        loan['clientId']?.toString() ??
+        loan['client']?['id']?.toString() ??
+        '';
 
     return Container(
       margin: EdgeInsets.only(bottom: 6.h),
@@ -533,13 +877,61 @@ class _DisbursementApprovalState extends State<DisbursementApproval> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      clientId,
-                      style: TextStyle(
-                        fontSize: 11.5.sp,
-                        fontWeight: FontWeight.w800,
-                        color: _darkText,
-                      ),
+                    Row(
+                      children: [
+                        Text(
+                          clientId,
+                          style: TextStyle(
+                            fontSize: 11.5.sp,
+                            fontWeight: FontWeight.w800,
+                            color: _darkText,
+                          ),
+                        ),
+                        SizedBox(width: 6.w),
+                        InkWell(
+                          onTap: () {
+                            if (clientDbId.isEmpty) {
+                              Get.snackbar(
+                                'Highmark',
+                                'No client ID on file to fetch Highmark report.',
+                                backgroundColor: Colors.orange,
+                                colorText: Colors.white,
+                              );
+                              return;
+                            }
+                            showHighmarkReport(
+                              context,
+                              api: _highmarkApi,
+                              clientDbId: clientDbId,
+                              clientName: clientName,
+                            );
+                          },
+                          borderRadius: BorderRadius.circular(6.r),
+                          child: Container(
+                            padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 2.h),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF3E8FF),
+                              borderRadius: BorderRadius.circular(6.r),
+                              border: Border.all(color: const Color(0xFFD8B4FE)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.shield_outlined, size: 12, color: Color(0xFF7C3AED)),
+                                SizedBox(width: 3.w),
+                                Text(
+                                  'Highmark',
+                                  style: TextStyle(
+                                    fontSize: 9.5.sp,
+                                    fontWeight: FontWeight.w700,
+                                    color: const Color(0xFF7C3AED),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     Text(
                       clientName,
@@ -589,6 +981,34 @@ class _DisbursementApprovalState extends State<DisbursementApproval> {
                       ),
                     ),
                   ],
+                ),
+              ),
+              SizedBox(width: 6.w),
+              InkWell(
+                onTap: () => _showEditProductSheet(loan),
+                borderRadius: BorderRadius.circular(6.r),
+                child: Container(
+                  padding: EdgeInsets.symmetric(horizontal: 7.w, vertical: 3.h),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F5E9),
+                    borderRadius: BorderRadius.circular(6.r),
+                    border: Border.all(color: const Color(0xFFA7F3D0)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.edit_outlined, size: 12.sp, color: _green),
+                      SizedBox(width: 3.w),
+                      Text(
+                        'Edit',
+                        style: TextStyle(
+                          fontSize: 9.5.sp,
+                          fontWeight: FontWeight.w700,
+                          color: _green,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],

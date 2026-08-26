@@ -116,12 +116,16 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
         body: SafeArea(
           top: false,
           child: Obx(() {
-            if (controller.isLoadingCenters.value && controller.centers.isEmpty) {
-              return const Center(child: CircularProgressIndicator(color: _green));
+            if (controller.isLoadingCenters.value &&
+                controller.centers.isEmpty) {
+              return const Center(
+                child: CircularProgressIndicator(color: _green),
+              );
             }
             return RefreshIndicator(
               color: _green,
-              onRefresh: () => controller.onCenterChanged(controller.centerId.value),
+              onRefresh: () =>
+                  controller.onCenterChanged(controller.centerId.value),
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: EdgeInsets.all(16.w),
@@ -215,7 +219,8 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
             ],
           ),
           Obx(() {
-            if (controller.nextIndexNo.value.isEmpty) return const SizedBox.shrink();
+            if (controller.nextIndexNo.value.isEmpty)
+              return const SizedBox.shrink();
             return Padding(
               padding: EdgeInsets.only(top: 10.h),
               child: Text(
@@ -242,7 +247,11 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.warning_amber_rounded, size: 16, color: Color(0xFF991B1B)),
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      size: 16,
+                      color: Color(0xFF991B1B),
+                    ),
                     SizedBox(width: 6.w),
                     Expanded(
                       child: Text(
@@ -318,11 +327,15 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
     final centerName = center['name']?.toString() ?? '—';
     final centerCode = center['code']?.toString() ?? '—';
     final meetingDay = center['meetingDay']?.toString() ?? 'N/A';
-    final meetingPlace = center['meetingPlace']?.toString() ?? center['meetingTime']?.toString() ?? 'N/A';
+    final meetingPlace =
+        center['meetingPlace']?.toString() ??
+        center['meetingTime']?.toString() ??
+        'N/A';
     final totalLoans = controller.unindexedLoans.length;
     final totalAmount = controller.unindexedLoans.fold<double>(
       0.0,
-      (sum, l) => sum + _amount(l is Map ? Map<String, dynamic>.from(l) : {}, 'amount'),
+      (sum, l) =>
+          sum + _amount(l is Map ? Map<String, dynamic>.from(l) : {}, 'amount'),
     );
 
     return Container(
@@ -447,7 +460,9 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
                     checked:
                         loans.isNotEmpty &&
                         loans.every(
-                          (l) => controller.selectedLoanIds.contains(l['id'].toString()),
+                          (l) => controller.selectedLoanIds.contains(
+                            l['id'].toString(),
+                          ),
                         ),
                     color: _green,
                     onChanged: controller.selectAll,
@@ -460,7 +475,9 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
                     checked:
                         loans.isNotEmpty &&
                         loans.every(
-                          (l) => controller.rejectedLoanIds.contains(l['id'].toString()),
+                          (l) => controller.rejectedLoanIds.contains(
+                            l['id'].toString(),
+                          ),
                         ),
                     color: Colors.red,
                     onChanged: controller.rejectAll,
@@ -503,7 +520,9 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
                             ),
                           )
                         : const Icon(Icons.save_rounded, size: 18),
-                    label: Text(controller.isSaving.value ? 'Saving...' : 'Save'),
+                    label: Text(
+                      controller.isSaving.value ? 'Saving...' : 'Save',
+                    ),
                   ),
                 ),
                 SizedBox(width: 10.w),
@@ -541,15 +560,29 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
 
   Widget _buildLoanTypeTag(Map<String, dynamic> loan) {
     final isRenewal = loan['isRenewal'] == true;
-    final label = loan['loanType']?.toString() ?? (isRenewal ? 'Renewal Loan' : 'New Loan');
+    final label =
+        loan['loanType']?.toString() ??
+        (isRenewal ? 'Renewal Loan' : 'New Loan');
     final bg = isRenewal ? const Color(0xFFF3E8FF) : const Color(0xFFE0F2FE);
     final fg = isRenewal ? const Color(0xFF7C3AED) : const Color(0xFF0369A1);
     return _tag(label, bg, fg);
   }
 
   Widget _buildHighmarkTag(Map<String, dynamic> loan) {
-    final hmScoreRaw = loan['highmarkScore'] ?? loan['highMarkScore'] ?? loan['creditScore'];
-    final hmStatusRaw = loan['highmarkStatus'] ?? loan['highMarkStatus'] ?? loan['status'];
+    final clientMap = loan['client'] is Map ? loan['client'] as Map : null;
+    final hmMap = loan['highmark'] is Map ? loan['highmark'] as Map : null;
+    final hmScoreRaw =
+        loan['highmarkScore'] ??
+        loan['highMarkScore'] ??
+        loan['creditScore'] ??
+        hmMap?['score'] ??
+        clientMap?['highmarkScore'] ??
+        clientMap?['creditScore'];
+    final hmStatusRaw =
+        loan['highmarkStatus'] ??
+        loan['highMarkStatus'] ??
+        hmMap?['status'] ??
+        clientMap?['highmarkStatus'];
 
     String label = 'HM: N/A';
     Color bg = const Color(0xFFF1F5F9);
@@ -581,10 +614,16 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
       final st = hmStatusRaw.toString().trim();
       label = 'HM: $st';
       final upper = st.toUpperCase();
-      if (upper.contains('PASS') || upper.contains('OK') || upper.contains('EXCELLENT') || upper.contains('APPROVED')) {
+      if (upper.contains('PASS') ||
+          upper.contains('OK') ||
+          upper.contains('EXCELLENT') ||
+          upper.contains('APPROVED')) {
         bg = const Color(0xFFDCFCE7);
         fg = const Color(0xFF166534);
-      } else if (upper.contains('FLAG') || upper.contains('REJECT') || upper.contains('LOW') || upper.contains('FAIL')) {
+      } else if (upper.contains('FLAG') ||
+          upper.contains('REJECT') ||
+          upper.contains('LOW') ||
+          upper.contains('FAIL')) {
         bg = const Color(0xFFFEE2E2);
         fg = const Color(0xFF991B1B);
       } else {
@@ -619,11 +658,7 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
               color: _darkText,
             ),
           ),
-          Switch(
-            value: checked,
-            activeThumbColor: color,
-            onChanged: onChanged,
-          ),
+          Switch(value: checked, activeThumbColor: color, onChanged: onChanged),
         ],
       ),
     );
@@ -631,6 +666,14 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
 
   Widget _loanCard(Map<String, dynamic> loan) {
     final loanId = loan['id'].toString();
+    final clientDbId =
+        loan['clientId']?.toString() ??
+        loan['client']?['id']?.toString() ??
+        loan['clientDbId']?.toString() ??
+        '';
+    final clientName = _field(loan, 'clientName');
+    final displayId = _field(loan, 'clientDisplayId');
+
     return Obx(() {
       final isSelected = controller.selectedLoanIds.contains(loanId);
       final isRejected = controller.rejectedLoanIds.contains(loanId);
@@ -655,66 +698,93 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        _field(loan, 'clientDisplayId'),
-                        style: TextStyle(
-                          fontSize: 12.5.sp,
-                          fontWeight: FontWeight.w800,
-                          color: _darkText,
-                        ),
+                      Row(
+                        children: [
+                          Text(
+                            displayId,
+                            style: TextStyle(
+                              fontSize: 12.5.sp,
+                              fontWeight: FontWeight.w800,
+                              color: _darkText,
+                            ),
+                          ),
+                          SizedBox(width: 6.w),
+                          InkWell(
+                            onTap: () {
+                              if (clientDbId.isEmpty) {
+                                Get.snackbar(
+                                  'Highmark',
+                                  'No client ID on file to fetch Highmark report.',
+                                  backgroundColor: Colors.orange,
+                                  colorText: Colors.white,
+                                );
+                                return;
+                              }
+                              showHighmarkReport(
+                                context,
+                                api: _highmarkApi,
+                                clientDbId: clientDbId,
+                                clientName: clientName,
+                              );
+                            },
+                            borderRadius: BorderRadius.circular(6.r),
+                            child: Container(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 7.w,
+                                vertical: 3.h,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF3E8FF),
+                                borderRadius: BorderRadius.circular(6.r),
+                                border: Border.all(
+                                  color: const Color(0xFFD8B4FE),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.shield_outlined,
+                                    size: 12,
+                                    color: Color(0xFF7C3AED),
+                                  ),
+                                  SizedBox(width: 3.w),
+                                  Text(
+                                    'Highmark',
+                                    style: TextStyle(
+                                      fontSize: 10.sp,
+                                      fontWeight: FontWeight.w700,
+                                      color: const Color(0xFF7C3AED),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
+                      SizedBox(height: 2.h),
                       Text(
-                        _field(loan, 'clientName'),
-                        style: TextStyle(fontSize: 10.5.sp, color: _muted),
+                        clientName,
+                        style: TextStyle(
+                          fontSize: 11.sp,
+                          color: _muted,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ],
                   ),
                 ),
-                InkWell(
-                  onTap: () {
-                    final clientDbId = loan['clientId']?.toString() ?? '';
-                    if (clientDbId.isEmpty) return;
-                    showHighmarkReport(
-                      context,
-                      api: _highmarkApi,
-                      clientDbId: clientDbId,
-                      clientName: _field(loan, 'clientName'),
-                    );
-                  },
-                  borderRadius: BorderRadius.circular(20.r),
-                  child: Container(
-                    padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF3E8FF),
-                      borderRadius: BorderRadius.circular(20.r),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.shield_outlined, size: 13, color: Color(0xFF7C3AED)),
-                        SizedBox(width: 3.w),
-                        Text(
-                          'Highmark',
-                          style: TextStyle(
-                            fontSize: 9.5.sp,
-                            fontWeight: FontWeight.w700,
-                            color: const Color(0xFF7C3AED),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                SizedBox(width: 8.w),
                 Text(
                   _currency(_amount(loan, 'amount')),
                   style: TextStyle(
-                    fontSize: 13.sp,
+                    fontSize: 13.5.sp,
                     fontWeight: FontWeight.w800,
                     color: _green,
                   ),
@@ -734,15 +804,32 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
                 _tag(_field(loan, 'frequency')),
                 InkWell(
                   onTap: () => _showEditProductSheet(loan),
-                  borderRadius: BorderRadius.circular(20.r),
+                  borderRadius: BorderRadius.circular(8.r),
                   child: Container(
-                    padding: EdgeInsets.all(4.w),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF0FAF4),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: const Color(0xFFBBE5CE)),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 8.w,
+                      vertical: 4.h,
                     ),
-                    child: Icon(Icons.edit_outlined, size: 12.sp, color: _green),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE8F5E9),
+                      borderRadius: BorderRadius.circular(8.r),
+                      border: Border.all(color: const Color(0xFFA7F3D0)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.edit_rounded, size: 12, color: _green),
+                        SizedBox(width: 4.w),
+                        Text(
+                          'Edit',
+                          style: TextStyle(
+                            fontSize: 10.5.sp,
+                            fontWeight: FontWeight.w700,
+                            color: _green,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -789,7 +876,10 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFF0284C7),
                     side: const BorderSide(color: Color(0xFF0284C7)),
-                    padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 8.h),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 10.w,
+                      vertical: 8.h,
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8.r),
                     ),
@@ -939,12 +1029,14 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
                   selectedTypeId.value!.isEmpty) {
                 return true;
               }
-              return p['loanProductTypeId']?.toString() ==
-                  selectedTypeId.value;
+              return p['loanProductTypeId']?.toString() == selectedTypeId.value;
             }).toList();
 
             final availableFreqs = typeProducts
-                .map((p) => (p as Map)['frequency']?.toString().toLowerCase() ?? '')
+                .map(
+                  (p) =>
+                      (p as Map)['frequency']?.toString().toLowerCase() ?? '',
+                )
                 .where((f) => f.isNotEmpty)
                 .toSet()
                 .toList();
@@ -1192,8 +1284,7 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed:
-                        selectedProductId.value == null || isSaving.value
+                    onPressed: selectedProductId.value == null || isSaving.value
                         ? null
                         : () async {
                             isSaving.value = true;
@@ -1204,7 +1295,8 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
                                     selectedProductId.value!,
                                   );
                               final idx = controller.unindexedLoans.indexWhere(
-                                (l) => l is Map && l['id']?.toString() == loanId,
+                                (l) =>
+                                    l is Map && l['id']?.toString() == loanId,
                               );
                               if (idx != -1) {
                                 final merged = Map<String, dynamic>.from(
@@ -1354,7 +1446,9 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
               if (canDelete) ...[
                 SizedBox(width: 6.w),
                 Obx(() {
-                  final deleting = controller.deletingIndexIds.contains(indexId);
+                  final deleting = controller.deletingIndexIds.contains(
+                    indexId,
+                  );
                   return InkWell(
                     onTap: deleting ? null : () => _confirmDeleteIndex(record),
                     borderRadius: BorderRadius.circular(20.r),
@@ -1374,7 +1468,11 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
                                 color: Colors.red,
                               ),
                             )
-                          : Icon(Icons.delete_outline_rounded, size: 15.sp, color: Colors.red),
+                          : Icon(
+                              Icons.delete_outline_rounded,
+                              size: 15.sp,
+                              color: Colors.red,
+                            ),
                     ),
                   );
                 }),
@@ -1409,7 +1507,10 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
               padding: EdgeInsets.only(top: 6.h),
               child: Text(
                 'Stuck at Pending — never forwarded to Area Manager. Delete to release the loan(s) back to Unindexed Loans and redo.',
-                style: TextStyle(fontSize: 9.5.sp, color: const Color(0xFF9A3412)),
+                style: TextStyle(
+                  fontSize: 9.5.sp,
+                  color: const Color(0xFF9A3412),
+                ),
               ),
             ),
         ],
@@ -1509,7 +1610,8 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
         'centerMemberNo': memberDetails['centerMemberNo']?.toString() ?? '',
         'husbandName': memberDetails['husbandName']?.toString() ?? '',
         'loanType': memberDetails['loanType']?.toString() ?? '',
-        'firstInstallmentDate': memberDetails['firstInstallmentDate']?.toString() ?? '',
+        'firstInstallmentDate':
+            memberDetails['firstInstallmentDate']?.toString() ?? '',
         'memberPhone': memberDetails['memberPhone']?.toString() ?? '',
         'clientPhotoUrl': memberDetails['clientPhotoUrl']?.toString(),
       };
@@ -1550,7 +1652,10 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
         duration: const Duration(seconds: 6),
         mainButton: TextButton(
           onPressed: () => OpenFilex.open(filePath),
-          child: const Text('OPEN', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          child: const Text(
+            'OPEN',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
         ),
       );
     } on LoanApiException catch (e) {
@@ -1599,7 +1704,11 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.error_outline_rounded, size: 40, color: Colors.red),
+                    const Icon(
+                      Icons.error_outline_rounded,
+                      size: 40,
+                      color: Colors.red,
+                    ),
                     const SizedBox(height: 12),
                     const Text(
                       'Failed to load passbook data.',
@@ -1626,8 +1735,12 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
             final spouseName = memberDetails['husbandName']?.toString() ?? '—';
             final accountNo = memberDetails['accountNumber']?.toString() ?? '—';
             final loanAmount = memberDetails['loanAmount']?.toString() ?? '—';
-            final branch = '${memberDetails['branchCode'] ?? ''} ${memberDetails['branchName'] ?? ''}'.trim();
-            final center = '${memberDetails['centerCode'] ?? ''} ${memberDetails['centerName'] ?? ''}'.trim();
+            final branch =
+                '${memberDetails['branchCode'] ?? ''} ${memberDetails['branchName'] ?? ''}'
+                    .trim();
+            final center =
+                '${memberDetails['centerCode'] ?? ''} ${memberDetails['centerName'] ?? ''}'
+                    .trim();
 
             return DraggableScrollableSheet(
               expand: false,
@@ -1645,7 +1758,11 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
                         children: [
                           Row(
                             children: [
-                              const Icon(Icons.menu_book_rounded, color: _green, size: 22),
+                              const Icon(
+                                Icons.menu_book_rounded,
+                                color: _green,
+                                size: 22,
+                              ),
                               const SizedBox(width: 8),
                               Text(
                                 'Passbook Schedule',
@@ -1676,11 +1793,25 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
                             _passbookRow('Member Name', memberName),
                             _passbookRow('Spouse / Father', spouseName),
                             _passbookRow('Account No', accountNo),
-                            _passbookRow('Branch', branch.isEmpty ? '—' : branch),
-                            _passbookRow('Center', center.isEmpty ? '—' : center),
+                            _passbookRow(
+                              'Branch',
+                              branch.isEmpty ? '—' : branch,
+                            ),
+                            _passbookRow(
+                              'Center',
+                              center.isEmpty ? '—' : center,
+                            ),
                             _passbookRow('Loan Amount', '₹$loanAmount'),
-                            _passbookRow('First Installment', memberDetails['firstInstallmentDate']?.toString() ?? '—'),
-                            _passbookRow('Loan Purpose', memberDetails['loanPurpose']?.toString() ?? '—'),
+                            _passbookRow(
+                              'First Installment',
+                              memberDetails['firstInstallmentDate']
+                                      ?.toString() ??
+                                  '—',
+                            ),
+                            _passbookRow(
+                              'Loan Purpose',
+                              memberDetails['loanPurpose']?.toString() ?? '—',
+                            ),
                           ],
                         ),
                       ),
@@ -1708,25 +1839,111 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
                             dataRowMaxHeight: 36,
                             columnSpacing: 14,
                             columns: const [
-                              DataColumn(label: Text('#', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
-                              DataColumn(label: Text('Due Date', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
-                              DataColumn(label: Text('EMI (₹)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
-                              DataColumn(label: Text('Principal', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
-                              DataColumn(label: Text('Interest', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
-                              DataColumn(label: Text('Balance', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
+                              DataColumn(
+                                label: Text(
+                                  '#',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
+                              DataColumn(
+                                label: Text(
+                                  'Due Date',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
+                              DataColumn(
+                                label: Text(
+                                  'EMI (₹)',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
+                              DataColumn(
+                                label: Text(
+                                  'Principal',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
+                              DataColumn(
+                                label: Text(
+                                  'Interest',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
+                              DataColumn(
+                                label: Text(
+                                  'Balance',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
                             ],
                             rows: installments.map((inst) {
-                              final principal = double.tryParse('${inst['principal']}') ?? 0;
-                              final interest = double.tryParse('${inst['interest']}') ?? 0;
+                              final principal =
+                                  double.tryParse('${inst['principal']}') ?? 0;
+                              final interest =
+                                  double.tryParse('${inst['interest']}') ?? 0;
                               final emi = principal + interest;
-                              return DataRow(cells: [
-                                DataCell(Text('${inst['no'] ?? '—'}', style: const TextStyle(fontSize: 11))),
-                                DataCell(Text('${inst['date'] ?? '—'}', style: const TextStyle(fontSize: 11))),
-                                DataCell(Text('₹${emi.toStringAsFixed(2)}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: _green))),
-                                DataCell(Text('₹${inst['principal'] ?? 0}', style: const TextStyle(fontSize: 11))),
-                                DataCell(Text('₹${inst['interest'] ?? 0}', style: const TextStyle(fontSize: 11))),
-                                DataCell(Text('₹${inst['balance'] ?? 0}', style: const TextStyle(fontSize: 11))),
-                              ]);
+                              return DataRow(
+                                cells: [
+                                  DataCell(
+                                    Text(
+                                      '${inst['no'] ?? '—'}',
+                                      style: const TextStyle(fontSize: 11),
+                                    ),
+                                  ),
+                                  DataCell(
+                                    Text(
+                                      '${inst['date'] ?? '—'}',
+                                      style: const TextStyle(fontSize: 11),
+                                    ),
+                                  ),
+                                  DataCell(
+                                    Text(
+                                      '₹${emi.toStringAsFixed(2)}',
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: _green,
+                                      ),
+                                    ),
+                                  ),
+                                  DataCell(
+                                    Text(
+                                      '₹${inst['principal'] ?? 0}',
+                                      style: const TextStyle(fontSize: 11),
+                                    ),
+                                  ),
+                                  DataCell(
+                                    Text(
+                                      '₹${inst['interest'] ?? 0}',
+                                      style: const TextStyle(fontSize: 11),
+                                    ),
+                                  ),
+                                  DataCell(
+                                    Text(
+                                      '₹${inst['balance'] ?? 0}',
+                                      style: const TextStyle(fontSize: 11),
+                                    ),
+                                  ),
+                                ],
+                              );
                             }).toList(),
                           ),
                         ),
@@ -1735,7 +1952,8 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
                         () => SizedBox(
                           width: double.infinity,
                           child: ElevatedButton.icon(
-                            onPressed: installments.isEmpty || isGeneratingPdf.value
+                            onPressed:
+                                installments.isEmpty || isGeneratingPdf.value
                                 ? null
                                 : () async {
                                     isGeneratingPdf.value = true;
@@ -1780,13 +1998,20 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
   }
 
   Widget _passbookRow(String label, String val) => Padding(
-        padding: const EdgeInsets.only(bottom: 4),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label, style: const TextStyle(fontSize: 11, color: _muted)),
-            Text(val, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: _darkText)),
-          ],
+    padding: const EdgeInsets.only(bottom: 4),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 11, color: _muted)),
+        Text(
+          val,
+          style: const TextStyle(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w600,
+            color: _darkText,
+          ),
         ),
-      );
+      ],
+    ),
+  );
 }

@@ -52,6 +52,7 @@ class MemberApprovalController extends GetxController {
   final isLoadingDetail = false.obs;
   final isSubmittingClientAction = false.obs;
   final Rxn<String> submittingDocId = Rxn<String>();
+  final Rxn<String> submittingDocDecision = Rxn<String>();
 
   Future<void> loadApprovalQueue() async {
     isLoadingQueue.value = true;
@@ -115,6 +116,7 @@ class MemberApprovalController extends GetxController {
     String? remark,
   }) async {
     submittingDocId.value = documentId;
+    submittingDocDecision.value = decision;
     try {
       await api.reviewKycDocument(
         clientId,
@@ -135,6 +137,7 @@ class MemberApprovalController extends GetxController {
       return false;
     } finally {
       submittingDocId.value = null;
+      submittingDocDecision.value = null;
     }
   }
 

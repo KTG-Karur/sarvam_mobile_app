@@ -446,7 +446,7 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text(
-                        'NET PAYABLE',
+                        'TOTAL AMOUNT',
                         style: TextStyle(
                           fontSize: 8.5.sp,
                           color: _green,
@@ -454,7 +454,7 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
                         ),
                       ),
                       Text(
-                        _currency(controller.netDisbursementAmount),
+                        _currency(controller.totalLoanAmount),
                         style: TextStyle(
                           fontSize: 14.sp,
                           fontWeight: FontWeight.w800,
@@ -472,21 +472,22 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Gross Loans: ${_currency(controller.totalLoanAmount)}',
+                    'Total Loans: ${_currency(controller.totalLoanAmount)}',
                     style: TextStyle(
                       fontSize: 10.5.sp,
                       fontWeight: FontWeight.w600,
                       color: _darkText,
                     ),
                   ),
-                  Text(
-                    'Admission Fees: -${_currency(controller.totalAdmissionFee)}',
-                    style: TextStyle(
-                      fontSize: 10.5.sp,
-                      fontWeight: FontWeight.w700,
-                      color: const Color(0xFFB91C1C),
+                  if (controller.totalAdmissionFee > 0)
+                    Text(
+                      'Admission Fees: ${_currency(controller.totalAdmissionFee)}',
+                      style: TextStyle(
+                        fontSize: 10.5.sp,
+                        fontWeight: FontWeight.w700,
+                        color: _green,
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -653,7 +654,6 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
       final isMIComplete = controller.memberIndividualMap[loanId] == true;
 
       final grossAmount = _amount(loan, 'amount');
-      final netAmount = (grossAmount - fee) < 0 ? 0.0 : (grossAmount - fee);
 
       final goldData = controller.goldMap[loanId] ?? {};
       final goldPhotos = controller.goldPhotosMap[loanId] ?? [];
@@ -730,15 +730,15 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      'Net: ${_currency(netAmount)}',
+                      _currency(grossAmount),
                       style: TextStyle(
-                        fontSize: 12.sp,
+                        fontSize: 12.5.sp,
                         fontWeight: FontWeight.w800,
                         color: _green,
                       ),
                     ),
                     Text(
-                      'Gross: ${_currency(grossAmount)}',
+                      'Amount',
                       style: TextStyle(fontSize: 9.5.sp, color: _muted),
                     ),
                   ],
@@ -839,30 +839,54 @@ class _FinalDisbursementState extends State<FinalDisbursement> {
                         ],
                       ),
                       SizedBox(height: 4.h),
-                      TextFormField(
-                        initialValue: fee > 0 ? fee.toStringAsFixed(0) : '0',
-                        keyboardType: TextInputType.number,
-                        style: TextStyle(
-                          fontSize: 11.sp,
-                          fontWeight: FontWeight.w700,
-                        ),
-                        decoration: InputDecoration(
-                          isDense: true,
-                          prefixText: '₹ ',
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 8.w,
+                      if (isNewClient)
+                        TextFormField(
+                          key: ValueKey('admission_fee_${loanId}_${fee.toStringAsFixed(0)}'),
+                          initialValue: fee > 0 ? fee.toStringAsFixed(0) : '50',
+                          keyboardType: TextInputType.number,
+                          style: TextStyle(
+                            fontSize: 11.sp,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          decoration: InputDecoration(
+                            isDense: true,
+                            prefixText: '₹ ',
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 8.w,
+                              vertical: 8.h,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(6.r),
+                              borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+                            ),
+                          ),
+                          onChanged: (v) => controller.setAdmissionFee(
+                            loanId,
+                            double.tryParse(v) ?? 0.0,
+                          ),
+                        )
+                      else
+                        Container(
+                          width: double.infinity,
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 10.w,
                             vertical: 8.h,
                           ),
-                          border: OutlineInputBorder(
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF1F5F9),
                             borderRadius: BorderRadius.circular(6.r),
-                            borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: Text(
+                            'Existing (₹0)',
+                            style: TextStyle(
+                              fontSize: 11.sp,
+                              fontWeight: FontWeight.w600,
+                              color: _muted,
+                              fontStyle: FontStyle.italic,
+                            ),
                           ),
                         ),
-                        onChanged: (v) => controller.setAdmissionFee(
-                          loanId,
-                          double.tryParse(v) ?? 0.0,
-                        ),
-                      ),
                     ],
                   ),
                 ),

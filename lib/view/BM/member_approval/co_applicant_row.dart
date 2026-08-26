@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:sarvam/controller/member_approval_controller.dart';
 import 'package:sarvam/view/BM/member_approval/widgets/doc_type_labels.dart';
+import 'package:sarvam/view/BM/member_approval/widgets/member_approval_dialog.dart';
 import 'package:sarvam/view/BM/member_approval/widgets/signed_doc_thumbnail.dart';
 
 const _green = Color(0xFF0D6842);
@@ -40,28 +41,6 @@ class _CoApplicantRowState extends State<CoApplicantRow> {
     return v == null || v.toString().trim().isEmpty ? fallback : v.toString();
   }
 
-  Future<bool> _confirm(String title, String message) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: _green),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Confirm'),
-          ),
-        ],
-      ),
-    );
-    return result == true;
-  }
-
   Future<void> _act(String id, String action) async {
     final remarks = _remarksCtrl.text.trim();
     if (action == 'reject' && remarks.isEmpty) {
@@ -73,11 +52,19 @@ class _CoApplicantRowState extends State<CoApplicantRow> {
       );
       return;
     }
-    final ok = await _confirm(
-      action == 'approve' ? 'Approve Co-Applicant' : 'Reject Co-Applicant',
-      action == 'approve'
+    final name = _f(widget.coApplicant, 'name');
+    final isApprove = action == 'approve';
+    final ok = await showMemberApprovalDialog(
+      context,
+      title: isApprove ? 'Approve Co-Applicant' : 'Reject Co-Applicant',
+      message: isApprove
           ? 'Approve this co-applicant and forward to the next stage?'
-          : 'Reject this co-applicant?',
+          : 'Are you sure you want to reject this co-applicant?',
+      memberName: name,
+      remarks: remarks,
+      actionType: isApprove
+          ? MemberApprovalActionType.approve
+          : MemberApprovalActionType.reject,
     );
     if (!ok) return;
     await widget.controller.submitCoApplicantAction(

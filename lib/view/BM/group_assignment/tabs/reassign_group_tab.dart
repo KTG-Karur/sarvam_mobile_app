@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:sarvam/controller/group_assignment_controller.dart';
 import 'package:sarvam/view/BM/group_assignment/widgets/id_dropdown.dart';
+import 'package:sarvam/view/BM/group_assignment/widgets/save_assignment_dialog.dart';
 
 const _green = Color(0xFF0D6842);
 const _removeFromGroupValue = '';
@@ -21,26 +22,18 @@ class _ReassignGroupTabState extends State<ReassignGroupTab> {
     return v == null || v.toString().trim().isEmpty ? fallback : v.toString();
   }
 
-  Future<bool> _confirm(String title, String message) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: _green),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Confirm'),
-          ),
-        ],
-      ),
+  Future<bool> _confirm(String title, String message, {int? count}) async {
+    return showSaveAssignmentsDialog(
+      context,
+      title: title,
+      message: message,
+      count: count,
+      bulletPoints: const [
+        'Selected members will be moved or reassigned to their new groups.',
+        'Group capacity limits will be validated during submission.',
+        'If a group is filled by another user, the change will be prevented.',
+      ],
     );
-    return result == true;
   }
 
   @override
@@ -267,8 +260,9 @@ class _ReassignGroupTabState extends State<ReassignGroupTab> {
                     ? null
                     : () async {
                         final ok = await _confirm(
-                          'Save Changes',
-                          'Save $count pending group change(s) for this center?',
+                          'Confirm Group Reassignment',
+                          'You are about to save $count pending group change(s) for this center.',
+                          count: count,
                         );
                         if (ok) await controller.submitReassignments();
                       },

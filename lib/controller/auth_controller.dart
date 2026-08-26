@@ -6,8 +6,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/view/auth/login_screen.dart';
-import 'package:sarvam/view/auth/mpin_login_screen.dart';
-import 'package:sarvam/view/auth/face_training_screen.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
 import 'package:sarvam/services/secure_session_service.dart';
 
@@ -639,6 +637,8 @@ class AuthController extends GetxController {
     try {
       final prefs = await SharedPreferences.getInstance();
       await SecureSessionService.clearSession();
+      await FaceBiometricService.clearEnrolledFeatures();
+
       await prefs.remove('userId');
       await prefs.remove('employeeId');
       await prefs.remove('mobileNumber');
@@ -652,20 +652,13 @@ class AuthController extends GetxController {
       await prefs.remove('branchName');
       await prefs.remove('branchCode');
       await prefs.remove('lastPunchInDate');
+      await prefs.remove('lastPunchInTime');
+      await prefs.remove('lastPunchOutDate');
+      await prefs.remove('lastPunchOutTime');
+      await prefs.setBool('isMpinSet', false);
+      await prefs.setBool('faceEnrollmentCompleted', false);
 
-      final bool isMpinSet = prefs.getBool('isMpinSet') ?? false;
-
-      final enrolled = await FaceBiometricService.getEnrolledFeatures();
-      final bool isFaceEnrolled = enrolled.isNotEmpty ||
-          (prefs.getBool('faceEnrollmentCompleted') ?? false);
-
-      if (isMpinSet && !isFaceEnrolled) {
-        Get.offAll(() => const FaceTrainingScreen(autoStart: true));
-      } else if (isMpinSet && isFaceEnrolled) {
-        Get.offAll(() => const MpinLoginScreen());
-      } else {
-        Get.offAll(() => const LoginScreen());
-      }
+      Get.offAll(() => const LoginScreen());
     } catch (e) {
       Get.snackbar(
         'Logout Error',

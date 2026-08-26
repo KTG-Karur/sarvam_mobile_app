@@ -1296,6 +1296,8 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
             SizedBox(height: 10.h),
             _buildFdoHouseImageCard(fdoMap),
             SizedBox(height: 14.h),
+            _buildLiveLocationCard(),
+            SizedBox(height: 14.h),
             Container(
               padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 8.h),
               decoration: BoxDecoration(
@@ -1423,6 +1425,166 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
                 ),
               ),
             ),
+          ],
+        ),
+      );
+    });
+  }
+
+  Widget _buildLiveLocationCard() {
+    return Obx(() {
+      final isFetching = controller.isFetchingLiveLocation.value;
+      final error = controller.liveLocationError.value;
+      final lat = controller.liveLatitude.value;
+      final lng = controller.liveLongitude.value;
+      final acc = controller.liveAccuracy.value;
+      final centerDist = controller.centerDistanceMeters.value;
+      final fdoDist = controller.fdoDistanceMeters.value;
+      final branchDist = controller.branchDistanceMeters.value;
+
+      return Container(
+        padding: EdgeInsets.all(12.w),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12.r),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: EdgeInsets.all(6.w),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F5E9),
+                    borderRadius: BorderRadius.circular(8.r),
+                  ),
+                  child: Icon(Icons.my_location_rounded, size: 16.sp, color: _green),
+                ),
+                SizedBox(width: 8.w),
+                Expanded(
+                  child: Text(
+                    'Live Visit Location & Distance Check',
+                    style: TextStyle(
+                      fontSize: 12.5.sp,
+                      fontWeight: FontWeight.w800,
+                      color: _darkText,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: isFetching ? null : () => controller.fetchLiveLocation(),
+                  icon: isFetching
+                      ? SizedBox(
+                          width: 14.sp,
+                          height: 14.sp,
+                          child: const CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: _green,
+                          ),
+                        )
+                      : Icon(Icons.refresh_rounded, size: 18.sp, color: _green),
+                  tooltip: 'Refresh Location',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ],
+            ),
+            if (error != null) ...[
+              SizedBox(height: 8.h),
+              Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, size: 14.sp, color: Colors.red.shade700),
+                  SizedBox(width: 6.w),
+                  Expanded(
+                    child: Text(
+                      error,
+                      style: TextStyle(fontSize: 11.sp, color: Colors.red.shade700),
+                    ),
+                  ),
+                ],
+              ),
+            ] else if (lat != null && lng != null) ...[
+              SizedBox(height: 10.h),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(8.r),
+                  border: Border.all(color: const Color(0xFFF1F5F9)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Lat: ${lat.toStringAsFixed(6)}, Lng: ${lng.toStringAsFixed(6)}',
+                      style: TextStyle(
+                        fontSize: 11.sp,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF334155),
+                      ),
+                    ),
+                    if (acc != null)
+                      Text(
+                        'Acc: ±${acc.toStringAsFixed(1)}m',
+                        style: TextStyle(
+                          fontSize: 10.5.sp,
+                          fontWeight: FontWeight.w500,
+                          color: const Color(0xFF64748B),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              SizedBox(height: 10.h),
+              Wrap(
+                spacing: 8.w,
+                runSpacing: 6.h,
+                children: [
+                  if (centerDist != null)
+                    _distanceChip(
+                      label: 'Center',
+                      distanceMeters: centerDist,
+                      maxRadiusMeters: 500,
+                    ),
+                  if (fdoDist != null)
+                    _distanceChip(
+                      label: 'FDO',
+                      distanceMeters: fdoDist,
+                      maxRadiusMeters: 50,
+                    ),
+                  if (branchDist != null)
+                    _distanceChip(
+                      label: 'Branch',
+                      distanceMeters: branchDist,
+                    ),
+                ],
+              ),
+            ] else if (isFetching) ...[
+              SizedBox(height: 10.h),
+              Row(
+                children: [
+                  SizedBox(
+                    width: 14.sp,
+                    height: 14.sp,
+                    child: const CircularProgressIndicator(strokeWidth: 2, color: _green),
+                  ),
+                  SizedBox(width: 8.w),
+                  Text(
+                    'Fetching device GPS location...',
+                    style: TextStyle(fontSize: 11.sp, color: const Color(0xFF64748B)),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       );

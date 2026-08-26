@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:sarvam/controller/group_assignment_controller.dart';
 import 'package:sarvam/view/BM/group_assignment/widgets/id_dropdown.dart';
+import 'package:sarvam/view/BM/group_assignment/widgets/save_assignment_dialog.dart';
 
 const _green = Color(0xFF0D6842);
 
@@ -53,26 +54,13 @@ class _AssignCenterTabState extends State<AssignCenterTab> {
     }).toList();
   }
 
-  Future<bool> _confirm(String title, String message) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: _green),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Confirm'),
-          ),
-        ],
-      ),
+  Future<bool> _confirm(String title, String message, {int? count}) async {
+    return showSaveAssignmentsDialog(
+      context,
+      title: title,
+      message: message,
+      count: count,
     );
-    return result == true;
   }
 
   @override
@@ -298,10 +286,9 @@ class _AssignCenterTabState extends State<AssignCenterTab> {
                 ? null
                 : () async {
                     final ok = await _confirm(
-                      'Save Assignments',
-                      'Assign $count client(s) to their selected center and '
-                          'group? If someone else fills a selected group '
-                          'first, that assignment will be rejected.',
+                      'Confirm Center & Group Assignment',
+                      'You are about to assign $count member(s) to their selected center and group.',
+                      count: count,
                     );
                     if (ok) await controller.submitBulkAssignments();
                   },

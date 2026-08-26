@@ -135,22 +135,19 @@ class CoApplicantTab extends StatelessWidget {
           focusNode: controller.caPancardNoFocus,
           required: controller.isRequired('caPancardNo'),
           maxLength: 10,
-          readOnly: locked,
           errorText: controller.caPancardNoError.value,
-          suffixIcon: locked
-              ? null
-              : IconButton(
-                  tooltip: 'Scan Co-Applicant PAN Card',
-                  icon: const Icon(Icons.qr_code_scanner_rounded, color: enrollmentGreen),
-                  onPressed: () => _showScanDialog(
-                    context,
-                    'Co-Applicant PAN Card',
-                    controller.caPancardNoCtrl,
-                    scanType: DocumentScanType.panCard,
-                    isNumeric: false,
-                    maxLen: 10,
-                  ),
-                ),
+          suffixIcon: IconButton(
+            tooltip: 'Scan Co-Applicant PAN Card',
+            icon: const Icon(Icons.qr_code_scanner_rounded, color: enrollmentGreen),
+            onPressed: () => _showScanDialog(
+              context,
+              'Co-Applicant PAN Card',
+              controller.caPancardNoCtrl,
+              scanType: DocumentScanType.panCard,
+              isNumeric: false,
+              maxLen: 10,
+            ),
+          ),
         ),
         EnrollmentTextField(
           label: 'Co-Applicant Voter ID Number',
@@ -159,22 +156,19 @@ class CoApplicantTab extends StatelessWidget {
           focusNode: controller.caVoterIdNoFocus,
           required: controller.isRequired('caVoterIdNo'),
           maxLength: 30,
-          readOnly: locked,
           errorText: controller.caVoterIdNoError.value,
-          suffixIcon: locked
-              ? null
-              : IconButton(
-                  tooltip: 'Scan Co-Applicant Voter ID',
-                  icon: const Icon(Icons.qr_code_scanner_rounded, color: enrollmentGreen),
-                  onPressed: () => _showScanDialog(
-                    context,
-                    'Co-Applicant Voter ID',
-                    controller.caVoterIdNoCtrl,
-                    scanType: DocumentScanType.voterId,
-                    isNumeric: false,
-                    maxLen: 20,
-                  ),
-                ),
+          suffixIcon: IconButton(
+            tooltip: 'Scan Co-Applicant Voter ID',
+            icon: const Icon(Icons.qr_code_scanner_rounded, color: enrollmentGreen),
+            onPressed: () => _showScanDialog(
+              context,
+              'Co-Applicant Voter ID',
+              controller.caVoterIdNoCtrl,
+              scanType: DocumentScanType.voterId,
+              isNumeric: false,
+              maxLen: 20,
+            ),
+          ),
         ),
         EnrollmentTextField(
           label: 'Co-Applicant Aadhaar Number',
@@ -184,22 +178,19 @@ class CoApplicantTab extends StatelessWidget {
           required: controller.isRequired('caOtherIdNo'),
           keyboardType: TextInputType.number,
           maxLength: 12,
-          readOnly: locked,
           errorText: controller.caOtherIdNoError.value,
-          suffixIcon: locked
-              ? null
-              : IconButton(
-                  tooltip: 'Scan Co-Applicant Aadhaar Card',
-                  icon: const Icon(Icons.qr_code_scanner_rounded, color: enrollmentGreen),
-                  onPressed: () => _showScanDialog(
-                    context,
-                    'Co-Applicant Aadhaar Card',
-                    controller.caOtherIdNoCtrl,
-                    scanType: DocumentScanType.aadhaar,
-                    isNumeric: true,
-                    maxLen: 12,
-                  ),
-                ),
+          suffixIcon: IconButton(
+            tooltip: 'Scan Co-Applicant Aadhaar Card',
+            icon: const Icon(Icons.qr_code_scanner_rounded, color: enrollmentGreen),
+            onPressed: () => _showScanDialog(
+              context,
+              'Co-Applicant Aadhaar Card',
+              controller.caOtherIdNoCtrl,
+              scanType: DocumentScanType.aadhaar,
+              isNumeric: true,
+              maxLen: 12,
+            ),
+          ),
         ),
       ],
     );

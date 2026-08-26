@@ -568,6 +568,15 @@ class FaceBiometricService {
       );
     }
   }
+
+  /// Clears enrolled face biometric features and enrollment flag on logout.
+  static Future<void> clearEnrolledFeatures() async {
+    final prefs = await SharedPreferences.getInstance();
+    await SecureSessionService.deleteSecret(keyEnrolledFeatures);
+    await SecureSessionService.deleteSecret(keyEncryptedTemplate);
+    await prefs.setBool(keyFaceEnrollmentCompleted, false);
+    await prefs.remove(keyFaceEnrollmentCompleted);
+  }
 }
 
 class FaceMatchResult {

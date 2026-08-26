@@ -5,6 +5,7 @@ import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:sarvam/controller/member_approval_controller.dart';
 import 'package:sarvam/view/BM/member_approval/widgets/doc_type_labels.dart';
+import 'package:sarvam/view/BM/member_approval/widgets/member_approval_dialog.dart';
 import 'package:sarvam/view/BM/member_approval/widgets/signed_doc_thumbnail.dart';
 
 const _green = Color(0xFF0D6842);
@@ -205,27 +206,7 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
     );
   }
 
-  Future<bool> _confirm(String title, String message) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: _green),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Confirm'),
-          ),
-        ],
-      ),
-    );
-    return result == true;
-  }
+
 
   Future<void> _act(String action, {required bool needsRemarks}) async {
     final remarks = _remarksCtrl.text.trim();
@@ -294,16 +275,35 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
       return;
     }
 
-    final label = action == 'BM_SUBMIT_TO_AM'
-        ? 'submit this client to AM'
-        : action == 'AM_APPROVE'
-        ? 'approve this client enrollment'
-        : (action == 'BM_RETAKE' || action == 'AM_RETAKE')
-        ? 'request a retake for this client'
-        : 'reject this client';
-    final ok = await _confirm(
-      'Confirm Action',
-      'Are you sure you want to $label?',
+    final clientName = '${_f(detail, 'firstName', '')} ${_f(detail, 'lastName', '')}'.trim();
+    final displayId = _f(detail, 'clientId');
+
+    final MemberApprovalActionType type;
+    final String title;
+    final String msg;
+
+    if (action == 'BM_SUBMIT_TO_AM' || action == 'AM_APPROVE') {
+      type = MemberApprovalActionType.approve;
+      title = action == 'AM_APPROVE' ? 'Approve Member Application' : 'Submit Application to AM';
+      msg = 'Are you sure you want to approve this member application and forward to the next stage?';
+    } else if (action == 'BM_RETAKE' || action == 'AM_RETAKE') {
+      type = MemberApprovalActionType.retake;
+      title = 'Request Document Retake';
+      msg = 'Send this member application back to FDO for document retake?';
+    } else {
+      type = MemberApprovalActionType.reject;
+      title = 'Reject Member Application';
+      msg = 'Are you sure you want to reject this member application?';
+    }
+
+    final ok = await showMemberApprovalDialog(
+      context,
+      title: title,
+      message: msg,
+      memberName: clientName.isEmpty ? 'Member' : clientName,
+      clientId: displayId,
+      remarks: remarks,
+      actionType: type,
     );
     if (!ok) return;
 
@@ -429,6 +429,10 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
       child: ListView(
         controller: _scrollController,
         padding: const EdgeInsets.all(14),
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
+        cacheExtent: 1200.0,
         children: [
           _workflowStepperCard(approvalStatus),
           _sectionCard('Overview', Icons.badge_outlined, [
@@ -1035,9 +1039,16 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
       return;
     }
     if (decision == 'DELETED') {
-      final ok = await _confirm(
-        'Delete Document',
-        'Are you sure you want to delete this document? This cannot be undone.',
+      final detail = controller.clientDetail.value ?? {};
+      final clientName = '${_f(detail, 'firstName', '')} ${_f(detail, 'lastName', '')}'.trim();
+      final ok = await showMemberApprovalDialog(
+        context,
+        title: 'Delete Document',
+        message: 'Are you sure you want to soft-delete this document? This cannot be undone.',
+        memberName: clientName.isEmpty ? 'Member' : clientName,
+        clientId: widget.clientId,
+        remarks: remark,
+        actionType: MemberApprovalActionType.deleteDoc,
       );
       if (!ok) return;
     }
@@ -1241,6 +1252,11 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
               const SizedBox(height: 10),
               Obx(() {
                 final isSubmitting = controller.submittingDocId.value == docId;
+                final activeDecision = controller.submittingDocDecision.value;
+                final isVerifyLoading = isSubmitting && activeDecision == 'VERIFIED';
+                final isRetakeLoading = isSubmitting && activeDecision == 'RETAKE_REQUIRED';
+                final isDeleteLoading = isSubmitting && activeDecision == 'DELETED';
+
                 return Row(
                   children: [
                     Expanded(
@@ -1248,7 +1264,16 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
                         onPressed: isSubmitting
                             ? null
                             : () => _actOnDoc(docId, 'VERIFIED'),
-                        icon: const Icon(Icons.check_circle_outline_rounded, size: 15),
+                        icon: isVerifyLoading
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: _green,
+                                ),
+                              )
+                            : const Icon(Icons.check_circle_outline_rounded, size: 15),
                         style: OutlinedButton.styleFrom(
                           backgroundColor: const Color(0xFFE8F5E9),
                           foregroundColor: _green,
@@ -1270,7 +1295,16 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
                         onPressed: isSubmitting
                             ? null
                             : () => _actOnDoc(docId, 'RETAKE_REQUIRED'),
-                        icon: const Icon(Icons.rotate_right_rounded, size: 15),
+                        icon: isRetakeLoading
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Color(0xFFB45309),
+                                ),
+                              )
+                            : const Icon(Icons.rotate_right_rounded, size: 15),
                         style: OutlinedButton.styleFrom(
                           backgroundColor: const Color(0xFFFEF3C7),
                           foregroundColor: const Color(0xFFB45309),
@@ -1292,11 +1326,14 @@ class _ClientApprovalDetailState extends State<ClientApprovalDetail> {
                         onPressed: isSubmitting
                             ? null
                             : () => _actOnDoc(docId, 'DELETED'),
-                        icon: isSubmitting
+                        icon: isDeleteLoading
                             ? const SizedBox(
                                 width: 14,
                                 height: 14,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Color(0xFFDC2626),
+                                ),
                               )
                             : const Icon(Icons.delete_outline_rounded, size: 15),
                         style: OutlinedButton.styleFrom(

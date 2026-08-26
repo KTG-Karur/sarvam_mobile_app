@@ -285,7 +285,9 @@ class _MemberApprovalState extends State<MemberApproval> {
       child: SingleChildScrollView(
         key: const ValueKey('member_content'),
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-        physics: const AlwaysScrollableScrollPhysics(),
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -371,7 +373,9 @@ class _MemberApprovalState extends State<MemberApproval> {
       child: SingleChildScrollView(
         key: const ValueKey('co_applicant_content'),
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-        physics: const AlwaysScrollableScrollPhysics(),
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

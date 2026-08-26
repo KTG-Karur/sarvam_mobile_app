@@ -41,6 +41,16 @@ class MemberIndividualDetailController extends GetxController {
   final isCompletingVisit = false.obs;
   final deletingPhotoId = Rxn<String>();
 
+  // Live location & distance tracking (House Hold Assessment tab)
+  final isFetchingLiveLocation = false.obs;
+  final liveLocationError = Rxn<String>();
+  final liveLatitude = RxnDouble();
+  final liveLongitude = RxnDouble();
+  final liveAccuracy = RxnDouble();
+  final branchDistanceMeters = RxnDouble();
+  final centerDistanceMeters = RxnDouble();
+  final fdoDistanceMeters = RxnDouble();
+
   final Rxn<Map<String, dynamic>> record = Rxn<Map<String, dynamic>>();
 
   final foodExpenseCtrl = TextEditingController();
@@ -138,6 +148,8 @@ class MemberIndividualDetailController extends GetxController {
         monthlyExpenseCtrl.text = _fmt(cf['monthlyExpense']);
         _recalculateTotal();
       }
+      // Auto-fetch live location for House Hold Assessment tab
+      fetchLiveLocation();
     } catch (e) {
       debugPrint('Failed to load Member Individual record: $e');
       Get.snackbar(
@@ -148,6 +160,72 @@ class MemberIndividualDetailController extends GetxController {
       );
     } finally {
       isLoading.value = false;
+    }
+  }
+
+  Future<void> fetchLiveLocation() async {
+    isFetchingLiveLocation.value = true;
+    liveLocationError.value = null;
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        liveLocationError.value = 'Location service is disabled on device.';
+        return;
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          liveLocationError.value = 'Location permission was denied.';
+          return;
+        }
+      }
+      if (permission == LocationPermission.deniedForever) {
+        liveLocationError.value = 'Location permission is permanently denied.';
+        return;
+      }
+
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      );
+      liveLatitude.value = pos.latitude;
+      liveLongitude.value = pos.longitude;
+      liveAccuracy.value = pos.accuracy;
+
+      _calculateDistances(pos.latitude, pos.longitude);
+    } catch (e) {
+      liveLocationError.value = 'Failed to fetch location: $e';
+    } finally {
+      isFetchingLiveLocation.value = false;
+    }
+  }
+
+  void _calculateDistances(double lat, double lng) {
+    // Branch distance
+    final bLat = double.tryParse('${branch['latitude']}');
+    final bLng = double.tryParse('${branch['longitude']}');
+    if (bLat != null && bLng != null) {
+      branchDistanceMeters.value = Geolocator.distanceBetween(lat, lng, bLat, bLng);
+    } else {
+      branchDistanceMeters.value = null;
+    }
+
+    // Center distance
+    final cLat = double.tryParse('${center['latitude']}');
+    final cLng = double.tryParse('${center['longitude']}');
+    if (cLat != null && cLng != null) {
+      centerDistanceMeters.value = Geolocator.distanceBetween(lat, lng, cLat, cLng);
+    } else {
+      centerDistanceMeters.value = null;
+    }
+
+    // FDO Client distance
+    final clLat = double.tryParse('${client['latitude']}');
+    final clLng = double.tryParse('${client['longitude']}');
+    if (clLat != null && clLng != null) {
+      fdoDistanceMeters.value = Geolocator.distanceBetween(lat, lng, clLat, clLng);
+    } else {
+      fdoDistanceMeters.value = null;
     }
   }
 

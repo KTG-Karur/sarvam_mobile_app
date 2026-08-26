@@ -124,6 +124,8 @@ class _SignedDocThumbnailState extends State<SignedDocThumbnail> {
                         child: Image.network(
                           url,
                           fit: BoxFit.cover,
+                          cacheWidth: 200,
+                          cacheHeight: 200,
                           errorBuilder: (_, __, ___) => const Icon(
                             Icons.broken_image_outlined,
                             color: Color(0xFF94A3B8),

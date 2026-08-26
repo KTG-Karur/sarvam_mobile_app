@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -36,7 +37,15 @@ class EnrollmentApiService {
   /// Unwraps `{success, data, message}`; throws [EnrollmentApiException] with
   /// the backend's message/error when `success` isn't true.
   dynamic _unwrap(Response response) {
-    final body = response.body;
+    dynamic body = response.body;
+    if (body is String) {
+      final trimmed = body.trim();
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        try {
+          body = jsonDecode(trimmed);
+        } catch (_) {}
+      }
+    }
     if (body is Map && body['success'] == true) {
       return body['data'];
     }
@@ -377,18 +386,24 @@ class EnrollmentApiService {
   /// list endpoints, `data` is `{level, items: [...], totalPending,
   /// pagination}`, not a bare array.
   Future<List<dynamic>> getApprovalQueue({String search = ''}) async {
-    final params = <String>['allBranch=true', 'page=1', 'limit=100'];
-    if (search.isNotEmpty) params.add('search=${Uri.encodeQueryComponent(search)}');
+    try {
+      final params = <String>['allBranch=true', 'page=1', 'limit=100'];
+      if (search.isNotEmpty) params.add('search=${Uri.encodeQueryComponent(search)}');
 
-    final token = await _authToken();
-    _client.timeout = const Duration(seconds: 20);
-    final response = await _client.get(
-      "${Api.approvalQueueUrl}?${params.join('&')}",
-      headers: _authHeaders(token),
-    );
-    final data = _unwrap(response);
-    final items = data is Map ? data['items'] : null;
-    return items is List ? items : <dynamic>[];
+      final token = await _authToken();
+      _client.timeout = const Duration(seconds: 20);
+      final response = await _client.get(
+        "${Api.approvalQueueUrl}?${params.join('&')}",
+        headers: _authHeaders(token),
+      );
+      if (response.statusCode == 404) return <dynamic>[];
+      final data = _unwrap(response);
+      final items = data is Map ? data['items'] : null;
+      return items is List ? items : <dynamic>[];
+    } catch (e) {
+      debugPrint("EnrollmentApiService getApprovalQueue error: $e");
+      return <dynamic>[];
+    }
   }
 
   /// `GET /api/approval/clients/{clientId}` — `clientId` here is the
