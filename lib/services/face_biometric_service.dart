@@ -354,6 +354,42 @@ class FaceBiometricService {
     return sqrt(dx * dx + dy * dy);
   }
 
+  /// Evaluates strict similarity between live captured features and enrolled template.
+  /// Prevents friend / secondary face from matching (FACE_MATCH_THRESHOLD = 98.0%).
+  static double computeFaceSimilarity(List<double> a, List<double> b) {
+    if (a.isEmpty || b.isEmpty || a.length != b.length) return 0.0;
+    const hardFailLogDiff = 0.18;
+    const hardFailMinCount = 2;
+    const vetoExempt = {12, 13};
+
+    double sumSq = 0.0;
+    int count = 0;
+    int hardFailCount = 0;
+
+    for (int i = 0; i < a.length; i++) {
+      final val1 = a[i];
+      final val2 = b[i];
+      if (val1 > 0 && val2 > 0) {
+        final logDiff = (log(val1) - log(val2)).abs();
+        sumSq += logDiff * logDiff;
+        if (logDiff > hardFailLogDiff && !vetoExempt.contains(i)) {
+          hardFailCount++;
+        }
+        count++;
+      }
+    }
+
+    if (count < 5) return 0.0;
+    if (hardFailCount >= hardFailMinCount) return 0.0;
+    final rms = sqrt(sumSq / count);
+    return exp(-rms);
+  }
+
+  static double computeFaceMatchScorePercent(List<double> live, List<double> enrolled) {
+    final sim = computeFaceSimilarity(live, enrolled);
+    return (sim * 100.0).clamp(0.0, 100.0);
+  }
+
   /// Aggregates multiple sample feature vectors into a single averaged master biometric feature template.
   static List<double> aggregateTemplateVector(List<List<double>> samples) {
     if (samples.isEmpty) return [];
@@ -566,6 +602,35 @@ class FaceBiometricService {
         scorePercent: 0.0,
         message: 'Unable to verify your face. Check your connection and try again.',
       );
+    }
+  }
+
+  /// Checks with the server whether the employee has recorded attendance/punched in today.
+  /// Returns `true` if present on server, `false` if not present, or `null` on network/server error.
+  static Future<bool?> isPresentTodayOnServer() async {
+    final token = await SecureSessionService.readAccessToken();
+    if (token == null || token.isEmpty) return null;
+
+    try {
+      final response = await http.get(
+        Uri.parse(Api.faceAttendanceStatusUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      ).timeout(const Duration(seconds: 6));
+
+      if (response.statusCode == 200) {
+        final resData = jsonDecode(response.body);
+        final data = resData['data'] is Map ? resData['data'] : resData;
+        if (data is Map && data.containsKey('present')) {
+          return data['present'] == true;
+        }
+      }
+      return null;
+    } catch (e) {
+      if (kDebugMode) print('Server attendance status fetch error: $e');
+      return null;
     }
   }
 

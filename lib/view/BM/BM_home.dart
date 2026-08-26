@@ -10,6 +10,7 @@ import 'package:sarvam/view/FDO/client_search_locate/client_search_locate.dart';
 import 'package:sarvam/view/FDO/loan_disbursement/loan_disbursement.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 import 'package:sarvam/widgets/punch_out_dialog.dart';
+import 'package:sarvam/services/face_biometric_service.dart';
 
 class _Metric {
   const _Metric(this.icon, this.label, this.value, [this.sub]);
@@ -87,6 +88,11 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
 
   Future<void> _loadUserDetails() async {
     final prefs = await SharedPreferences.getInstance();
+    final serverPresent = await FaceBiometricService.isPresentTodayOnServer();
+    if (serverPresent == true) {
+      // Keep the local fallback in sync with the confirmed server punch-in.
+      await prefs.setString('lastPunchInDate', todayDateKey());
+    }
     if (!mounted) return;
     setState(() {
       _employeeId = prefs.getString('employeeId') ?? '';
@@ -94,7 +100,7 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
       _userName =
           '${prefs.getString('firstName') ?? ''} ${prefs.getString('lastName') ?? ''}'
               .trim();
-      _presentToday = hasPunchedInToday(prefs);
+      _presentToday = serverPresent ?? hasPunchedInToday(prefs);
     });
   }
 

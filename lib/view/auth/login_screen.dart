@@ -72,6 +72,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final String deviceId = await _authController.getOrCreateDeviceId();
 
     final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('lastLoginId', empId);
     if (_rememberMe) {
       await prefs.setBool('rememberMe', true);
       await prefs.setString('savedEmployeeId', empId);
@@ -88,11 +89,17 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (!success || !mounted) return;
 
-    // The mobile API completes credential login with an MPIN ticket. It does
-    // not expose mobile OTP endpoints, so going to the OTP screen would always
-    // result in a 404 / "Unable to send OTP" response.
     final isMpinSet = prefs.getBool('isMpinSet') ?? false;
-    Get.off(() => isMpinSet ? const MpinLoginScreen() : const SetMpinScreen());
+    if (!isMpinSet) {
+      Get.off(() => const SetMpinScreen());
+      return;
+    }
+
+    final canChangeForgottenMpin = await _authController.canChangeForgottenMpin();
+    if (!mounted) return;
+    Get.off(() => canChangeForgottenMpin
+        ? const SetMpinScreen(isReset: true)
+        : const MpinLoginScreen());
   }
 
   @override

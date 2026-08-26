@@ -40,6 +40,10 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
   bool _isCapturing = false;
   bool _isVerifying = false;
   bool _faceDetected = false;
+  bool _isVerified = false;
+  int _failedVerificationAttempts = 0;
+  static const int _maxVerificationAttempts = 3;
+  bool _hasStartedVerification = false;
 
   String _firstName = '';
   String _lastName = '';
@@ -58,6 +62,8 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
   }
 
   Future<void> _startAutomaticVerification() async {
+    if (_hasStartedVerification || _isVerifying || _isCapturing) return;
+    _hasStartedVerification = true;
     await _loadProfile();
     if (!mounted) return;
     await _captureFace();
@@ -195,7 +201,8 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
   }
 
   Future<void> _verifyFace() async {
-    if (_facePhoto == null || !_faceDetected || _liveFeatures == null) {
+    if (_isVerified || _isVerifying) return;
+    if (_liveFeatures == null || !_faceDetected) {
       _showError(
         'Capture a clear photo with one detected face before continuing.',
       );
@@ -246,14 +253,28 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
         final bool alreadyDone = lowerMessage.contains('already punched in') ||
             lowerMessage.contains('already punched out');
         if (alreadyDone) {
-          // The face matched fine server-side too — this 409 just means our
-          // local punch state was stale (e.g. a retried request). Nothing
-          // to fix by recapturing or re-enrolling, so move on instead of
-          // showing a dead-end error.
           await _showInfoAndContinue(matchResult.message);
           return;
         }
-        _showError(matchResult.message);
+
+        _failedVerificationAttempts++;
+        if (_failedVerificationAttempts >= _maxVerificationAttempts) {
+          Get.snackbar(
+            'Verification Locked',
+            'Maximum 3 failed attempts reached. Proceeding with MPIN session.',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: Colors.orange,
+            colorText: Colors.white,
+            duration: const Duration(seconds: 3),
+          );
+          await Future.delayed(const Duration(seconds: 2));
+          if (!mounted) return;
+          final homeScreen = await resolveHomeScreen();
+          Get.offAll(() => homeScreen);
+          return;
+        }
+
+        _showError('Face match failed (Attempt $_failedVerificationAttempts/3). Tap Retry to scan again.');
         if (lowerMessage.contains('not enrolled')) {
           Future.delayed(const Duration(milliseconds: 800), () {
             Get.off(() => const FaceTrainingScreen(autoStart: true));
@@ -263,38 +284,34 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
             _facePhoto = null;
             _liveFeatures = null;
             _faceDetected = false;
+            _hasStartedVerification = false;
           });
         }
         return;
       }
 
+      _isVerified = true;
+
+      Get.snackbar(
+        '✅ Face Verified Successfully',
+        widget.isPunchOut
+            ? 'Shift completed successfully at $nowTimeStr.'
+            : 'Attendance recorded successfully at $nowTimeStr.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: const Color(0xFF008A3D),
+        colorText: Colors.white,
+        duration: const Duration(seconds: 2),
+      );
+
       if (widget.isPunchOut) {
         await prefs.setString('lastPunchOutDate', todayDateKey());
         await prefs.setString('lastPunchOutTime', nowTimeStr);
-
-        Get.snackbar(
-          'Punch Out Successful',
-          'Shift completed successfully at $nowTimeStr.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: const Color(0xFF008A3D),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 3),
-        );
         Get.offAll(() => const MpinLoginScreen());
         return;
       }
 
       await prefs.setString('lastPunchInDate', todayDateKey());
       await prefs.setString('lastPunchInTime', nowTimeStr);
-
-      Get.snackbar(
-        'Punch In Successful',
-        'Attendance recorded successfully at $nowTimeStr.',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: const Color(0xFF008A3D),
-        colorText: Colors.white,
-        duration: const Duration(seconds: 3),
-      );
 
       final homeScreen = await resolveHomeScreen();
       if (!mounted) return;
@@ -613,12 +630,16 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
         Positioned(
           top: 16.h,
           child: _StatusPill(
-            label: _isCapturing
-                ? 'OPENING CAMERA'
-                : (_facePhoto == null
-                      ? 'READY TO SCAN'
-                      : (_faceDetected ? 'FACE DETECTED' : 'RETAKE NEEDED')),
-            active: _isCapturing,
+            label: _isVerified
+                ? '✅ FACE VERIFIED'
+                : (_isVerifying
+                    ? 'VERIFYING...'
+                    : (_isCapturing
+                        ? 'OPENING CAMERA'
+                        : (_faceDetected
+                            ? 'FACE DETECTED • KEEP STEADY'
+                            : 'READY TO SCAN'))),
+            active: _isCapturing || _isVerifying,
           ),
         ),
         if (_facePhoto != null && _faceDetected)
@@ -847,38 +868,80 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
   );
 
   Widget _punchButton(bool busy) {
-    final color = widget.isPunchOut
-        ? const Color(0xFFC5221F)
-        : const Color(0xFF008A3D);
+    final bool disabled = busy || _isVerifying || _isVerified;
+
+    final color = _isVerified
+        ? const Color(0xFF008A3D)
+        : (_failedVerificationAttempts >= _maxVerificationAttempts
+            ? Colors.orange
+            : (widget.isPunchOut
+                ? const Color(0xFFC5221F)
+                : const Color(0xFF008A3D)));
+
+    final String buttonLabel = _isVerified
+        ? 'VERIFIED ✓'
+        : (_isVerifying
+            ? 'Verifying...'
+            : (_failedVerificationAttempts >= _maxVerificationAttempts
+                ? 'PROCEED TO DASHBOARD (MPIN SESSION)'
+                : (_failedVerificationAttempts > 0
+                    ? 'Try Again (Attempt ${_failedVerificationAttempts + 1}/3)'
+                    : 'Verify Face')));
 
     return SizedBox(
       width: double.infinity,
       height: 62.h,
       child: ElevatedButton(
-        onPressed: busy
+        onPressed: disabled
             ? null
             : () async {
+                if (_failedVerificationAttempts >= _maxVerificationAttempts) {
+                  final homeScreen = await resolveHomeScreen();
+                  if (!mounted) return;
+                  Get.offAll(() => homeScreen);
+                  return;
+                }
                 // If no face has been captured, open the camera immediately.
-                if (_facePhoto == null || !_faceDetected) {
+                if (_liveFeatures == null || !_faceDetected) {
                   await _captureFace();
                 }
 
                 // If face capture succeeded, verify automatically.
-                if (_facePhoto != null && _faceDetected) {
+                if (_liveFeatures != null && _faceDetected && !_isVerified) {
                   await _verifyFace();
                 }
               },
         style: ElevatedButton.styleFrom(
           backgroundColor: color,
           foregroundColor: Colors.white,
+          disabledBackgroundColor: color.withValues(alpha: 0.6),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16.r),
           ),
         ),
-        child: Text(
-          widget.isPunchOut ? 'Punch Out' : 'Punch In',
-          style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold),
-        ),
+        child: _isVerifying
+            ? Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 20.w,
+                    height: 20.w,
+                    child: const CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  ),
+                  SizedBox(width: 10.w),
+                  Text(
+                    'Verifying...',
+                    style: TextStyle(fontSize: 15.sp, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              )
+            : Text(
+                buttonLabel,
+                style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.bold),
+              ),
       ),
     );
   }

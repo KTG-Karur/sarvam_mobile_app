@@ -13,10 +13,13 @@ class Api {
   static const String mpinVerifyUrl = "$baseUrl/api/mobile/mpin/verify";
   static const String mpinForgotUrl = "$baseUrl/api/mobile/mpin/forgot";
   static const String mpinChangeUrl = "$baseUrl/api/mobile/mpin/change";
+  static const String mpinChangeStatusUrl = "$baseUrl/api/mobile/mpin/change-status";
   static const String otpSendUrl = "$baseUrl/api/mobile/otp/send";
   static const String otpVerifyUrl = "$baseUrl/api/mobile/otp/verify";
   static const String faceRegisterUrl = "$baseUrl/api/auth/face/register";
   static const String faceVerifyUrl = "$baseUrl/api/auth/face/verify";
+  static const String faceAttendanceStatusUrl = "$baseUrl/api/auth/face/attendance-status";
+  static const String deviceAccessRequestUrl = "$baseUrl/api/mobile/device-access/request";
   static const String demandCollectionUrl = "$baseUrl/api/collections/demand";
   static const String centersUrl = "$baseUrl/api/centers";
   static const String demandCentersUrl =

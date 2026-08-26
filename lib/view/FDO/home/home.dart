@@ -9,6 +9,7 @@ import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/controller/dashboard_controller.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 import 'package:sarvam/widgets/punch_out_dialog.dart';
+import 'package:sarvam/services/face_biometric_service.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -63,6 +64,11 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
 
   Future<void> _loadUserDetails() async {
     final prefs = await SharedPreferences.getInstance();
+    final serverPresent = await FaceBiometricService.isPresentTodayOnServer();
+    if (serverPresent == true) {
+      // Keep the local fallback in sync with the confirmed server punch-in.
+      await prefs.setString('lastPunchInDate', todayDateKey());
+    }
     if (!mounted) return;
     setState(() {
       _employeeId = prefs.getString('employeeId') ?? '';
@@ -70,7 +76,7 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
       _fdoName =
           '${prefs.getString('firstName') ?? ''} ${prefs.getString('lastName') ?? ''}'
               .trim();
-      _presentToday = hasPunchedInToday(prefs);
+      _presentToday = serverPresent ?? hasPunchedInToday(prefs);
     });
   }
 
@@ -1328,8 +1334,6 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
     );
   }
 }
-
-
 
 
 

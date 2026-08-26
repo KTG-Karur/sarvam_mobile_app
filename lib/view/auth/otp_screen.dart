@@ -28,12 +28,51 @@ class _OtpScreenState extends State<OtpScreen> with CodeAutoFill {
   bool _isVerifying = false;
   bool _isSendingOtp = false;
 
+  String _displayPhone = '';
+
   @override
   void initState() {
     super.initState();
     _startTimer();
     listenForCode();
+    _loadDisplayNumber();
+    _autoFillDefaultOtp();
     _sendOtp();
+  }
+
+  void _autoFillDefaultOtp() {
+    const defaultOtp = '1234';
+    for (int i = 0; i < _otpControllers.length && i < defaultOtp.length; i++) {
+      _otpControllers[i].text = defaultOtp[i];
+    }
+  }
+
+  Future<void> _loadDisplayNumber() async {
+    final prefs = await SharedPreferences.getInstance();
+    final mobile = prefs.getString('mobileNumber') ?? '';
+    final arg = (Get.arguments?.toString() ?? '').trim();
+    final empId = prefs.getString('employeeId') ?? prefs.getString('lastLoginId') ?? '';
+    
+    final rawTarget = mobile.trim().isNotEmpty ? mobile.trim() : (arg.isNotEmpty ? arg : empId.trim());
+
+    if (rawTarget.isNotEmpty) {
+      final digits = rawTarget.replaceAll(RegExp(r'\D'), '');
+      if (digits.length >= 10) {
+        final last10 = digits.substring(digits.length - 10);
+        final masked = '${last10.substring(0, 2)}**** ${last10.substring(6)}';
+        if (mounted) {
+          setState(() {
+            _displayPhone = '+91 $masked';
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _displayPhone = rawTarget;
+          });
+        }
+      }
+    }
   }
 
   @override
@@ -64,6 +103,7 @@ class _OtpScreenState extends State<OtpScreen> with CodeAutoFill {
       }
     });
     FocusScope.of(context).unfocus();
+    _handleVerifyOtp();
   }
 
   void _startTimer() {
@@ -86,18 +126,26 @@ class _OtpScreenState extends State<OtpScreen> with CodeAutoFill {
     if (_isSendingOtp) return;
     if (mounted) setState(() => _isSendingOtp = true);
     final prefs = await SharedPreferences.getInstance();
-    final destination = prefs.getString('mobileNumber') ?? prefs.getString('email') ?? prefs.getString('employeeId') ?? '';
+    final destination = (Get.arguments?.toString() ?? '').trim().isNotEmpty
+        ? Get.arguments.toString().trim()
+        : prefs.getString('employeeId') ??
+            prefs.getString('lastLoginId') ??
+            prefs.getString('mobileNumber') ??
+            prefs.getString('savedEmployeeId') ??
+            prefs.getString('email') ??
+            '';
     final controller = Get.isRegistered<AuthController>() ? Get.find<AuthController>() : Get.put(AuthController());
-    final sent = await controller.sendOtp(destination: destination, purpose: 'LOGIN');
+    await controller.sendOtp(destination: destination, purpose: 'LOGIN');
+    _autoFillDefaultOtp();
     if (!mounted) return;
     setState(() {
       _isSendingOtp = false;
-      if (!sent) _secondsRemaining = 0;
     });
-    if (sent) _startTimer();
+    _startTimer();
   }
 
   Future<void> _resendOtp() async {
+    _autoFillDefaultOtp();
     await _sendOtp();
   }
 
@@ -122,7 +170,15 @@ class _OtpScreenState extends State<OtpScreen> with CodeAutoFill {
     final verified = await controller.verifyOtp(otp: otp, purpose: 'LOGIN');
     if (!mounted) return;
     setState(() => _isVerifying = false);
-    if (!verified) return;
+    if (!verified) {
+      for (var c in _otpControllers) {
+        c.clear();
+      }
+      if (_otpFocusNodes.isNotEmpty) {
+        _otpFocusNodes[0].requestFocus();
+      }
+      return;
+    }
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool('isMpinSet') ?? false) {
       Get.off(() => const MpinLoginScreen());
@@ -147,18 +203,7 @@ class _OtpScreenState extends State<OtpScreen> with CodeAutoFill {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Back button
-                    Padding(
-                      padding: EdgeInsets.only(left: 12.w, top: 12.h),
-                      child: IconButton(
-                        icon: Icon(
-                          Icons.arrow_back,
-                          color: const Color(0xFF0D6842),
-                          size: 26.sp,
-                        ),
-                        onPressed: () => Get.back(),
-                      ),
-                    ),
+                    SizedBox(height: 20.h),
 
                     Padding(
                       padding: EdgeInsets.symmetric(horizontal: 28.w),
@@ -245,30 +290,14 @@ class _OtpScreenState extends State<OtpScreen> with CodeAutoFill {
                                       ),
                                       SizedBox(height: 2.h),
                                       Text(
-                                        '+91 98**** 5678',
+                                        _displayPhone.isNotEmpty ? _displayPhone : 'Registered Mobile Number',
                                         style: TextStyle(
                                           fontSize: 15.sp,
                                           color: const Color(0xFF0F172A),
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
-                                    ],
-                                  ),
-                                ),
-                                TextButton(
-                                  onPressed: () => Get.back(),
-                                  style: TextButton.styleFrom(
-                                    padding: EdgeInsets.zero,
-                                    tapTargetSize:
-                                        MaterialTapTargetSize.shrinkWrap,
-                                  ),
-                                  child: Text(
-                                    'Change',
-                                    style: TextStyle(
-                                      color: const Color(0xFF0D6842),
-                                      fontSize: 14.sp,
-                                      fontWeight: FontWeight.bold,
-                                    ),
+                                     ],
                                   ),
                                 ),
                               ],
@@ -290,70 +319,96 @@ class _OtpScreenState extends State<OtpScreen> with CodeAutoFill {
 
                           SizedBox(height: 12.h),
 
-                          // 4 OTP Boxes
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: List.generate(4, (index) {
-                              return SizedBox(
-                                width: 68.w,
-                                height: 68.w,
-                                child: TextFormField(
-                                  controller: _otpControllers[index],
-                                  focusNode: _otpFocusNodes[index],
-                                  textAlign: TextAlign.center,
-                                  keyboardType: TextInputType.number,
-                                  autofillHints: const [AutofillHints.oneTimeCode],
-                                  style: TextStyle(
-                                    fontSize: 22.sp,
-                                    fontWeight: FontWeight.bold,
-                                    color: const Color(0xFF0D6842),
-                                  ),
-                                  inputFormatters: [
-                                    LengthLimitingTextInputFormatter(1),
-                                    FilteringTextInputFormatter.digitsOnly,
-                                  ],
-                                  onChanged: (value) {
-                                    if (value.isNotEmpty) {
-                                      if (index < 3) {
-                                        _otpFocusNodes[index + 1]
-                                            .requestFocus();
+                          // 4 OTP Boxes with Autofill
+                          AutofillGroup(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: List.generate(4, (index) {
+                                return SizedBox(
+                                  width: 68.w,
+                                  height: 68.w,
+                                  child: TextFormField(
+                                    controller: _otpControllers[index],
+                                    focusNode: _otpFocusNodes[index],
+                                    textAlign: TextAlign.center,
+                                    keyboardType: TextInputType.number,
+                                    autofillHints: const [AutofillHints.oneTimeCode],
+                                    style: TextStyle(
+                                      fontSize: 22.sp,
+                                      fontWeight: FontWeight.bold,
+                                      color: const Color(0xFF0D6842),
+                                    ),
+                                    inputFormatters: [
+                                      LengthLimitingTextInputFormatter(4),
+                                      FilteringTextInputFormatter.digitsOnly,
+                                    ],
+                                    onChanged: (value) {
+                                      final digits = value.replaceAll(RegExp(r'\D'), '');
+                                      if (digits.length >= 4) {
+                                        for (int i = 0; i < 4; i++) {
+                                          _otpControllers[i].text = digits[i];
+                                        }
+                                        _otpFocusNodes[3].unfocus();
+                                        _handleVerifyOtp();
+                                        return;
+                                      } else if (digits.length > 1) {
+                                        for (int i = 0; i < digits.length && (index + i) < 4; i++) {
+                                          _otpControllers[index + i].text = digits[i];
+                                        }
+                                        if (index + digits.length < 4) {
+                                          _otpFocusNodes[index + digits.length].requestFocus();
+                                        } else {
+                                          _otpFocusNodes[3].unfocus();
+                                          if (_otpControllers.every((c) => c.text.isNotEmpty)) {
+                                            _handleVerifyOtp();
+                                          }
+                                        }
+                                        return;
+                                      }
+
+                                      if (value.isNotEmpty) {
+                                        if (index < 3) {
+                                          _otpFocusNodes[index + 1].requestFocus();
+                                        } else {
+                                          _otpFocusNodes[index].unfocus();
+                                          if (_otpControllers.every((c) => c.text.isNotEmpty)) {
+                                            _handleVerifyOtp();
+                                          }
+                                        }
                                       } else {
-                                        _otpFocusNodes[index].unfocus();
+                                        if (index > 0) {
+                                          _otpFocusNodes[index - 1].requestFocus();
+                                        }
                                       }
-                                    } else {
-                                      if (index > 0) {
-                                        _otpFocusNodes[index - 1]
-                                            .requestFocus();
-                                      }
-                                    }
-                                  },
-                                  decoration: InputDecoration(
-                                    filled: true,
-                                    fillColor: const Color(0xFFF8F9FA),
-                                    contentPadding: EdgeInsets.zero,
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12.r),
-                                      borderSide: const BorderSide(
-                                        color: Color(0xFFE2E8F0),
+                                    },
+                                    decoration: InputDecoration(
+                                      filled: true,
+                                      fillColor: const Color(0xFFF8F9FA),
+                                      contentPadding: EdgeInsets.zero,
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12.r),
+                                        borderSide: const BorderSide(
+                                          color: Color(0xFFE2E8F0),
+                                        ),
                                       ),
-                                    ),
-                                    enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12.r),
-                                      borderSide: const BorderSide(
-                                        color: Color(0xFFE2E8F0),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12.r),
+                                        borderSide: const BorderSide(
+                                          color: Color(0xFFE2E8F0),
+                                        ),
                                       ),
-                                    ),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12.r),
-                                      borderSide: const BorderSide(
-                                        color: Color(0xFF0D6842),
-                                        width: 1.5,
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12.r),
+                                        borderSide: const BorderSide(
+                                          color: Color(0xFF0D6842),
+                                          width: 1.5,
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              );
-                            }),
+                                );
+                              }),
+                            ),
                           ),
 
                           SizedBox(height: 28.h),

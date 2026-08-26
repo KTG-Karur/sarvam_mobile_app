@@ -5,11 +5,11 @@ import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/view/auth/login_screen.dart';
+import 'package:sarvam/view/auth/set_mpin_screen.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 import 'package:sarvam/view/auth/face_verification_screen.dart';
 import 'package:sarvam/view/auth/face_training_screen.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
-import 'package:sarvam/services/secure_session_service.dart';
 
 class MpinLoginScreen extends StatefulWidget {
   const MpinLoginScreen({super.key});
@@ -18,7 +18,8 @@ class MpinLoginScreen extends StatefulWidget {
   State<MpinLoginScreen> createState() => _MpinLoginScreenState();
 }
 
-class _MpinLoginScreenState extends State<MpinLoginScreen> {
+class _MpinLoginScreenState extends State<MpinLoginScreen>
+    with WidgetsBindingObserver {
   final List<TextEditingController> _mpinControllers = List.generate(
     4,
     (_) => TextEditingController(),
@@ -26,9 +27,41 @@ class _MpinLoginScreenState extends State<MpinLoginScreen> {
   final List<FocusNode> _mpinFocusNodes = List.generate(4, (_) => FocusNode());
 
   bool _showMpin = false;
+  bool _checkingResetApproval = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _openNewMpinScreenWhenApproved();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _openNewMpinScreenWhenApproved();
+    }
+  }
+
+  Future<void> _openNewMpinScreenWhenApproved() async {
+    if (_checkingResetApproval) return;
+    _checkingResetApproval = true;
+    try {
+      final authController = Get.isRegistered<AuthController>()
+          ? Get.find<AuthController>()
+          : Get.put(AuthController());
+      final canSetNewMpin = await authController.canChangeForgottenMpin();
+      if (canSetNewMpin && mounted) {
+        Get.offAll(() => const SetMpinScreen(isReset: true));
+      }
+    } finally {
+      _checkingResetApproval = false;
+    }
+  }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     for (var controller in _mpinControllers) {
       controller.dispose();
     }
@@ -94,12 +127,26 @@ class _MpinLoginScreenState extends State<MpinLoginScreen> {
   }
 
   Future<void> _handleForgotMpin() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('isMpinSet', false);
-    await SecureSessionService.clearPendingToken();
+    final authController = Get.isRegistered<AuthController>()
+        ? Get.find<AuthController>()
+        : Get.put(AuthController());
+    final requested = await authController.forgotMpin();
+    if (!mounted) return;
+
+    // A 409 can mean the administrator has already approved an earlier
+    // request. That is actionable: open the replacement-MPIN form directly.
+    if (!requested) {
+      final canSetNewMpin = await authController.canChangeForgottenMpin();
+      if (canSetNewMpin && mounted) {
+        Get.closeAllSnackbars();
+        Get.offAll(() => const SetMpinScreen(isReset: true));
+      }
+      return;
+    }
+
     Get.snackbar(
-      'Reset MPIN',
-      'Please sign in with your password to set a new MPIN.',
+      'Request Submitted',
+      'Your MPIN reset request has been sent. Set a new MPIN after administrator approval.',
       snackPosition: SnackPosition.BOTTOM,
       backgroundColor: const Color(0xFF0D6842),
       colorText: Colors.white,
@@ -124,18 +171,7 @@ class _MpinLoginScreenState extends State<MpinLoginScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Back button
-                    Padding(
-                      padding: EdgeInsets.only(left: 12.w, top: 12.h),
-                      child: IconButton(
-                        icon: Icon(
-                          Icons.arrow_back,
-                          color: const Color(0xFF0D6842),
-                          size: 26.sp,
-                        ),
-                        onPressed: () => Get.off(() => const LoginScreen()),
-                      ),
-                    ),
+                    SizedBox(height: 20.h),
 
                     Padding(
                       padding: EdgeInsets.symmetric(horizontal: 28.w),
@@ -443,7 +479,30 @@ class _MpinLoginScreenState extends State<MpinLoginScreen> {
                               ),
                             ],
                           ),
-                          SizedBox(height: 135.h),
+                          SizedBox(height: 24.h),
+
+                          // Option to Log in as a different user
+                          Center(
+                            child: TextButton(
+                              onPressed: () => Get.off(() => const LoginScreen()),
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 12.w,
+                                  vertical: 8.h,
+                                ),
+                              ),
+                              child: Text(
+                                'Log in here',
+                                style: TextStyle(
+                                  fontSize: 14.sp,
+                                  fontWeight: FontWeight.bold,
+                                  color: const Color(0xFF0D6842),
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          SizedBox(height: 48.h),
                         ],
                       ),
                     ),

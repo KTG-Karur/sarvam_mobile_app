@@ -5,9 +5,12 @@ import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/view/auth/face_training_screen.dart';
+import 'package:sarvam/view/auth/mpin_login_screen.dart';
 
 class SetMpinScreen extends StatefulWidget {
-  const SetMpinScreen({super.key});
+  const SetMpinScreen({super.key, this.isReset = false});
+
+  final bool isReset;
 
   @override
   State<SetMpinScreen> createState() => _SetMpinScreenState();
@@ -97,17 +100,18 @@ class _SetMpinScreenState extends State<SetMpinScreen> {
         ? Get.find<AuthController>()
         : Get.put(AuthController());
 
-    final bool success = await authController.setupMpin(
-      mpin: mpin,
-      confirmMpin: confirm,
-    );
+    final bool success = widget.isReset
+        ? await authController.changeMpin(mpin: mpin, confirmMpin: confirm)
+        : await authController.setupMpin(mpin: mpin, confirmMpin: confirm);
 
     if (success) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('faceEnrollmentCompleted', false);
-
-      // MPIN set - navigate to Face Training
-      Get.off(() => const FaceTrainingScreen());
+      if (widget.isReset) {
+        Get.offAll(() => const MpinLoginScreen());
+      } else {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('faceEnrollmentCompleted', false);
+        Get.off(() => const FaceTrainingScreen());
+      }
     }
   }
 

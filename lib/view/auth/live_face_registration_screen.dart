@@ -21,10 +21,12 @@ class LiveFaceRegistrationScreen extends StatefulWidget {
     super.key,
     this.userId,
     this.onRegistrationComplete,
+    this.verificationOnly = false,
   });
 
   final String? userId;
   final VoidCallback? onRegistrationComplete;
+  final bool verificationOnly;
 
   @override
   State<LiveFaceRegistrationScreen> createState() =>
@@ -288,6 +290,15 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
     HapticFeedback.mediumImpact();
 
     final features = FaceBiometricService.extractFeatureVector(face);
+
+    if (widget.verificationOnly) {
+      _stopImageStream();
+      if (mounted) {
+        Navigator.pop(context, {'features': features});
+      }
+      return;
+    }
+
     _capturedFeatureSamples.add(features);
 
     // Advance challenge step: 1/4 -> 2/4 -> 3/4 -> 4/4

@@ -39,18 +39,18 @@ class _FrontCameraCaptureScreenState extends State<FrontCameraCaptureScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _controller?.dispose();
+    final oldController = _controller;
+    _controller = null;
+    oldController?.dispose();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final CameraController? cameraController = _controller;
-    if (cameraController == null || !cameraController.value.isInitialized) {
-      return;
-    }
-    if (state == AppLifecycleState.inactive) {
-      cameraController.dispose();
+    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
+      final oldController = _controller;
+      _controller = null;
+      oldController?.dispose();
     } else if (state == AppLifecycleState.resumed) {
       _initCamera();
     }
@@ -248,7 +248,15 @@ class _FrontCameraCaptureScreenState extends State<FrontCameraCaptureScreen>
                             child: SizedBox(
                               width: 280.w,
                               height: 340.h,
-                              child: CameraPreview(_controller!),
+                              child: (_controller != null &&
+                                      _controller!.value.isInitialized &&
+                                      !_controller!.value.hasError)
+                                  ? CameraPreview(_controller!)
+                                  : const Center(
+                                      child: CircularProgressIndicator(
+                                        color: Color(0xFF008A3D),
+                                      ),
+                                    ),
                             ),
                           ),
                           Container(

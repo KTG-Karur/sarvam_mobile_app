@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/view/auth/login_screen.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
@@ -16,7 +17,7 @@ class AuthController extends GetxController {
   bool _validMpin(String value) => RegExp(r'^\d{4}$').hasMatch(value);
 
   /// Requests a one-time login/reset challenge. The server owns expiry and
-  /// single-use validation; the app stores only the opaque challenge id.
+  /// Requests a one-time login/reset challenge.
   Future<bool> sendOtp({required String destination, required String purpose}) async {
     if (destination.trim().isEmpty) return false;
     try {
@@ -30,7 +31,20 @@ class AuthController extends GetxController {
       final body = response.body is Map ? response.body as Map : const {};
       if ((response.statusCode == 200 || response.statusCode == 201) && body['success'] != false) {
         final id = (body['data'] is Map ? body['data']['challengeId'] : body['challengeId'])?.toString();
-        if (id != null && id.isNotEmpty) await SecureSessionService.savePendingToken(id);
+        if (id != null && id.isNotEmpty) {
+          await SecureSessionService.saveOtpChallenge(id);
+        }
+        final devOtp = (body['data'] is Map ? body['data']['otp'] : body['otp'])?.toString();
+        Get.snackbar(
+          'OTP Sent',
+          devOtp != null && devOtp.isNotEmpty
+              ? 'OTP sent to registered mobile. (Dev OTP: $devOtp)'
+              : 'OTP has been sent to your registered mobile number.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: const Color(0xFF0D6842),
+          colorText: Colors.white,
+          duration: const Duration(seconds: 4),
+        );
         return true;
       }
       _showAuthError('OTP', body['message']?.toString() ?? 'Unable to send OTP. Please try again.');
@@ -38,7 +52,9 @@ class AuthController extends GetxController {
     } catch (_) {
       _showAuthError('OTP', 'Unable to send OTP. Check your network connection and try again.');
       return false;
-    } finally { isLoading.value = false; }
+    } finally {
+      isLoading.value = false;
+    }
   }
 
   Future<bool> verifyOtp({required String otp, required String purpose}) async {
@@ -52,11 +68,7 @@ class AuthController extends GetxController {
     try {
       isLoading.value = true;
       _connect.timeout = const Duration(seconds: 15);
-      final challengeId = await SecureSessionService.readPendingToken();
-      if (challengeId == null || challengeId.isEmpty) {
-        _showAuthError('OTP verification', 'This OTP request has expired. Please request a new OTP.');
-        return false;
-      }
+      final challengeId = await SecureSessionService.readOtpChallenge() ?? '';
       final response = await _connect.post(Api.otpVerifyUrl, {
         'otp': normalizedOtp,
         'purpose': purpose,
@@ -65,7 +77,7 @@ class AuthController extends GetxController {
       });
       final body = response.body is Map ? response.body as Map : const {};
       if ((response.statusCode == 200 || response.statusCode == 201) && body['success'] != false) {
-        await SecureSessionService.clearPendingToken();
+        await SecureSessionService.clearOtpChallenge();
         return true;
       }
       _showAuthError('OTP verification', body['message']?.toString() ?? 'This OTP is invalid, expired, or has already been used.');
@@ -73,7 +85,9 @@ class AuthController extends GetxController {
     } catch (_) {
       _showAuthError('OTP verification', 'Unable to verify OTP. Check your network connection and try again.');
       return false;
-    } finally { isLoading.value = false; }
+    } finally {
+      isLoading.value = false;
+    }
   }
 
   void _showAuthError(String title, String message) => Get.snackbar(title, message,
@@ -242,6 +256,20 @@ class AuthController extends GetxController {
 
         final String lowerError = errorMsg.toLowerCase();
 
+        // 0. Check Single Device Access Control block
+        if (code == 'DEVICE_ACCESS_DENIED' ||
+            data['canRequestAccess'] == true ||
+            lowerError.contains('registered on another device') ||
+            lowerError.contains('already registered on another device')) {
+          showDeviceAccessDeniedDialog(
+            employeeId: employeeId,
+            password: password,
+            deviceId: effectiveDeviceId,
+            hasPendingRequest: data['hasPendingRequest'] == true,
+          );
+          return false;
+        }
+
         // 1. Check if MPIN setup is required (MPIN not created yet)
         if (code == 'MPIN_NOT_SET' ||
             data['requiresMpinSetup'] == true ||
@@ -314,6 +342,156 @@ class AuthController extends GetxController {
       password: password,
       deviceId: deviceId,
     );
+  }
+
+  /// Displays the Access Denied dialog when an account is registered on another device.
+  void showDeviceAccessDeniedDialog({
+    required String employeeId,
+    required String password,
+    required String deviceId,
+    bool hasPendingRequest = false,
+  }) {
+    Get.dialog(
+      AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.r)),
+        title: Row(
+          children: [
+            Container(
+              padding: EdgeInsets.all(8.w),
+              decoration: const BoxDecoration(
+                color: Color(0xFFFFEBEE),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.no_cell_outlined,
+                color: Colors.redAccent,
+                size: 24.sp,
+              ),
+            ),
+            SizedBox(width: 12.w),
+            Expanded(
+              child: Text(
+                'Access Denied',
+                style: TextStyle(
+                  fontSize: 18.sp,
+                  fontWeight: FontWeight.bold,
+                  color: const Color(0xFF0F172A),
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'This account is already registered on another device. Please contact the Admin to get access on this device.',
+              style: TextStyle(
+                fontSize: 14.sp,
+                color: const Color(0xFF475569),
+                height: 1.4,
+              ),
+            ),
+            if (hasPendingRequest) ...[
+              SizedBox(height: 12.h),
+              Container(
+                padding: EdgeInsets.all(10.w),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF7ED),
+                  borderRadius: BorderRadius.circular(8.r),
+                  border: Border.all(color: const Color(0xFFFFEDD5)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.hourglass_top_rounded, color: Colors.orange, size: 16.sp),
+                    SizedBox(width: 8.w),
+                    Expanded(
+                      child: Text(
+                        'A request is already pending Admin approval.',
+                        style: TextStyle(fontSize: 12.sp, color: Colors.orange.shade900),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: const Color(0xFF64748B), fontSize: 14.sp),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Get.back();
+              await requestDeviceAccess(
+                employeeId: employeeId,
+                password: password,
+                deviceId: deviceId,
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0D6842),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.r)),
+              elevation: 0,
+            ),
+            child: Text(
+              hasPendingRequest ? 'Re-send Request' : 'Request Admin Access',
+              style: TextStyle(color: Colors.white, fontSize: 14.sp, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+      barrierDismissible: true,
+    );
+  }
+
+  /// Submits a request to Admin for device access/swap approval.
+  Future<bool> requestDeviceAccess({
+    required String employeeId,
+    required String password,
+    required String deviceId,
+    String? deviceName,
+  }) async {
+    try {
+      isLoading.value = true;
+      _connect.timeout = const Duration(seconds: 15);
+      final response = await _connect.post(Api.deviceAccessRequestUrl, {
+        'employeeId': employeeId,
+        'password': password,
+        'deviceId': deviceId,
+        'deviceName': deviceName ?? 'Mobile Device',
+      });
+
+      final body = response.body is Map ? response.body as Map : const {};
+      if ((response.statusCode == 200 || response.statusCode == 201) && body['success'] != false) {
+        Get.snackbar(
+          'Request Submitted',
+          body['message']?.toString() ?? 'Device access request submitted. Please wait for Admin approval.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: const Color(0xFF0D6842),
+          colorText: Colors.white,
+          duration: const Duration(seconds: 4),
+        );
+        return true;
+      }
+
+      _showAuthError(
+        'Request Failed',
+        body['error']?.toString() ?? body['message']?.toString() ?? 'Failed to submit device access request.',
+      );
+      return false;
+    } catch (e) {
+      _showAuthError('Error', 'Unable to submit request. Check network connection and try again.');
+      return false;
+    } finally {
+      isLoading.value = false;
+    }
   }
 
   /// Setup MPIN for authenticated user (POST /api/mobile/mpin/setup)
@@ -558,6 +736,33 @@ class AuthController extends GetxController {
       return false;
     } finally {
       isLoading.value = false;
+    }
+  }
+
+  /// Checks whether user can change forgotten MPIN (POST /api/mobile/mpin/change-status)
+  Future<bool> canChangeForgottenMpin() async {
+    try {
+      final token = await SecureSessionService.readPendingToken() ??
+          await SecureSessionService.readAccessToken();
+      if (token == null || token.isEmpty) return false;
+
+      final response = await _connect.post(
+        Api.mpinChangeStatusUrl,
+        {},
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200 && response.body != null) {
+        final body = response.body as Map;
+        return body['canChangeMpin'] == true ||
+            (body['data'] is Map && body['data']['canChangeMpin'] == true);
+      }
+      return false;
+    } catch (_) {
+      return false;
     }
   }
 

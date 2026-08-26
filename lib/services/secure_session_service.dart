@@ -15,6 +15,7 @@ class SecureSessionService {
   static const accessTokenKey = 'accessToken';
   static const refreshTokenKey = 'refreshToken';
   static const pendingTokenKey = 'pendingAuthToken';
+  static const otpChallengeKey = 'otpChallengeId';
 
   static Future<String?> readAccessToken() => _storage.read(key: accessTokenKey);
   static Future<String?> readPendingToken() => _storage.read(key: pendingTokenKey);
@@ -43,6 +44,9 @@ class SecureSessionService {
       _storage.write(key: pendingTokenKey, value: token);
 
   static Future<void> clearPendingToken() => _storage.delete(key: pendingTokenKey);
+  static Future<void> saveOtpChallenge(String challengeId) => _storage.write(key: otpChallengeKey, value: challengeId);
+  static Future<String?> readOtpChallenge() => _storage.read(key: otpChallengeKey);
+  static Future<void> clearOtpChallenge() => _storage.delete(key: otpChallengeKey);
 
   static Future<void> writeSecret(String key, String value) => _storage.write(key: key, value: value);
   static Future<String?> readSecret(String key) => _storage.read(key: key);
@@ -75,6 +79,7 @@ class SecureSessionService {
     await _storage.delete(key: accessTokenKey);
     await _storage.delete(key: refreshTokenKey);
     await _storage.delete(key: pendingTokenKey);
+    await _storage.delete(key: otpChallengeKey);
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(accessTokenKey);
     await prefs.remove(refreshTokenKey);
