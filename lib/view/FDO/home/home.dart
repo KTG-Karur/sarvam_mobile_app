@@ -11,6 +11,7 @@ import 'package:sarvam/controller/dashboard_controller.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 import 'package:sarvam/widgets/punch_out_dialog.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
+import 'package:sarvam/view/auth/face_verification_screen.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -68,15 +69,24 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
   Future<void> _loadUserDetails() async {
     final prefs = await SharedPreferences.getInstance();
     final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
-    if (serverInfo?.present == true) {
-      // Keep the local fallback in sync with the confirmed server punch-in.
-      await prefs.setString('lastPunchInDate', todayDateKey());
-    }
-    if (serverInfo?.punchedOut == true) {
-      await prefs.setString('lastPunchOutDate', todayDateKey());
-    }
-    if (serverInfo?.status != null) {
-      await prefs.setString('lastPunchStatus', serverInfo!.status!);
+    if (serverInfo != null) {
+      if (!serverInfo.present && !serverInfo.punchedOut) {
+        await prefs.remove('lastPunchInDate');
+        await prefs.remove('lastPunchInTime');
+        await prefs.remove('lastPunchOutDate');
+        await prefs.remove('lastPunchOutTime');
+        await prefs.remove('lastPunchStatus');
+      } else {
+        if (serverInfo.present) {
+          await prefs.setString('lastPunchInDate', todayDateKey());
+        }
+        if (serverInfo.punchedOut) {
+          await prefs.setString('lastPunchOutDate', todayDateKey());
+        }
+        if (serverInfo.status != null) {
+          await prefs.setString('lastPunchStatus', serverInfo.status!);
+        }
+      }
     }
     if (!mounted) return;
     setState(() {
@@ -85,15 +95,17 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
       _fdoName =
           '${prefs.getString('firstName') ?? ''} ${prefs.getString('lastName') ?? ''}'
               .trim();
-      final hasLocalPunchOut = (prefs.getString('lastPunchOutDate')?.isNotEmpty ?? false);
-      _punchedOutToday =
-          (serverInfo?.punchedOut == true) || hasPunchedOutToday(prefs) || hasLocalPunchOut;
-      _presentToday =
-          (serverInfo?.present == true) ||
-          hasPunchedInToday(prefs) ||
-          _punchedOutToday;
-      _attendanceStatus =
-          serverInfo?.status ?? prefs.getString('lastPunchStatus');
+      
+      if (serverInfo != null) {
+        _punchedOutToday = serverInfo.punchedOut;
+        _presentToday = serverInfo.present;
+        _attendanceStatus = serverInfo.status;
+      } else {
+        final hasLocalPunchOut = (prefs.getString('lastPunchOutDate')?.isNotEmpty ?? false);
+        _punchedOutToday = hasPunchedOutToday(prefs) || hasLocalPunchOut;
+        _presentToday = hasPunchedInToday(prefs) || _punchedOutToday;
+        _attendanceStatus = prefs.getString('lastPunchStatus');
+      }
       _isWorkingDay = serverInfo?.isWorkingDay ?? true;
     });
   }
@@ -831,20 +843,51 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
             ),
           ),
           SizedBox(width: 8.w),
-          Container(
-            padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
-            decoration: BoxDecoration(
-              color: (_punchedOutToday || _presentToday)
-                  ? const Color(0xFF0D6842)
-                  : const Color(0xFFB45309),
-              borderRadius: BorderRadius.circular(12.r),
-            ),
-            child: Text(
-              _attendanceStatusText,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 11.sp,
-                fontWeight: FontWeight.bold,
+          InkWell(
+            onTap: () {
+              if (_punchedOutToday) {
+                Get.snackbar(
+                  'Shift Completed',
+                  'You have already completed your punch-out for today.',
+                  snackPosition: SnackPosition.BOTTOM,
+                  backgroundColor: const Color(0xFF0D6842),
+                  colorText: Colors.white,
+                );
+              } else if (_presentToday) {
+                Get.to(() => const FaceVerificationScreen(isPunchOut: true));
+              } else {
+                Get.to(() => const FaceVerificationScreen(isPunchOut: false));
+              }
+            },
+            borderRadius: BorderRadius.circular(12.r),
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
+              decoration: BoxDecoration(
+                color: (_punchedOutToday || _presentToday)
+                    ? const Color(0xFF0D6842)
+                    : const Color(0xFFB45309),
+                borderRadius: BorderRadius.circular(12.r),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _punchedOutToday || _presentToday
+                        ? Icons.check_circle_outline_rounded
+                        : Icons.camera_front_rounded,
+                    color: Colors.white,
+                    size: 13.sp,
+                  ),
+                  SizedBox(width: 4.w),
+                  Text(
+                    _attendanceStatusText,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 11.sp,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

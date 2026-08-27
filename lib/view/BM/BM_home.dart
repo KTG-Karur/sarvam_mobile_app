@@ -96,14 +96,24 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
   Future<void> _loadUserDetails() async {
     final prefs = await SharedPreferences.getInstance();
     final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
-    if (serverInfo?.present == true) {
-      await prefs.setString('lastPunchInDate', todayDateKey());
-    }
-    if (serverInfo?.punchedOut == true) {
-      await prefs.setString('lastPunchOutDate', todayDateKey());
-    }
-    if (serverInfo?.status != null) {
-      await prefs.setString('lastPunchStatus', serverInfo!.status!);
+    if (serverInfo != null) {
+      if (!serverInfo.present && !serverInfo.punchedOut) {
+        await prefs.remove('lastPunchInDate');
+        await prefs.remove('lastPunchInTime');
+        await prefs.remove('lastPunchOutDate');
+        await prefs.remove('lastPunchOutTime');
+        await prefs.remove('lastPunchStatus');
+      } else {
+        if (serverInfo.present) {
+          await prefs.setString('lastPunchInDate', todayDateKey());
+        }
+        if (serverInfo.punchedOut) {
+          await prefs.setString('lastPunchOutDate', todayDateKey());
+        }
+        if (serverInfo.status != null) {
+          await prefs.setString('lastPunchStatus', serverInfo.status!);
+        }
+      }
     }
     if (!mounted) return;
     setState(() {
@@ -112,14 +122,16 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
       _userName =
           '${prefs.getString('firstName') ?? ''} ${prefs.getString('lastName') ?? ''}'
               .trim();
-      final hasLocalPunchOut = (prefs.getString('lastPunchOutDate')?.isNotEmpty ?? false);
-      _punchedOutToday =
-          (serverInfo?.punchedOut == true) || hasPunchedOutToday(prefs) || hasLocalPunchOut;
-      _presentToday =
-          (serverInfo?.present == true) ||
-          hasPunchedInToday(prefs) ||
-          _punchedOutToday;
-      _attendanceStatus = serverInfo?.status ?? prefs.getString('lastPunchStatus');
+      if (serverInfo != null) {
+        _punchedOutToday = serverInfo.punchedOut;
+        _presentToday = serverInfo.present;
+        _attendanceStatus = serverInfo.status;
+      } else {
+        final hasLocalPunchOut = (prefs.getString('lastPunchOutDate')?.isNotEmpty ?? false);
+        _punchedOutToday = hasPunchedOutToday(prefs) || hasLocalPunchOut;
+        _presentToday = hasPunchedInToday(prefs) || _punchedOutToday;
+        _attendanceStatus = prefs.getString('lastPunchStatus');
+      }
       _isWorkingDay = serverInfo?.isWorkingDay ?? true;
     });
   }

@@ -10,10 +10,8 @@ import 'package:get/get.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
-import 'package:sarvam/controller/auth_controller.dart';
+import 'package:sarvam/services/fingerprint_biometric_service.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
-import 'package:sarvam/view/auth/mpin_login_screen.dart';
-import 'package:sarvam/view/auth/face_training_screen.dart';
 
 class FaceVerificationScreen extends StatefulWidget {
   const FaceVerificationScreen({super.key, this.isPunchOut = false});
@@ -39,9 +37,9 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
 
   bool _faceDetected = false;
   List<double>? _liveFeatures;
+  String _statusGuidanceText = 'Position Face in Frame';
 
-  int _failedAttempts = 0;
-  static const int _maxAttempts = 3;
+
 
   @override
   void initState() {
@@ -276,16 +274,19 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
             setState(() {
               _faceDetected = true;
               _liveFeatures = liveFeatures;
+              _statusGuidanceText = 'Face Aligned — Tap Verify or Hold Still';
             });
           }
         } else {
           setState(() {
             _faceDetected = false;
+            _statusGuidanceText = report.message;
           });
         }
       } else {
         setState(() {
           _faceDetected = false;
+          _statusGuidanceText = 'Position Face in Frame';
         });
       }
     } catch (e) {
@@ -349,8 +350,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
       case DeviceOrientation.landscapeRight:
         rotationCompensation = 270;
         break;
-      default:
-        rotationCompensation = 0;
     }
 
     final camera = _cameras[_selectedCameraIndex];
@@ -411,7 +410,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
         // Fallback offline / local score check if backend template not registered yet
         if (storedFeatures != null && storedFeatures.isNotEmpty) {
           final localScore = FaceBiometricService.computeFaceMatchScorePercent(_liveFeatures!, storedFeatures);
-          if (localScore >= 80.0) {
+          if (localScore >= 88.0) {
             _showMatchResultDialog(
               isMatched: true,
               scorePercent: localScore,
@@ -419,7 +418,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
             return;
           }
         }
-        _failedAttempts++;
         _showMatchResultDialog(
           isMatched: false,
           scorePercent: matchResult.scorePercent,
@@ -440,28 +438,35 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     }
   }
 
-  void _showUntrainedDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.r)),
-        title: const Text('Face Not Registered'),
-        content: const Text(
-          'Your face biometric is not registered yet. Please train your face template first.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              Get.offAll(() => const FaceTrainingScreen(autoStart: true));
-            },
-            child: const Text('Train Face Now'),
-          ),
-        ],
-      ),
+  Future<void> _verifyWithFingerprint() async {
+    if (_isVerifying) return;
+    setState(() {
+      _isVerifying = true;
+    });
+
+    final bool success = await FingerprintBiometricService.authenticateWithFingerprint(
+      reason: 'Scan your fingerprint to verify attendance',
     );
+
+    if (!mounted) return;
+    setState(() {
+      _isVerifying = false;
+    });
+
+    if (success) {
+      _finishAndNavigate();
+    } else {
+      Get.snackbar(
+        'Fingerprint Unrecognized',
+        'Fingerprint verification failed or was cancelled. Please try again.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.redAccent,
+        colorText: Colors.white,
+      );
+    }
   }
+
+
 
   void _showMatchResultDialog({
     required bool isMatched,
@@ -496,7 +501,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
             ),
             SizedBox(height: 16.h),
             Text(
-              isMatched ? 'Face Verification Matched!' : 'Verification Rejected',
+              isMatched ? 'Face Verification Matched!' : 'Face Not Matched — Try Again',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 18.sp,
@@ -507,74 +512,106 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
             SizedBox(height: 8.h),
             Text(
               isMatched
-                  ? 'Biometric match successful (${scorePercent.toStringAsFixed(0)}% match).'
-                  : 'Face match score (${scorePercent.toStringAsFixed(0)}%) is below required threshold. Please align your face properly.',
+                  ? 'Biometric match successful (${scorePercent.toStringAsFixed(1)}% match).'
+                  : 'Face match score: ${scorePercent.toStringAsFixed(1)}% (Required: 88.0%).\nPlease align your face properly and ensure good lighting.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 13.sp,
                 color: const Color(0xFF64748B),
+                height: 1.35,
               ),
             ),
             SizedBox(height: 24.h),
-            SizedBox(
-              width: double.infinity,
-              height: 48.h,
-              child: ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  if (isMatched) {
+            if (isMatched)
+              SizedBox(
+                width: double.infinity,
+                height: 48.h,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
                     _finishAndNavigate();
-                  } else if (_failedAttempts >= _maxAttempts) {
-                    _showMaxAttemptsExceededDialog();
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: isMatched
-                      ? const Color(0xFF0D6842)
-                      : const Color(0xFFDC2626),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12.r),
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0D6842),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12.r),
+                    ),
+                    elevation: 0,
                   ),
-                  elevation: 0,
-                ),
-                child: Text(
-                  isMatched ? 'Continue' : 'Try Again',
-                  style: TextStyle(
-                    fontSize: 15.sp,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                  child: Text(
+                    'Continue',
+                    style: TextStyle(
+                      fontSize: 15.sp,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
+              )
+            else
+              Column(
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48.h,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        _verifyWithFingerprint();
+                      },
+                      icon: Icon(Icons.fingerprint_rounded, size: 22.sp, color: Colors.white),
+                      label: Text(
+                        'Verify with Fingerprint',
+                        style: TextStyle(
+                          fontSize: 15.sp,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0D6842),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12.r),
+                        ),
+                        elevation: 0,
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: 10.h),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48.h,
+                    child: OutlinedButton(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                      },
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xFF0D6842), width: 1.5),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12.r),
+                        ),
+                      ),
+                      child: Text(
+                        'Try Again (Face Scan)',
+                        style: TextStyle(
+                          fontSize: 14.sp,
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFF0D6842),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ),
           ],
         ),
       ),
     );
   }
 
-  void _showMaxAttemptsExceededDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.r)),
-        title: const Text('Max Verification Exceeded'),
-        content: const Text(
-          'Maximum verification attempts reached. Please re-login using MPIN.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              Get.offAll(() => const MpinLoginScreen());
-            },
-            child: const Text('Go to MPIN Login'),
-          ),
-        ],
-      ),
-    );
-  }
+
+
+
 
   Future<void> _finishAndNavigate() async {
     final prefs = await SharedPreferences.getInstance();
@@ -772,7 +809,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
                                 ),
                                 SizedBox(width: 8.w),
                                 Text(
-                                  _faceDetected ? 'Face Detected — Hold Still' : 'Position Face in Frame',
+                                  _statusGuidanceText,
                                   style: TextStyle(
                                     fontSize: 13.sp,
                                     fontWeight: FontWeight.w600,
@@ -858,7 +895,28 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
                                   ),
                                 ),
 
-                                SizedBox(width: 18.w),
+                                SizedBox(width: 14.w),
+
+                                // Fingerprint Biometric Scanner Action Button
+                                InkWell(
+                                  onTap: _isVerifying ? null : _verifyWithFingerprint,
+                                  borderRadius: BorderRadius.circular(24.r),
+                                  child: Container(
+                                    width: 44.w,
+                                    height: 44.w,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.2),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Icon(
+                                      Icons.fingerprint_rounded,
+                                      color: Colors.white,
+                                      size: 24.sp,
+                                    ),
+                                  ),
+                                ),
+
+                                SizedBox(width: 14.w),
 
                                 // Right Action: Refresh / Re-initialize Camera
                                 InkWell(

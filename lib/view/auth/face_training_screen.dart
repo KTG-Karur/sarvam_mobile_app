@@ -14,7 +14,7 @@ import 'package:sarvam/view/auth/mpin_login_screen.dart';
 import 'package:sarvam/view/auth/face_verification_screen.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 
-enum TrainingStep { intro, step1Straight, step2Left, step3Right, success, failed }
+enum TrainingStep { intro, step1Straight, step2Left, step3Right, previewConfirm, success, failed }
 
 class FaceTrainingScreen extends StatefulWidget {
   const FaceTrainingScreen({super.key, this.autoStart = false});
@@ -44,7 +44,12 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
 
   bool _faceDetected = false;
   DateTime? _holdStartTime;
+  double _holdProgress = 0.0;
+  String _statusInstructionMessage = 'Position face inside the frame';
   bool _isCapturing = false;
+
+  Uint8List? _capturedPhotoBytes;
+  Map<String, dynamic>? _pendingEncryptedPayload;
 
   @override
   void initState() {
@@ -82,6 +87,7 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
       _cameraController?.dispose();
     } else if (state == AppLifecycleState.resumed &&
         _currentStep != TrainingStep.intro &&
+        _currentStep != TrainingStep.previewConfirm &&
         _currentStep != TrainingStep.success &&
         _currentStep != TrainingStep.failed) {
       _initializeCamera();
@@ -104,7 +110,11 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
     setState(() {
       _currentStep = TrainingStep.step1Straight;
       _capturedSamples.clear();
+      _capturedPhotoBytes = null;
+      _pendingEncryptedPayload = null;
       _errorMessage = null;
+      _holdProgress = 0.0;
+      _statusInstructionMessage = 'Position face inside the frame';
     });
     await _initializeCamera();
   }
@@ -183,6 +193,7 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
         _isUploading ||
         _isCapturing ||
         _currentStep == TrainingStep.intro ||
+        _currentStep == TrainingStep.previewConfirm ||
         _currentStep == TrainingStep.success ||
         _currentStep == TrainingStep.failed) {
       return;
@@ -220,17 +231,43 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
         if (_recentFrames.length > 10) _recentFrames.removeAt(0);
       }
 
-      bool isFaceDetected = primaryFace != null && report.isQualityValid;
+      bool isPoseValid = true;
+      String poseInstruction = '';
+      if (primaryFace != null) {
+        final yaw = primaryFace.headEulerAngleY ?? 0.0;
+        if (_currentStep == TrainingStep.step1Straight) {
+          if (yaw.abs() > 12.0) {
+            isPoseValid = false;
+            poseInstruction = 'Look straight at camera';
+          }
+        } else if (_currentStep == TrainingStep.step2Left) {
+          if (yaw < 8.0) {
+            isPoseValid = false;
+            poseInstruction = 'Turn face slightly left';
+          }
+        } else if (_currentStep == TrainingStep.step3Right) {
+          if (yaw > -8.0) {
+            isPoseValid = false;
+            poseInstruction = 'Turn face slightly right';
+          }
+        }
+      }
 
-      if (isFaceDetected) {
+      bool isQualityValid = primaryFace != null && report.isQualityValid && isPoseValid;
+
+      if (isQualityValid) {
         if (_holdStartTime == null) {
           _holdStartTime = DateTime.now();
+          _holdProgress = 0.0;
         } else {
           final elapsedMs = DateTime.now().difference(_holdStartTime!).inMilliseconds;
-          final progress = (elapsedMs / 280.0).clamp(0.0, 1.0);
+          // 1200ms (1.2 seconds) sustained hold time requirement
+          final progress = (elapsedMs / 1200.0).clamp(0.0, 1.0);
           if (mounted) {
             setState(() {
               _faceDetected = true;
+              _holdProgress = progress;
+              _statusInstructionMessage = 'Hold Still (${(progress * 100).toInt()}%)';
             });
           }
 
@@ -240,9 +277,20 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
         }
       } else {
         _holdStartTime = null;
+        _holdProgress = 0.0;
+        String msg = 'Position face in frame';
+        if (primaryFace != null) {
+          if (!report.isQualityValid) {
+            msg = report.message;
+          } else if (!isPoseValid) {
+            msg = poseInstruction;
+          }
+        }
         if (mounted) {
           setState(() {
-            _faceDetected = isFaceDetected;
+            _faceDetected = false;
+            _holdProgress = 0.0;
+            _statusInstructionMessage = msg;
           });
         }
       }
@@ -294,45 +342,39 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
     _capturedSamples.add(features);
 
     _holdStartTime = null;
+    _holdProgress = 0.0;
 
     if (_currentStep == TrainingStep.step1Straight) {
       setState(() {
         _currentStep = TrainingStep.step2Left;
         _isCapturing = false;
+        _statusInstructionMessage = 'Turn face slightly left';
       });
     } else if (_currentStep == TrainingStep.step2Left) {
       setState(() {
         _currentStep = TrainingStep.step3Right;
         _isCapturing = false;
+        _statusInstructionMessage = 'Turn face slightly right';
       });
     } else if (_currentStep == TrainingStep.step3Right) {
-      await _finishTraining();
+      await _preparePreviewConfirm();
     }
   }
 
-  Future<void> _finishTraining() async {
+  Future<void> _preparePreviewConfirm() async {
+    _stopImageStream();
+    Uint8List? imageBytes;
     String? photoBase64;
     try {
       final controller = _cameraController;
       if (controller != null && controller.value.isInitialized) {
-        if (controller.value.isStreamingImages) {
-          await controller.stopImageStream();
-          await Future.delayed(const Duration(milliseconds: 150));
-        }
         final xFile = await controller.takePicture();
-        final bytes = await xFile.readAsBytes();
-        photoBase64 = base64Encode(bytes);
-      } else {
-        _stopImageStream();
+        imageBytes = await xFile.readAsBytes();
+        photoBase64 = base64Encode(imageBytes);
       }
     } catch (e) {
-      _stopImageStream();
-      if (kDebugMode) print('Failed to capture face photo during training: $e');
+      if (kDebugMode) print('Take picture error: $e');
     }
-
-    setState(() {
-      _isUploading = true;
-    });
 
     final masterVector = FaceBiometricService.aggregateTemplateVector(_capturedSamples);
     final encryptedPayload = FaceBiometricService.encryptTemplatePayload(
@@ -343,8 +385,24 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
       photoBase64: photoBase64,
     );
 
+    if (!mounted) return;
+
+    setState(() {
+      _isCapturing = false;
+      _capturedPhotoBytes = imageBytes;
+      _pendingEncryptedPayload = encryptedPayload;
+      _currentStep = TrainingStep.previewConfirm;
+    });
+  }
+
+  Future<void> _confirmAndUploadBiometric() async {
+    if (_pendingEncryptedPayload == null) return;
+    setState(() {
+      _isUploading = true;
+    });
+
     final uploadResult = await FaceBiometricService.uploadFaceRegistrationTemplate(
-      encryptedPayload: encryptedPayload,
+      encryptedPayload: _pendingEncryptedPayload!,
     );
 
     if (!mounted) return;
@@ -356,7 +414,7 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
     if (uploadResult.success) {
       await FaceBiometricService.saveEnrolledFeatures(
         _capturedSamples,
-        encryptedPayload: encryptedPayload,
+        encryptedPayload: _pendingEncryptedPayload,
       );
       setState(() {
         _currentStep = TrainingStep.success;
@@ -392,6 +450,8 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
   Widget build(BuildContext context) {
     if (_currentStep == TrainingStep.intro) {
       return _buildIntroUI();
+    } else if (_currentStep == TrainingStep.previewConfirm) {
+      return _buildPreviewConfirmUI();
     } else if (_currentStep == TrainingStep.success) {
       return _buildSuccessUI();
     } else if (_currentStep == TrainingStep.failed) {
@@ -401,7 +461,7 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
   }
 
   // ───────────────────────────────────────────────────────────────────────────
-  // 1. INTRO SCREEN (Matching Design Image 1)
+  // 1. INTRO SCREEN
   // ───────────────────────────────────────────────────────────────────────────
   Widget _buildIntroUI() {
     return Scaffold(
@@ -576,29 +636,26 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
   }
 
   // ───────────────────────────────────────────────────────────────────────────
-  // 2. STEP 1 / 2 / 3 CAPTURE SCREEN (Matching Design Images 2, 3, 4)
+  // 2. STEP CAPTURE SCREEN
   // ───────────────────────────────────────────────────────────────────────────
   Widget _buildStepCaptureUI() {
     int stepNum = 1;
     String stepTitle = 'Step 1 of 3';
-    String instruction = 'Look straight at camera';
 
     if (_currentStep == TrainingStep.step2Left) {
       stepNum = 2;
       stepTitle = 'Step 2 of 3';
-      instruction = 'Turn face slightly left';
     } else if (_currentStep == TrainingStep.step3Right) {
       stepNum = 3;
       stepTitle = 'Step 3 of 3';
-      instruction = 'Turn face slightly right';
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFEFF3EF), // Matching light sage off-white background
+      backgroundColor: const Color(0xFFEFF3EF),
       body: SafeArea(
         child: Column(
           children: [
-            // Clean Top Header matching reference UI
+            // Clean Top Header
             Padding(
               padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 12.h),
               child: Row(
@@ -617,7 +674,7 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.06),
+                            color: Colors.black.withValues(alpha: 0.06),
                             blurRadius: 8,
                             offset: const Offset(0, 2),
                           ),
@@ -685,9 +742,9 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
                               begin: Alignment.topCenter,
                               end: Alignment.bottomCenter,
                               colors: [
-                                Colors.black.withOpacity(0.25),
+                                Colors.black.withValues(alpha: 0.25),
                                 Colors.transparent,
-                                Colors.black.withOpacity(0.45),
+                                Colors.black.withValues(alpha: 0.45),
                               ],
                             ),
                           ),
@@ -720,62 +777,81 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
                       // Real-Time Floating Status Banner (Top Center)
                       Positioned(
                         top: 20.h,
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 300),
-                          padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
-                          decoration: BoxDecoration(
-                            color: _faceDetected
-                                ? const Color(0xFF0D6842).withOpacity(0.9)
-                                : Colors.black.withOpacity(0.65),
-                            borderRadius: BorderRadius.circular(20.r),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.15),
-                                blurRadius: 6,
-                                offset: const Offset(0, 2),
+                        child: Column(
+                          children: [
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 300),
+                              padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
+                              decoration: BoxDecoration(
+                                color: _faceDetected
+                                    ? const Color(0xFF0D6842).withValues(alpha: 0.9)
+                                    : Colors.black.withValues(alpha: 0.65),
+                                borderRadius: BorderRadius.circular(20.r),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.15),
+                                    blurRadius: 6,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                _faceDetected
-                                    ? Icons.check_circle_rounded
-                                    : Icons.face_retouching_natural_rounded,
-                                color: Colors.white,
-                                size: 16.sp,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    _faceDetected
+                                        ? Icons.check_circle_rounded
+                                        : Icons.face_retouching_natural_rounded,
+                                    color: Colors.white,
+                                    size: 16.sp,
+                                  ),
+                                  SizedBox(width: 8.w),
+                                  Text(
+                                    _isUploading
+                                        ? 'Saving biometric template...'
+                                        : _faceDetected
+                                            ? '$stepTitle: Hold Still (${(_holdProgress * 100).toInt()}%)'
+                                            : '$stepTitle: $_statusInstructionMessage',
+                                    style: TextStyle(
+                                      fontSize: 13.sp,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              SizedBox(width: 8.w),
-                              Text(
-                                _isUploading
-                                    ? 'Saving biometric template...'
-                                    : _faceDetected
-                                        ? '$stepTitle: Hold Steady...'
-                                        : '$stepTitle: $instruction',
-                                style: TextStyle(
-                                  fontSize: 13.sp,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white,
+                            ),
+                            if (_holdProgress > 0) ...[
+                              SizedBox(height: 8.h),
+                              SizedBox(
+                                width: 220.w,
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(4.r),
+                                  child: LinearProgressIndicator(
+                                    value: _holdProgress,
+                                    backgroundColor: Colors.white24,
+                                    color: const Color(0xFF00C853),
+                                    minHeight: 4.h,
+                                  ),
                                 ),
                               ),
                             ],
-                          ),
+                          ],
                         ),
                       ),
 
-                      // Bottom 3-Step Progress Indicator Bar (Overlay at bottom of camera)
+                      // Bottom 3-Step Progress Indicator Bar
                       Positioned(
                         bottom: 24.h,
                         child: Container(
                           padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 12.h),
                           decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.45),
+                            color: Colors.black.withValues(alpha: 0.45),
                             borderRadius: BorderRadius.circular(30.r),
                             border: Border.all(color: Colors.white24, width: 1),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.2),
+                                color: Colors.black.withValues(alpha: 0.2),
                                 blurRadius: 10,
                                 offset: const Offset(0, 4),
                               ),
@@ -860,7 +936,245 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
   }
 
   // ───────────────────────────────────────────────────────────────────────────
-  // 3. SUCCESS SCREEN (Matching Design Image 5)
+  // 3. PREVIEW & CONFIRM SCREEN
+  // ───────────────────────────────────────────────────────────────────────────
+  Widget _buildPreviewConfirmUI() {
+    return Scaffold(
+      backgroundColor: const Color(0xFFEFF3EF),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 16.h),
+          child: Column(
+            children: [
+              // Header
+              Row(
+                children: [
+                  InkWell(
+                    onTap: _resetAndRetry,
+                    borderRadius: BorderRadius.circular(24.r),
+                    child: Container(
+                      width: 44.w,
+                      height: 44.w,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.06),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        Icons.chevron_left_rounded,
+                        color: const Color(0xFF1E293B),
+                        size: 26.sp,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      'Preview & Confirm',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 18.sp,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF0F172A),
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: 44.w),
+                ],
+              ),
+              SizedBox(height: 20.h),
+
+              // Captured Image Frame
+              Container(
+                width: 240.w,
+                height: 280.h,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(24.r),
+                  border: Border.all(color: const Color(0xFF00C853), width: 3.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.1),
+                      blurRadius: 16,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20.r),
+                  child: _capturedPhotoBytes != null
+                      ? Image.memory(
+                          _capturedPhotoBytes!,
+                          fit: BoxFit.cover,
+                        )
+                      : Container(
+                          color: const Color(0xFFE2E8F0),
+                          child: Icon(Icons.person, size: 90.sp, color: Colors.grey),
+                        ),
+                ),
+              ),
+
+              SizedBox(height: 16.h),
+
+              // Success pill badge
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0D6842),
+                  borderRadius: BorderRadius.circular(20.r),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.check_circle_rounded, color: Colors.white, size: 18.sp),
+                    SizedBox(width: 8.w),
+                    Text(
+                      'Face Captured Successfully!',
+                      style: TextStyle(
+                        fontSize: 13.sp,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              SizedBox(height: 24.h),
+
+              // Quality Verification Checklist Card
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.all(18.w),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16.r),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.04),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Biometric Quality Verification Report',
+                      style: TextStyle(
+                        fontSize: 14.sp,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF0F172A),
+                      ),
+                    ),
+                    SizedBox(height: 12.h),
+                    _buildQualityCheckRow('Face Alignment & Frame Centering', true),
+                    _buildQualityCheckRow('Eye Openness & Feature Clarity', true),
+                    _buildQualityCheckRow('Lighting & Angle Verification', true),
+                    _buildQualityCheckRow('3-Angle Master Template Vector Generated', true),
+                  ],
+                ),
+              ),
+
+              SizedBox(height: 28.h),
+
+              // Buttons: Confirm & Save vs Retake
+              if (_isUploading)
+                const Center(
+                  child: CircularProgressIndicator(color: Color(0xFF0D6842)),
+                )
+              else
+                Column(
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50.h,
+                      child: ElevatedButton(
+                        onPressed: _confirmAndUploadBiometric,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF0D6842),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12.r),
+                          ),
+                          elevation: 0,
+                        ),
+                        child: Text(
+                          'Confirm & Save Biometric',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 15.sp,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: 12.h),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50.h,
+                      child: OutlinedButton(
+                        onPressed: _resetAndRetry,
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFF0D6842), width: 1.5),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12.r),
+                          ),
+                        ),
+                        child: Text(
+                          'Retake Photo',
+                          style: TextStyle(
+                            color: const Color(0xFF0D6842),
+                            fontSize: 15.sp,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              SizedBox(height: 16.h),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQualityCheckRow(String label, bool passed) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: 8.h),
+      child: Row(
+        children: [
+          Icon(
+            passed ? Icons.check_circle : Icons.cancel,
+            color: passed ? const Color(0xFF0D6842) : Colors.red,
+            size: 18.sp,
+          ),
+          SizedBox(width: 10.w),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12.sp,
+                fontWeight: FontWeight.w500,
+                color: const Color(0xFF334155),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // 4. SUCCESS SCREEN
   // ───────────────────────────────────────────────────────────────────────────
   Widget _buildSuccessUI() {
     return Scaffold(
@@ -984,11 +1298,11 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
   }
 
   // ───────────────────────────────────────────────────────────────────────────
-  // 4. FAILED SCREEN (Matching Design Image 6)
+  // 5. FAILED SCREEN
   // ───────────────────────────────────────────────────────────────────────────
   Widget _buildFailedUI() {
     return Scaffold(
-      backgroundColor: const Color(0xFFFFF5F5), // Soft pastel red background
+      backgroundColor: const Color(0xFFFFF5F5),
       body: SafeArea(
         child: SingleChildScrollView(
           physics: const BouncingScrollPhysics(),

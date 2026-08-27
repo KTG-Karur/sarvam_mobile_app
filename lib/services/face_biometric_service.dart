@@ -212,7 +212,7 @@ class FaceBiometricService {
     if (!isCentered) {
       return FaceQualityReport(
         status: FaceQualityStatus.offCenter,
-        message: 'Center your face within the green oval target.',
+        message: 'Center your face within the green frame.',
         isQualityValid: false,
         coverage: coverage,
         yaw: yaw,
@@ -225,8 +225,25 @@ class FaceBiometricService {
       );
     }
 
-    // Relaxed coverage range for instant detection
-    if (coverage < 0.03) {
+    // Eye openness check
+    if (leftEyeOpen < 0.4 || rightEyeOpen < 0.4) {
+      return FaceQualityReport(
+        status: FaceQualityStatus.eyesClosed,
+        message: 'Please keep both eyes open.',
+        isQualityValid: false,
+        coverage: coverage,
+        yaw: yaw,
+        pitch: pitch,
+        roll: roll,
+        leftEyeOpen: leftEyeOpen,
+        rightEyeOpen: rightEyeOpen,
+        smileProb: smileProb,
+        isCentered: true,
+      );
+    }
+
+    // Distance & Coverage bounds check
+    if (coverage < 0.07) {
       return FaceQualityReport(
         status: FaceQualityStatus.tooFar,
         message: 'Move closer to the camera.',
@@ -240,10 +257,24 @@ class FaceBiometricService {
         smileProb: smileProb,
         isCentered: true,
       );
+    } else if (coverage > 0.65) {
+      return FaceQualityReport(
+        status: FaceQualityStatus.tooClose,
+        message: 'Move slightly back from camera.',
+        isQualityValid: false,
+        coverage: coverage,
+        yaw: yaw,
+        pitch: pitch,
+        roll: roll,
+        leftEyeOpen: leftEyeOpen,
+        rightEyeOpen: rightEyeOpen,
+        smileProb: smileProb,
+        isCentered: true,
+      );
     }
 
     // Pitch & Roll angle checks
-    if (pitch.abs() > 40.0 || roll.abs() > 35.0) {
+    if (pitch.abs() > 25.0 || roll.abs() > 20.0) {
       return FaceQualityReport(
         status: FaceQualityStatus.tilted,
         message: 'Keep your head level with the camera.',
@@ -261,7 +292,7 @@ class FaceBiometricService {
 
     return FaceQualityReport(
       status: FaceQualityStatus.valid,
-      message: 'Face aligned! Hold or tap capture.',
+      message: 'Face aligned! Hold steady...',
       isQualityValid: true,
       coverage: coverage,
       yaw: yaw,
@@ -391,10 +422,10 @@ class FaceBiometricService {
   }
 
   /// Evaluates strict similarity between live captured features and enrolled template.
-  /// Prevents friend / secondary face from matching (FACE_MATCH_THRESHOLD = 98.0%).
+  /// Prevents secondary face from matching (FACE_MATCH_THRESHOLD = 88.0%).
   static double computeFaceSimilarity(List<double> a, List<double> b) {
     if (a.isEmpty || b.isEmpty || a.length != b.length) return 0.0;
-    const hardFailLogDiff = 0.18;
+    const hardFailLogDiff = 0.15;
     const hardFailMinCount = 2;
     const vetoExempt = {12, 13};
 
