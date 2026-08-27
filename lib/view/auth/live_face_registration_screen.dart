@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -336,7 +337,26 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
   int get capturedCount => _capturedFeatureSamples.length;
 
   Future<void> _finishAndUploadRegistration() async {
-    _stopImageStream();
+    String? photoBase64;
+    try {
+      final controller = _cameraController;
+      if (controller != null && controller.value.isInitialized) {
+        if (controller.value.isStreamingImages) {
+          await controller.stopImageStream();
+          await Future.delayed(const Duration(milliseconds: 150));
+        }
+        final xFile = await controller.takePicture();
+        final bytes = await xFile.readAsBytes();
+        photoBase64 = base64Encode(bytes);
+      } else {
+        _stopImageStream();
+      }
+    } catch (e) {
+      _stopImageStream();
+      if (kDebugMode)
+        print('Failed to capture face photo during registration: $e');
+    }
+
     setState(() {
       _isUploading = true;
     });
@@ -362,6 +382,7 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
       userId: widget.userId ?? 'authenticated-user',
       livenessPassed: true,
       qualityScore: 98.5,
+      photoBase64: photoBase64,
     );
 
     // Upload to API

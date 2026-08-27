@@ -6,12 +6,25 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/view/auth/face_verification_screen.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
+import 'package:sarvam/services/face_biometric_service.dart';
 
 class PunchOutDialog extends StatefulWidget {
   const PunchOutDialog({super.key});
 
   static Future<void> show(BuildContext context) async {
     final prefs = await SharedPreferences.getInstance();
+    final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
+    if (serverInfo != null && !serverInfo.faceAttendanceAllowed) {
+      Get.snackbar(
+        'Attendance Restricted',
+        serverInfo.accessMessage ?? 'Face attendance is disabled for today by Admin.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.redAccent,
+        colorText: Colors.white,
+      );
+      return;
+    }
+
     if (!hasPunchedInToday(prefs)) {
       Get.snackbar(
         'Punch Out',

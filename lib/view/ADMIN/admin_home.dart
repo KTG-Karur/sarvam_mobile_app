@@ -1,6 +1,7 @@
 // ignore_for_file: deprecated_member_use, unused_element
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:get/get.dart';
@@ -126,30 +127,91 @@ class _AdminHomeState extends State<AdminHome>
 
   bool get _isAdmin => _role == AppRole.admin;
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _lightBg,
-      drawer: _buildAdminDrawer(),
-      body: SafeArea(
-        child: Column(
+  Future<bool> _showConfirmExitDialog() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.r)),
+        backgroundColor: Colors.white,
+        title: Row(
           children: [
-            _buildHeader(),
-            Expanded(
-              child: _roleChecked && !_isAdmin
-                  ? _buildAccessDenied()
-                  : FadeTransition(
-                      opacity: _fadeAnimation,
-                      child: SlideTransition(
-                        position: _slideAnimation,
-                        child: ScaleTransition(
-                          scale: _scaleAnimation,
-                          child: _buildMainContent(),
-                        ),
-                      ),
-                    ),
+            Container(
+              padding: EdgeInsets.all(8.w),
+              decoration: const BoxDecoration(
+                color: Color(0xFFE8F5E9),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.exit_to_app_rounded, color: const Color(0xFF0D6842), size: 22.sp),
+            ),
+            SizedBox(width: 10.w),
+            Text(
+              'Exit Application?',
+              style: TextStyle(fontSize: 17.sp, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
             ),
           ],
+        ),
+        content: Text(
+          'Are you sure you want to exit Sarvam application?',
+          style: TextStyle(fontSize: 14.sp, color: const Color(0xFF475569)),
+        ),
+        actions: [
+          OutlinedButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Color(0xFFCBD5E1)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.r)),
+            ),
+            child: Text('Cancel', style: TextStyle(color: const Color(0xFF475569), fontWeight: FontWeight.bold, fontSize: 13.5.sp)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0D6842),
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.r)),
+            ),
+            child: Text('Exit App', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5.sp)),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final confirm = await _showConfirmExitDialog();
+        if (confirm && mounted) {
+          SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: _lightBg,
+        drawer: _buildAdminDrawer(),
+        body: SafeArea(
+          child: Column(
+            children: [
+              _buildHeader(),
+              Expanded(
+                child: _roleChecked && !_isAdmin
+                    ? _buildAccessDenied()
+                    : FadeTransition(
+                        opacity: _fadeAnimation,
+                        child: SlideTransition(
+                          position: _slideAnimation,
+                          child: ScaleTransition(
+                            scale: _scaleAnimation,
+                            child: _buildMainContent(),
+                          ),
+                        ),
+                      ),
+              ),
+            ],
+          ),
         ),
       ),
     );

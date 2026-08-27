@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:sarvam/view/FDO/client_search_locate/client_search_locate.dart';
@@ -28,6 +29,8 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
   String _branchName = '';
   String _fdoName = '';
   bool _presentToday = false;
+  bool _punchedOutToday = false;
+  String? _attendanceStatus;
 
   late final AnimationController _pageAnimController;
   late final Animation<double> _pageFade;
@@ -64,10 +67,16 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
 
   Future<void> _loadUserDetails() async {
     final prefs = await SharedPreferences.getInstance();
-    final serverPresent = await FaceBiometricService.isPresentTodayOnServer();
-    if (serverPresent == true) {
+    final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
+    if (serverInfo?.present == true) {
       // Keep the local fallback in sync with the confirmed server punch-in.
       await prefs.setString('lastPunchInDate', todayDateKey());
+    }
+    if (serverInfo?.punchedOut == true) {
+      await prefs.setString('lastPunchOutDate', todayDateKey());
+    }
+    if (serverInfo?.status != null) {
+      await prefs.setString('lastPunchStatus', serverInfo!.status!);
     }
     if (!mounted) return;
     setState(() {
@@ -76,8 +85,38 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
       _fdoName =
           '${prefs.getString('firstName') ?? ''} ${prefs.getString('lastName') ?? ''}'
               .trim();
-      _presentToday = serverPresent ?? hasPunchedInToday(prefs);
+      final hasLocalPunchOut = (prefs.getString('lastPunchOutDate')?.isNotEmpty ?? false);
+      _punchedOutToday =
+          (serverInfo?.punchedOut == true) || hasPunchedOutToday(prefs) || hasLocalPunchOut;
+      _presentToday =
+          (serverInfo?.present == true) ||
+          hasPunchedInToday(prefs) ||
+          _punchedOutToday;
+      _attendanceStatus =
+          serverInfo?.status ?? prefs.getString('lastPunchStatus');
+      _isWorkingDay = serverInfo?.isWorkingDay ?? true;
     });
+  }
+
+  bool _isWorkingDay = true;
+
+  String get _attendanceStatusText {
+    if (!_isWorkingDay || _attendanceStatus == 'HOLIDAY') {
+      return 'Holiday / Off';
+    }
+    if (_punchedOutToday) {
+      if (_attendanceStatus == 'HALF_DAY') {
+        return 'Half Day Present';
+      }
+      if (_attendanceStatus == 'FULL_DAY') {
+        return 'Full Day Present';
+      }
+      return 'Half Day Present';
+    }
+    if (_presentToday) {
+      return 'Present';
+    }
+    return 'Not Punched';
   }
 
   String _formatCurrency(num value) {
@@ -110,286 +149,380 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
     'December',
   ];
 
+  Future<bool> _showConfirmExitDialog() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16.r),
+        ),
+        backgroundColor: Colors.white,
+        title: Row(
+          children: [
+            Container(
+              padding: EdgeInsets.all(8.w),
+              decoration: const BoxDecoration(
+                color: Color(0xFFE8F5E9),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.exit_to_app_rounded,
+                color: const Color(0xFF0D6842),
+                size: 22.sp,
+              ),
+            ),
+            SizedBox(width: 10.w),
+            Text(
+              'Exit Application?',
+              style: TextStyle(
+                fontSize: 17.sp,
+                fontWeight: FontWeight.bold,
+                color: const Color(0xFF0F172A),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'Are you sure you want to exit Sarvam application?',
+          style: TextStyle(fontSize: 14.sp, color: const Color(0xFF475569)),
+        ),
+        actions: [
+          OutlinedButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Color(0xFFCBD5E1)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10.r),
+              ),
+            ),
+            child: Text(
+              'Cancel',
+              style: TextStyle(
+                color: const Color(0xFF64748B),
+                fontWeight: FontWeight.bold,
+                fontSize: 13.5.sp,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0D6842),
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10.r),
+              ),
+            ),
+            child: Text(
+              'Exit App',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 13.5.sp,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Pinned Custom Header (App Bar)
-            Container(
-              color: Colors.white,
-              padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
-              child: Row(
-                children: [
-                  SizedBox(width: 12.w),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              'Dashboard',
-                              style: TextStyle(
-                                fontSize: 22.sp,
-                                fontWeight: FontWeight.w800,
-                                color: const Color(0xFF0F172A),
-                              ),
-                            ),
-                            SizedBox(width: 8.w),
-                            Container(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: 6.w,
-                                vertical: 2.h,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFE8F5E9),
-                                borderRadius: BorderRadius.circular(10.r),
-                              ),
-                              child: Text(
-                                'Live',
-                                style: TextStyle(
-                                  color: const Color(0xFF0D6842),
-                                  fontSize: 11.sp,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        SizedBox(height: 2.h),
-                        Text(
-                          'Comprehensive overview of your microfinance operations',
-                          style: TextStyle(
-                            fontSize: 12.5.sp,
-                            color: const Color(0xFF64748B),
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(width: 8.w),
-                  // Refresh button
-                  Obx(
-                    () => GestureDetector(
-                      onTap: _controller.isLoading.value
-                          ? null
-                          : () => _controller.getDashboardStats(),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final confirm = await _showConfirmExitDialog();
+        if (confirm && mounted) {
+          SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        body: SafeArea(
+          child: Column(
+            children: [
+              // Pinned Custom Header (App Bar)
+              Container(
+                color: Colors.white,
+                padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
+                child: Row(
+                  children: [
+                    SizedBox(width: 12.w),
+                    Expanded(
                       child: Column(
-                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _controller.isLoading.value
-                              ? SizedBox(
-                                  width: 22.sp,
-                                  height: 22.sp,
-                                  child: const CircularProgressIndicator(
-                                    color: Color(0xFF0D6842),
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : Icon(
-                                  Icons.refresh,
+                          Row(
+                            children: [
+                              Text(
+                                'Dashboard',
+                                style: TextStyle(
+                                  fontSize: 22.sp,
+                                  fontWeight: FontWeight.w800,
                                   color: const Color(0xFF0F172A),
-                                  size: 22.sp,
                                 ),
+                              ),
+                              SizedBox(width: 8.w),
+                              Container(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 6.w,
+                                  vertical: 2.h,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFE8F5E9),
+                                  borderRadius: BorderRadius.circular(10.r),
+                                ),
+                                child: Text(
+                                  'Live',
+                                  style: TextStyle(
+                                    color: const Color(0xFF0D6842),
+                                    fontSize: 11.sp,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: 2.h),
                           Text(
-                            'Refresh',
+                            'Comprehensive overview of your microfinance operations',
                             style: TextStyle(
-                              fontSize: 10.5.sp,
+                              fontSize: 12.5.sp,
                               color: const Color(0xFF64748B),
-                              fontWeight: FontWeight.w500,
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
                     ),
-                  ),
-                  SizedBox(width: 14.w),
-
-                  // Punch out (MPIN verification + face verification, then logout)
-                  GestureDetector(
-                    onTap: () => PunchOutDialog.show(context),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.logout_rounded,
-                          color: const Color(0xFFDC2626),
-                          size: 22.sp,
+                    SizedBox(width: 8.w),
+                    // Refresh button
+                    Obx(
+                      () => GestureDetector(
+                        onTap: _controller.isLoading.value
+                            ? null
+                            : () => _controller.getDashboardStats(),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _controller.isLoading.value
+                                ? SizedBox(
+                                    width: 22.sp,
+                                    height: 22.sp,
+                                    child: const CircularProgressIndicator(
+                                      color: Color(0xFF0D6842),
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : Icon(
+                                    Icons.refresh,
+                                    color: const Color(0xFF0F172A),
+                                    size: 22.sp,
+                                  ),
+                            Text(
+                              'Refresh',
+                              style: TextStyle(
+                                fontSize: 10.5.sp,
+                                color: const Color(0xFF64748B),
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
                         ),
-                        Text(
-                          'Punch Out',
-                          style: TextStyle(
-                            fontSize: 10.5.sp,
-                            color: const Color(0xFFDC2626),
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-
-                  // Notification bell with red dot
-                ],
+                    if (_isWorkingDay && !_punchedOutToday && _presentToday) ...[
+                      SizedBox(width: 14.w),
+                      // Punch out button
+                      GestureDetector(
+                        onTap: () {
+                          PunchOutDialog.show(
+                            context,
+                          ).then((_) => _loadUserDetails());
+                        },
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.logout_rounded,
+                              color: const Color(0xFFDC2626),
+                              size: 22.sp,
+                            ),
+                            Text(
+                              'Punch Out',
+                              style: TextStyle(
+                                fontSize: 10.5.sp,
+                                color: const Color(0xFFDC2626),
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
-            ),
 
-            // Scrollable Dashboard Body
-            Expanded(
-              child: RefreshIndicator(
-                color: const Color(0xFF0D6842),
-                onRefresh: () async {
-                  await _controller.getDashboardStats();
-                  await _loadUserDetails();
-                },
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.symmetric(horizontal: 16.w),
-                  physics: const AlwaysScrollableScrollPhysics(
-                    parent: BouncingScrollPhysics(),
-                  ),
-                  child: FadeTransition(
-                    opacity: _pageFade,
-                    child: SlideTransition(
-                      position: _pageSlide,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SizedBox(height: 16.h),
+              // Scrollable Dashboard Body
+              Expanded(
+                child: RefreshIndicator(
+                  color: const Color(0xFF0D6842),
+                  onRefresh: () async {
+                    await _controller.getDashboardStats();
+                    await _loadUserDetails();
+                  },
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.symmetric(horizontal: 16.w),
+                    physics: const AlwaysScrollableScrollPhysics(
+                      parent: BouncingScrollPhysics(),
+                    ),
+                    child: FadeTransition(
+                      opacity: _pageFade,
+                      child: SlideTransition(
+                        position: _pageSlide,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(height: 16.h),
 
-                          // Task Details Card
-                          _buildTaskDetailsCard(),
+                            // Task Details Card
+                            _buildTaskDetailsCard(),
 
-                          SizedBox(height: 20.h),
+                            SizedBox(height: 20.h),
 
-                          // Targets Row
-                          _buildSectionHeader('TARGETS'),
-                          SizedBox(height: 8.h),
-                          _buildTargetsRow(),
+                            // Targets Row
+                            _buildSectionHeader('TARGETS'),
+                            SizedBox(height: 8.h),
+                            _buildTargetsRow(),
 
-                          SizedBox(height: 20.h),
+                            SizedBox(height: 20.h),
 
-                          // Achievement Row
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              _buildSectionHeader('ACHIEVEMENT'),
-                              Text(
-                                'View All',
-                                style: TextStyle(
-                                  fontSize: 12.5.sp,
-                                  fontWeight: FontWeight.bold,
-                                  color: const Color(0xFF0D6842),
+                            // Achievement Row
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                _buildSectionHeader('ACHIEVEMENT'),
+                                Text(
+                                  'View All',
+                                  style: TextStyle(
+                                    fontSize: 12.5.sp,
+                                    fontWeight: FontWeight.bold,
+                                    color: const Color(0xFF0D6842),
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
-                          SizedBox(height: 8.h),
-                          _buildAchievementRow(),
+                              ],
+                            ),
+                            SizedBox(height: 8.h),
+                            _buildAchievementRow(),
 
-                          SizedBox(height: 20.h),
+                            SizedBox(height: 20.h),
 
-                          // Collection vs Arrears Side-By-Side Cards
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(child: _buildCollectionCard()),
-                              SizedBox(width: 12.w),
-                              Expanded(child: _buildArrearsCard()),
-                            ],
-                          ),
+                            // Collection vs Arrears Side-By-Side Cards
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(child: _buildCollectionCard()),
+                                SizedBox(width: 12.w),
+                                Expanded(child: _buildArrearsCard()),
+                              ],
+                            ),
 
-                          SizedBox(height: 20.h),
+                            SizedBox(height: 20.h),
 
-                          // PAR (Portfolio At Risk)
-                          _buildParCard(),
+                            // PAR (Portfolio At Risk)
+                            _buildParCard(),
 
-                          SizedBox(height: 20.h),
+                            SizedBox(height: 20.h),
 
-                          // Operations summary 6-grid (3 columns, 2 rows)
-                          _buildOperationsGrid(),
+                            // Operations summary 6-grid (3 columns, 2 rows)
+                            _buildOperationsGrid(),
 
-                          SizedBox(height: 16.h),
+                            SizedBox(height: 16.h),
 
-                          // Outstanding Balance Card
-                          _buildOutstandingBalanceCard(),
+                            // Outstanding Balance Card
+                            _buildOutstandingBalanceCard(),
 
-                          SizedBox(height: 24.h),
-                          // Quick-access shortcut tiles — row 1
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _buildShortcut(
-                                  asset: 'assets/icon/create_collection.png',
-                                  label: 'Collection Relationship',
-                                  onTap: () => Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) => const Collection(),
+                            SizedBox(height: 24.h),
+                            // Quick-access shortcut tiles — row 1
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _buildShortcut(
+                                    asset: 'assets/icon/create_collection.png',
+                                    label: 'Collection Relationship',
+                                    onTap: () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => const Collection(),
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                              SizedBox(width: 10.w),
-                              Expanded(
-                                child: _buildShortcut(
-                                  asset: 'assets/icon/loan_disbursement.png',
-                                  label: 'Loan\nDisbursement',
-                                  onTap: () => Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) => const LoanDisbursement(),
+                                SizedBox(width: 10.w),
+                                Expanded(
+                                  child: _buildShortcut(
+                                    asset: 'assets/icon/loan_disbursement.png',
+                                    label: 'Loan\nDisbursement',
+                                    onTap: () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            const LoanDisbursement(),
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                              SizedBox(width: 10.w),
-                              Expanded(
-                                child: _buildShortcut(
-                                  asset: 'assets/icon/profile.png',
-                                  label: 'Profile',
-                                  onTap: () => _showProfileBottomSheet(context),
+                                SizedBox(width: 10.w),
+                                Expanded(
+                                  child: _buildShortcut(
+                                    asset: 'assets/icon/profile.png',
+                                    label: 'Profile',
+                                    onTap: () =>
+                                        _showProfileBottomSheet(context),
+                                  ),
                                 ),
-                              ),
-                              SizedBox(width: 10.w),
-                              Expanded(
-                                child: _buildShortcut(
-                                  asset: 'assets/icon/location.png',
-                                  label: 'Location',
-                                  onTap: () => Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          const ClientSearchLocate(),
+                                SizedBox(width: 10.w),
+                                Expanded(
+                                  child: _buildShortcut(
+                                    asset: 'assets/icon/location.png',
+                                    label: 'Location',
+                                    onTap: () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            const ClientSearchLocate(),
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            ],
-                          ),
-                          SizedBox(height: 10.h),
-                          // Quick-access shortcut tiles — row 2
-                          Row(
-                            children: [
-                              SizedBox(width: 10.w),
-                              // Empty spacers keep the tile width consistent
-                              // with the row above (4-column grid width).
-                              Expanded(child: SizedBox.shrink()),
-                              SizedBox(width: 10.w),
-                              Expanded(child: SizedBox.shrink()),
-                              SizedBox(width: 10.w),
-                              Expanded(child: SizedBox.shrink()),
-                            ],
-                          ),
-                          SizedBox(height: 20.h),
-                        ],
+                              ],
+                            ),
+                            SizedBox(height: 10.h),
+                            // Quick-access shortcut tiles — row 2
+                            Row(
+                              children: [
+                                SizedBox(width: 10.w),
+                                // Empty spacers keep the tile width consistent
+                                // with the row above (4-column grid width).
+                                Expanded(child: SizedBox.shrink()),
+                                SizedBox(width: 10.w),
+                                Expanded(child: SizedBox.shrink()),
+                                SizedBox(width: 10.w),
+                                Expanded(child: SizedBox.shrink()),
+                              ],
+                            ),
+                            SizedBox(height: 20.h),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -701,13 +834,13 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
           Container(
             padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
             decoration: BoxDecoration(
-              color: _presentToday
+              color: (_punchedOutToday || _presentToday)
                   ? const Color(0xFF0D6842)
                   : const Color(0xFFB45309),
               borderRadius: BorderRadius.circular(12.r),
             ),
             child: Text(
-              _presentToday ? 'Present' : 'Not Punched',
+              _attendanceStatusText,
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 11.sp,
@@ -1334,20 +1467,3 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
     );
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

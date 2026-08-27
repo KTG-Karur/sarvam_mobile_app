@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:get/get.dart';
@@ -22,6 +23,9 @@ import 'package:sarvam/view/BM/member_individual/member_individual.dart';
 import 'package:sarvam/view/FDO/client_loan_tracker/client_loan_tracker.dart';
 import 'package:sarvam/view/FDO/client_search_locate/client_search_locate.dart';
 import 'package:sarvam/view/auth/face_verification_screen.dart';
+import 'package:sarvam/services/face_biometric_service.dart';
+import 'package:sarvam/view/auth/role_home_router.dart';
+import 'package:sarvam/widgets/punch_out_dialog.dart';
 
 class _Metric {
   const _Metric(this.icon, this.label, this.value, [this.sub]);
@@ -80,12 +84,44 @@ class _AmHomeState extends State<AmHome> with SingleTickerProviderStateMixin {
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _dashboardController.getTaskDetails(),
     );
+    _loadUserDetails();
     RoleScope.current().then((role) {
       if (!mounted) return;
       setState(() {
         _role = role;
         _roleChecked = true;
       });
+    });
+  }
+
+  bool _punchedOutToday = false;
+  bool _presentToday = false;
+  bool _isWorkingDay = true;
+  String? _attendanceStatus;
+
+  Future<void> _loadUserDetails() async {
+    final prefs = await SharedPreferences.getInstance();
+    final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
+    if (serverInfo?.present == true) {
+      await prefs.setString('lastPunchInDate', todayDateKey());
+    }
+    if (serverInfo?.punchedOut == true) {
+      await prefs.setString('lastPunchOutDate', todayDateKey());
+    }
+    if (serverInfo?.status != null) {
+      await prefs.setString('lastPunchStatus', serverInfo!.status!);
+    }
+    if (!mounted) return;
+    setState(() {
+      final hasLocalPunchOut = (prefs.getString('lastPunchOutDate')?.isNotEmpty ?? false);
+      _punchedOutToday =
+          (serverInfo?.punchedOut == true) || hasPunchedOutToday(prefs) || hasLocalPunchOut;
+      _presentToday =
+          (serverInfo?.present == true) ||
+          hasPunchedInToday(prefs) ||
+          _punchedOutToday;
+      _attendanceStatus = serverInfo?.status ?? prefs.getString('lastPunchStatus');
+      _isWorkingDay = serverInfo?.isWorkingDay ?? true;
     });
   }
 
@@ -97,27 +133,88 @@ class _AmHomeState extends State<AmHome> with SingleTickerProviderStateMixin {
 
   bool get _isAreaManager => _role == AppRole.areaManager;
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      body: SafeArea(
-        child: Column(
+  Future<bool> _showConfirmExitDialog() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.r)),
+        backgroundColor: Colors.white,
+        title: Row(
           children: [
-            _buildHeader(context),
-            _buildSegmentTabs(),
-            Expanded(
-              child: Obx(
-                () => RefreshIndicator(
-                  color: _green,
-                  onRefresh: _dashboardController.getTaskDetails,
-                  child: _tabIndex == 0
-                      ? _buildDashboardBody()
-                      : _buildModulesBody(),
-                ),
+            Container(
+              padding: EdgeInsets.all(8.w),
+              decoration: const BoxDecoration(
+                color: Color(0xFFE8F5E9),
+                shape: BoxShape.circle,
               ),
+              child: Icon(Icons.exit_to_app_rounded, color: const Color(0xFF0D6842), size: 22.sp),
+            ),
+            SizedBox(width: 10.w),
+            Text(
+              'Exit Application?',
+              style: TextStyle(fontSize: 17.sp, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
             ),
           ],
+        ),
+        content: Text(
+          'Are you sure you want to exit Sarvam application?',
+          style: TextStyle(fontSize: 14.sp, color: const Color(0xFF475569)),
+        ),
+        actions: [
+          OutlinedButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Color(0xFFCBD5E1)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.r)),
+            ),
+            child: Text('Cancel', style: TextStyle(color: const Color(0xFF475569), fontWeight: FontWeight.bold, fontSize: 13.5.sp)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0D6842),
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.r)),
+            ),
+            child: Text('Exit App', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5.sp)),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final confirm = await _showConfirmExitDialog();
+        if (confirm && mounted) {
+          SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        body: SafeArea(
+          child: Column(
+            children: [
+              _buildHeader(context),
+              _buildSegmentTabs(),
+              Expanded(
+                child: Obx(
+                  () => RefreshIndicator(
+                    color: _green,
+                    onRefresh: _dashboardController.getTaskDetails,
+                    child: _tabIndex == 0
+                        ? _buildDashboardBody()
+                        : _buildModulesBody(),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1091,33 +1188,31 @@ class _AmHomeState extends State<AmHome> with SingleTickerProviderStateMixin {
               ),
             ),
           ),
-          SizedBox(width: 14.w),
-          // Punch Out
-          GestureDetector(
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => const FaceVerificationScreen(isPunchOut: true),
+          if (_isWorkingDay && !_punchedOutToday && _presentToday) ...[
+            SizedBox(width: 14.w),
+            // Punch Out
+            GestureDetector(
+              onTap: () => PunchOutDialog.show(context).then((_) => _loadUserDetails()),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.logout_rounded,
+                    color: const Color(0xFFDC2626),
+                    size: 22.sp,
+                  ),
+                  Text(
+                    'Punch Out',
+                    style: TextStyle(
+                      fontSize: 10.5.sp,
+                      color: const Color(0xFFDC2626),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
               ),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.logout_rounded,
-                  color: const Color(0xFFDC2626),
-                  size: 22.sp,
-                ),
-                Text(
-                  'Punch Out',
-                  style: TextStyle(
-                    fontSize: 10.5.sp,
-                    color: const Color(0xFFDC2626),
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
+          ],
         ],
       ),
     );

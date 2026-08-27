@@ -84,7 +84,43 @@ class FaceBiometricService {
   static const String _encryptionSecretKey = 'Sarvam_MFI_Biometric_SecKey_2026';
 
   /// Helper method to check if face training/enrollment has been completed.
+  /// Checks server database first as the primary source of truth.
   static Future<bool> isFaceEnrolled() async {
+    try {
+      final token = await SecureSessionService.readAccessToken();
+      if (token != null && token.isNotEmpty) {
+        final response = await http.get(
+          Uri.parse(Api.faceAttendanceStatusUrl),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+        ).timeout(const Duration(seconds: 4));
+
+        if (response.statusCode == 200) {
+          final resData = jsonDecode(response.body);
+          final data = resData['data'] is Map ? resData['data'] : resData;
+          if (data is Map && data.containsKey('enrolled')) {
+            final bool isServerEnrolled = data['enrolled'] == true;
+            final prefs = await SharedPreferences.getInstance();
+            if (isServerEnrolled) {
+              await prefs.setBool(keyFaceEnrollmentCompleted, true);
+              return true;
+            } else {
+              // Server template was revoked or not registered on server database
+              await clearEnrolledFeatures();
+              return false;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) print('Server enrollment check error: $e');
+    }
+
+    // Offline / Fallback check
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(keyFaceEnrollmentCompleted) == true) return true;
     final enrolled = await getEnrolledFeatures();
     return enrolled.isNotEmpty;
   }
@@ -413,6 +449,7 @@ class FaceBiometricService {
     required String userId,
     required bool livenessPassed,
     required double qualityScore,
+    String? photoBase64,
   }) {
     final rawJson = jsonEncode({
       'userId': userId,
@@ -434,11 +471,11 @@ class FaceBiometricService {
       'hmacSignature': digest.toString(),
       'algorithm': 'HMAC-SHA256',
       'vectorSize': featureVector.length,
-      // The API uses this vector for matching; no raw camera image is sent.
       'featureVector': featureVector,
       'livenessVerified': livenessPassed,
       'qualityScore': qualityScore,
       'capturedAt': DateTime.now().toIso8601String(),
+      if (photoBase64 != null) 'photoBase64': photoBase64,
     };
   }
 
@@ -608,6 +645,12 @@ class FaceBiometricService {
   /// Checks with the server whether the employee has recorded attendance/punched in today.
   /// Returns `true` if present on server, `false` if not present, or `null` on network/server error.
   static Future<bool?> isPresentTodayOnServer() async {
+    final info = await fetchServerAttendanceInfo();
+    return info?.present;
+  }
+
+  /// Fetches detailed attendance status (present, punchedIn, punchedOut, status string) from server.
+  static Future<ServerAttendanceInfo?> fetchServerAttendanceInfo() async {
     final token = await SecureSessionService.readAccessToken();
     if (token == null || token.isEmpty) return null;
 
@@ -623,8 +666,17 @@ class FaceBiometricService {
       if (response.statusCode == 200) {
         final resData = jsonDecode(response.body);
         final data = resData['data'] is Map ? resData['data'] : resData;
-        if (data is Map && data.containsKey('present')) {
-          return data['present'] == true;
+        if (data is Map) {
+          return ServerAttendanceInfo(
+            present: data['present'] == true,
+            punchedIn: data['punchedIn'] == true,
+            punchedOut: data['punchedOut'] == true,
+            status: data['status']?.toString(),
+            isWorkingDay: data['isWorkingDay'] ?? true,
+            faceAttendanceAllowed: data['faceAttendanceAllowed'] ?? true,
+            faceTrainingAllowed: data['faceTrainingAllowed'] ?? true,
+            accessMessage: data['accessMessage']?.toString(),
+          );
         }
       }
       return null;
@@ -653,5 +705,27 @@ class FaceMatchResult {
     required this.isMatch,
     required this.scorePercent,
     required this.message,
+  });
+}
+
+class ServerAttendanceInfo {
+  final bool present;
+  final bool punchedIn;
+  final bool punchedOut;
+  final String? status;
+  final bool isWorkingDay;
+  final bool faceAttendanceAllowed;
+  final bool faceTrainingAllowed;
+  final String? accessMessage;
+
+  ServerAttendanceInfo({
+    required this.present,
+    required this.punchedIn,
+    required this.punchedOut,
+    this.status,
+    this.isWorkingDay = true,
+    this.faceAttendanceAllowed = true,
+    this.faceTrainingAllowed = true,
+    this.accessMessage,
   });
 }

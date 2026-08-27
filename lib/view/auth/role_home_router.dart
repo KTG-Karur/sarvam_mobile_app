@@ -27,7 +27,9 @@ bool hasPunchedInToday(SharedPreferences prefs) {
 
 /// True if user recorded a successful punch-out for today.
 bool hasPunchedOutToday(SharedPreferences prefs) {
-  return prefs.getString('lastPunchOutDate') == todayDateKey();
+  final lastPunchOut = prefs.getString('lastPunchOutDate');
+  if (lastPunchOut == null || lastPunchOut.isEmpty) return false;
+  return lastPunchOut == todayDateKey() || lastPunchOut.startsWith(todayDateKey());
 }
 
 /// Resolves which dashboard to land on after login/MPIN, based on the

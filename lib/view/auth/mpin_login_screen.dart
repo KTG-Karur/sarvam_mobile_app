@@ -96,8 +96,22 @@ class _MpinLoginScreenState extends State<MpinLoginScreen>
     final prefs = await SharedPreferences.getInstance();
     if (isVerified) {
       final bool faceEnrolled = await FaceBiometricService.isFaceEnrolled();
+      final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
+
       if (!faceEnrolled) {
         Get.offAll(() => const FaceTrainingScreen(autoStart: true));
+      } else if (serverInfo != null && !serverInfo.faceAttendanceAllowed) {
+        // Today is a Holiday or Face Attendance is disabled by Admin -> Go directly to Dashboard!
+        final homeScreen = await resolveHomeScreen();
+        Get.offAll(() => homeScreen);
+        Get.snackbar(
+          'Holiday / Attendance Locked',
+          serverInfo.accessMessage ?? 'Today is a Holiday / Weekly Off. Face attendance is disabled by Admin.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: const Color(0xFFB45309),
+          colorText: Colors.white,
+          duration: const Duration(seconds: 4),
+        );
       } else if (hasPunchedInToday(prefs)) {
         // Already punched in today — reopening the app goes directly to Dashboard!
         final homeScreen = await resolveHomeScreen();
@@ -155,11 +169,71 @@ class _MpinLoginScreenState extends State<MpinLoginScreen>
     Get.offAll(() => const LoginScreen());
   }
 
+  Future<bool> _showConfirmExitDialog() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.r)),
+        backgroundColor: Colors.white,
+        title: Row(
+          children: [
+            Container(
+              padding: EdgeInsets.all(8.w),
+              decoration: const BoxDecoration(
+                color: Color(0xFFE8F5E9),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.exit_to_app_rounded, color: const Color(0xFF0D6842), size: 22.sp),
+            ),
+            SizedBox(width: 10.w),
+            Text(
+              'Exit Application?',
+              style: TextStyle(fontSize: 17.sp, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+            ),
+          ],
+        ),
+        content: Text(
+          'Are you sure you want to exit Sarvam application?',
+          style: TextStyle(fontSize: 14.sp, color: const Color(0xFF475569)),
+        ),
+        actions: [
+          OutlinedButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Color(0xFFCBD5E1)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.r)),
+            ),
+            child: Text('Cancel', style: TextStyle(color: const Color(0xFF475569), fontWeight: FontWeight.bold, fontSize: 13.5.sp)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0D6842),
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.r)),
+            ),
+            child: Text('Exit App', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5.sp)),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: Stack(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final confirm = await _showConfirmExitDialog();
+        if (confirm && mounted) {
+          SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        body: Stack(
         children: [
           // Subtle background wave effect at the bottom
           Positioned.fill(child: CustomPaint(painter: WavePainter())),
@@ -513,7 +587,8 @@ class _MpinLoginScreenState extends State<MpinLoginScreen>
           ),
         ],
       ),
-    );
+    ),
+  );
   }
 }
 

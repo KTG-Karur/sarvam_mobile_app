@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
@@ -41,6 +42,8 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
   String _branchName = '';
   String _userName = '';
   bool _presentToday = false;
+  bool _punchedOutToday = false;
+  String? _attendanceStatus;
 
   static const _months = [
     'January',
@@ -60,9 +63,12 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _ctrl = Get.isRegistered<DashboardController>()
-        ? Get.find<DashboardController>()
-        : Get.put(DashboardController());
+    _loadUserDetails();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _ctrl.getTaskDetails();
+      _ctrl.getDashboardStats();
+    });
+
     _pageAnimController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 450),
@@ -76,8 +82,9 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
       end: Offset.zero,
     ).animate(_pageFade);
     _pageAnimController.forward();
-    _loadUserDetails();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _ctrl.getTaskDetails());
+    _ctrl = Get.isRegistered<DashboardController>()
+        ? Get.find<DashboardController>()
+        : Get.put(DashboardController());
   }
 
   @override
@@ -88,10 +95,15 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
 
   Future<void> _loadUserDetails() async {
     final prefs = await SharedPreferences.getInstance();
-    final serverPresent = await FaceBiometricService.isPresentTodayOnServer();
-    if (serverPresent == true) {
-      // Keep the local fallback in sync with the confirmed server punch-in.
+    final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
+    if (serverInfo?.present == true) {
       await prefs.setString('lastPunchInDate', todayDateKey());
+    }
+    if (serverInfo?.punchedOut == true) {
+      await prefs.setString('lastPunchOutDate', todayDateKey());
+    }
+    if (serverInfo?.status != null) {
+      await prefs.setString('lastPunchStatus', serverInfo!.status!);
     }
     if (!mounted) return;
     setState(() {
@@ -100,45 +112,135 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
       _userName =
           '${prefs.getString('firstName') ?? ''} ${prefs.getString('lastName') ?? ''}'
               .trim();
-      _presentToday = serverPresent ?? hasPunchedInToday(prefs);
+      final hasLocalPunchOut = (prefs.getString('lastPunchOutDate')?.isNotEmpty ?? false);
+      _punchedOutToday =
+          (serverInfo?.punchedOut == true) || hasPunchedOutToday(prefs) || hasLocalPunchOut;
+      _presentToday =
+          (serverInfo?.present == true) ||
+          hasPunchedInToday(prefs) ||
+          _punchedOutToday;
+      _attendanceStatus = serverInfo?.status ?? prefs.getString('lastPunchStatus');
+      _isWorkingDay = serverInfo?.isWorkingDay ?? true;
     });
+  }
+
+  bool _isWorkingDay = true;
+
+  String get _attendanceStatusText {
+    if (!_isWorkingDay || _attendanceStatus == 'HOLIDAY') {
+      return 'Holiday / Off';
+    }
+    if (_punchedOutToday) {
+      if (_attendanceStatus == 'HALF_DAY') {
+        return 'Half Day Present';
+      }
+      if (_attendanceStatus == 'FULL_DAY') {
+        return 'Full Day Present';
+      }
+      return 'Half Day Present';
+    }
+    if (_presentToday) {
+      return 'Present';
+    }
+    return 'Not Punched';
+  }
+
+  Future<bool> _showConfirmExitDialog() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.r)),
+        backgroundColor: Colors.white,
+        title: Row(
+          children: [
+            Container(
+              padding: EdgeInsets.all(8.w),
+              decoration: const BoxDecoration(
+                color: Color(0xFFE8F5E9),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.exit_to_app_rounded, color: const Color(0xFF0D6842), size: 22.sp),
+            ),
+            SizedBox(width: 10.w),
+            Text(
+              'Exit Application?',
+              style: TextStyle(fontSize: 17.sp, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+            ),
+          ],
+        ),
+        content: Text(
+          'Are you sure you want to exit Sarvam application?',
+          style: TextStyle(fontSize: 14.sp, color: const Color(0xFF475569)),
+        ),
+        actions: [
+          OutlinedButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Color(0xFFCBD5E1)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.r)),
+            ),
+            child: Text('Cancel', style: TextStyle(color: const Color(0xFF64748B), fontWeight: FontWeight.bold, fontSize: 13.5.sp)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0D6842),
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.r)),
+            ),
+            child: Text('Exit App', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5.sp)),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
   }
 
   // ── build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(),
-            Expanded(
-              child: Obx(
-                () => RefreshIndicator(
-                  color: _green,
-                  onRefresh: () async {
-                    await _ctrl.getTaskDetails();
-                    await _loadUserDetails();
-                  },
-                  child: SingleChildScrollView(
-                    padding: EdgeInsets.symmetric(horizontal: 16.w),
-                    physics: const AlwaysScrollableScrollPhysics(
-                      parent: BouncingScrollPhysics(),
-                    ),
-                    child: FadeTransition(
-                      opacity: _pageFade,
-                      child: SlideTransition(
-                        position: _pageSlide,
-                        child: _buildBody(),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final confirm = await _showConfirmExitDialog();
+        if (confirm && mounted) {
+          SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        body: SafeArea(
+          child: Column(
+            children: [
+              _buildHeader(),
+              Expanded(
+                child: Obx(
+                  () => RefreshIndicator(
+                    color: _green,
+                    onRefresh: () async {
+                      await _ctrl.getTaskDetails();
+                      await _loadUserDetails();
+                    },
+                    child: SingleChildScrollView(
+                      padding: EdgeInsets.symmetric(horizontal: 16.w),
+                      physics: const AlwaysScrollableScrollPhysics(
+                        parent: BouncingScrollPhysics(),
+                      ),
+                      child: FadeTransition(
+                        opacity: _pageFade,
+                        child: SlideTransition(
+                          position: _pageSlide,
+                          child: _buildBody(),
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -230,29 +332,31 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
               ),
             ),
           ),
-          SizedBox(width: 14.w),
-          // Punch Out
-          GestureDetector(
-            onTap: () => PunchOutDialog.show(context),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.logout_rounded,
-                  color: const Color(0xFFDC2626),
-                  size: 22.sp,
-                ),
-                Text(
-                  'Punch Out',
-                  style: TextStyle(
-                    fontSize: 10.5.sp,
+          if (_isWorkingDay && !_punchedOutToday && _presentToday) ...[
+            SizedBox(width: 14.w),
+            // Punch Out
+            GestureDetector(
+              onTap: () => PunchOutDialog.show(context).then((_) => _loadUserDetails()),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.logout_rounded,
                     color: const Color(0xFFDC2626),
-                    fontWeight: FontWeight.w500,
+                    size: 22.sp,
                   ),
-                ),
-              ],
+                  Text(
+                    'Punch Out',
+                    style: TextStyle(
+                      fontSize: 10.5.sp,
+                      color: const Color(0xFFDC2626),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -507,11 +611,11 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
           Container(
             padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
             decoration: BoxDecoration(
-              color: _presentToday ? _green : const Color(0xFFB45309),
+              color: (_punchedOutToday || _presentToday) ? _green : const Color(0xFFB45309),
               borderRadius: BorderRadius.circular(12.r),
             ),
             child: Text(
-              _presentToday ? 'Present' : 'Not Punched',
+              _attendanceStatusText,
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 11.sp,
