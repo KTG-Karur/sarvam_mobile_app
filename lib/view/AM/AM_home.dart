@@ -102,18 +102,22 @@ class _AmHomeState extends State<AmHome> with SingleTickerProviderStateMixin {
   Future<void> _loadUserDetails() async {
     final prefs = await SharedPreferences.getInstance();
     final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
+    final localPunchIn = hasPunchedInToday(prefs);
+    final localPunchOut = hasPunchedOutToday(prefs);
+
     if (serverInfo != null) {
-      if (!serverInfo.present && !serverInfo.punchedOut) {
+      final bool isServerPunchedIn = serverInfo.present || serverInfo.punchedIn;
+      if (!isServerPunchedIn && !serverInfo.punchedOut && !localPunchIn) {
         await prefs.remove('lastPunchInDate');
         await prefs.remove('lastPunchInTime');
         await prefs.remove('lastPunchOutDate');
         await prefs.remove('lastPunchOutTime');
         await prefs.remove('lastPunchStatus');
       } else {
-        if (serverInfo.present) {
+        if (isServerPunchedIn || localPunchIn) {
           await prefs.setString('lastPunchInDate', todayDateKey());
         }
-        if (serverInfo.punchedOut) {
+        if (serverInfo.punchedOut || localPunchOut) {
           await prefs.setString('lastPunchOutDate', todayDateKey());
         }
         if (serverInfo.status != null) {
@@ -123,18 +127,66 @@ class _AmHomeState extends State<AmHome> with SingleTickerProviderStateMixin {
     }
     if (!mounted) return;
     setState(() {
-      if (serverInfo != null) {
-        _punchedOutToday = serverInfo.punchedOut;
-        _presentToday = serverInfo.present;
-        _attendanceStatus = serverInfo.status;
-      } else {
-        final hasLocalPunchOut = (prefs.getString('lastPunchOutDate')?.isNotEmpty ?? false);
-        _punchedOutToday = hasPunchedOutToday(prefs) || hasLocalPunchOut;
-        _presentToday = hasPunchedInToday(prefs) || _punchedOutToday;
-        _attendanceStatus = prefs.getString('lastPunchStatus');
-      }
+      final bool isPunchedOut = localPunchOut || (serverInfo?.punchedOut == true);
+      final bool isPunchedIn = localPunchIn || (serverInfo?.present == true) || (serverInfo?.punchedIn == true);
+
+      _punchedOutToday = isPunchedOut;
+      _presentToday = isPunchedIn || isPunchedOut;
+      _attendanceStatus = serverInfo?.status ?? prefs.getString('lastPunchStatus');
       _isWorkingDay = serverInfo?.isWorkingDay ?? true;
     });
+  }
+
+  String get _attendanceStatusText {
+    if (!_isWorkingDay || _attendanceStatus == 'HOLIDAY') {
+      return 'Holiday / Off';
+    }
+    if (_punchedOutToday) {
+      if (_attendanceStatus == 'HALF_DAY') {
+        return 'Half Day Present';
+      }
+      if (_attendanceStatus == 'FULL_DAY') {
+        return 'Full Day Present';
+      }
+      return 'Shift Completed';
+    }
+    if (_presentToday) {
+      return 'Present (Punched In)';
+    }
+    return 'Absent (Not Punched)';
+  }
+
+  String get _attendanceStatusBadgeText {
+    if (!_isWorkingDay || _attendanceStatus == 'HOLIDAY') {
+      return 'Holiday';
+    }
+    if (_punchedOutToday) {
+      return 'Punched Out';
+    }
+    if (_presentToday) {
+      return 'Present';
+    }
+    return 'Absent';
+  }
+
+  Color get _attendanceStatusColor {
+    if (!_isWorkingDay || _attendanceStatus == 'HOLIDAY') {
+      return const Color(0xFFB45309);
+    }
+    if (_punchedOutToday || _presentToday) {
+      return const Color(0xFF0D6842);
+    }
+    return const Color(0xFFDC2626);
+  }
+
+  Color get _attendanceStatusBgColor {
+    if (!_isWorkingDay || _attendanceStatus == 'HOLIDAY') {
+      return const Color(0xFFFEF3C7);
+    }
+    if (_punchedOutToday || _presentToday) {
+      return const Color(0xFFE8F5E9);
+    }
+    return const Color(0xFFFEF2F2);
   }
 
   @override
@@ -218,7 +270,10 @@ class _AmHomeState extends State<AmHome> with SingleTickerProviderStateMixin {
                 child: Obx(
                   () => RefreshIndicator(
                     color: _green,
-                    onRefresh: _dashboardController.getTaskDetails,
+                    onRefresh: () async {
+                      await _dashboardController.getTaskDetails();
+                      await _loadUserDetails();
+                    },
                     child: _tabIndex == 0
                         ? _buildDashboardBody()
                         : _buildModulesBody(),
@@ -354,6 +409,7 @@ class _AmHomeState extends State<AmHome> with SingleTickerProviderStateMixin {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                _buildAttendanceCard(),
                 _buildTaskHeader(data),
                 _metricSection('TARGETS', [
                   _Metric(
@@ -1138,20 +1194,37 @@ class _AmHomeState extends State<AmHome> with SingleTickerProviderStateMixin {
                     SizedBox(width: 8.w),
                     Container(
                       padding: EdgeInsets.symmetric(
-                        horizontal: 6.w,
-                        vertical: 2.h,
+                        horizontal: 8.w,
+                        vertical: 3.h,
                       ),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFE8F5E9),
+                        color: _attendanceStatusBgColor,
                         borderRadius: BorderRadius.circular(10.r),
-                      ),
-                      child: Text(
-                        'Live',
-                        style: TextStyle(
-                          color: _green,
-                          fontSize: 11.sp,
-                          fontWeight: FontWeight.bold,
+                        border: Border.all(
+                          color: _attendanceStatusColor.withValues(alpha: 0.3),
                         ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 7.w,
+                            height: 7.w,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: _attendanceStatusColor,
+                            ),
+                          ),
+                          SizedBox(width: 5.w),
+                          Text(
+                            _attendanceStatusBadgeText,
+                            style: TextStyle(
+                              color: _attendanceStatusColor,
+                              fontSize: 11.sp,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -1174,7 +1247,10 @@ class _AmHomeState extends State<AmHome> with SingleTickerProviderStateMixin {
             () => GestureDetector(
               onTap: _dashboardController.isTaskDetailsLoading.value
                   ? null
-                  : _dashboardController.getTaskDetails,
+                  : () async {
+                      await _dashboardController.getTaskDetails();
+                      await _loadUserDetails();
+                    },
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -1222,6 +1298,108 @@ class _AmHomeState extends State<AmHome> with SingleTickerProviderStateMixin {
                     ),
                   ),
                 ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAttendanceCard() {
+    final dateStr = DateFormat('EEE, dd MMM yyyy').format(DateTime.now());
+    return Container(
+      width: double.infinity,
+      margin: EdgeInsets.only(bottom: 18.h),
+      padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 14.h),
+      decoration: BoxDecoration(
+        color: _attendanceStatusBgColor,
+        borderRadius: BorderRadius.circular(14.r),
+        border: Border.all(
+          color: _attendanceStatusColor.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: EdgeInsets.all(10.w),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: _attendanceStatusColor.withValues(alpha: 0.15),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Icon(
+              !_isWorkingDay || _attendanceStatus == 'HOLIDAY'
+                  ? Icons.beach_access_rounded
+                  : _presentToday || _punchedOutToday
+                      ? Icons.verified_user_rounded
+                      : Icons.person_off_rounded,
+              color: _attendanceStatusColor,
+              size: 24.sp,
+            ),
+          ),
+          SizedBox(width: 12.w),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'MY ATTENDANCE  •  $dateStr',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(
+                    fontSize: 10.sp,
+                    fontWeight: FontWeight.w800,
+                    color: _muted,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                SizedBox(height: 3.h),
+                Text(
+                  _attendanceStatusText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(
+                    fontSize: 14.sp,
+                    fontWeight: FontWeight.w900,
+                    color: _attendanceStatusColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_isWorkingDay && !_presentToday && !_punchedOutToday) ...[
+            SizedBox(width: 8.w),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.of(context)
+                  .push(
+                    MaterialPageRoute(
+                      builder: (_) => const FaceVerificationScreen(),
+                    ),
+                  )
+                  .then((_) => _loadUserDetails()),
+              icon: Icon(Icons.center_focus_strong_rounded, size: 15.sp, color: Colors.white),
+              label: Text(
+                'Punch In',
+                style: TextStyle(
+                  fontSize: 11.5.sp,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0D6842),
+                padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 8.h),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10.r),
+                ),
+                elevation: 0,
               ),
             ),
           ],

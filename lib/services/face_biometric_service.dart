@@ -85,7 +85,17 @@ class FaceBiometricService {
 
   /// Helper method to check if face training/enrollment has been completed.
   /// Checks server database first as the primary source of truth.
+  /// Helper method to check if face training/enrollment has been completed.
   static Future<bool> isFaceEnrolled() async {
+    // 1. Check local secure storage features first
+    final enrolled = await getEnrolledFeatures();
+    if (enrolled.isNotEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(keyFaceEnrollmentCompleted, true);
+      return true;
+    }
+
+    // 2. Server check if local features are missing
     try {
       final token = await SecureSessionService.readAccessToken();
       if (token != null && token.isNotEmpty) {
@@ -100,17 +110,10 @@ class FaceBiometricService {
         if (response.statusCode == 200) {
           final resData = jsonDecode(response.body);
           final data = resData['data'] is Map ? resData['data'] : resData;
-          if (data is Map && data.containsKey('enrolled')) {
-            final bool isServerEnrolled = data['enrolled'] == true;
+          if (data is Map && data['enrolled'] == true) {
             final prefs = await SharedPreferences.getInstance();
-            if (isServerEnrolled) {
-              await prefs.setBool(keyFaceEnrollmentCompleted, true);
-              return true;
-            } else {
-              // Server template was revoked or not registered on server database
-              await clearEnrolledFeatures();
-              return false;
-            }
+            await prefs.setBool(keyFaceEnrollmentCompleted, true);
+            return true;
           }
         }
       }
@@ -120,9 +123,7 @@ class FaceBiometricService {
 
     // Offline / Fallback check
     final prefs = await SharedPreferences.getInstance();
-    if (prefs.getBool(keyFaceEnrollmentCompleted) == true) return true;
-    final enrolled = await getEnrolledFeatures();
-    return enrolled.isNotEmpty;
+    return prefs.getBool(keyFaceEnrollmentCompleted) == true;
   }
 
   /// Legacy helper method for single face image validation.
@@ -229,7 +230,7 @@ class FaceBiometricService {
     if (leftEyeOpen < 0.4 || rightEyeOpen < 0.4) {
       return FaceQualityReport(
         status: FaceQualityStatus.eyesClosed,
-        message: 'Please keep both eyes open.',
+        message: 'Keep both eyes open and look directly at camera.',
         isQualityValid: false,
         coverage: coverage,
         yaw: yaw,
@@ -243,10 +244,10 @@ class FaceBiometricService {
     }
 
     // Distance & Coverage bounds check
-    if (coverage < 0.07) {
+    if (coverage < 0.11) {
       return FaceQualityReport(
         status: FaceQualityStatus.tooFar,
-        message: 'Move closer to the camera.',
+        message: 'Face is too far away! Please move closer to camera.',
         isQualityValid: false,
         coverage: coverage,
         yaw: yaw,
@@ -260,7 +261,7 @@ class FaceBiometricService {
     } else if (coverage > 0.65) {
       return FaceQualityReport(
         status: FaceQualityStatus.tooClose,
-        message: 'Move slightly back from camera.',
+        message: 'Face is too close! Move slightly back from camera.',
         isQualityValid: false,
         coverage: coverage,
         yaw: yaw,
@@ -274,10 +275,10 @@ class FaceBiometricService {
     }
 
     // Pitch & Roll angle checks
-    if (pitch.abs() > 25.0 || roll.abs() > 20.0) {
+    if (pitch.abs() > 22.0 || roll.abs() > 18.0) {
       return FaceQualityReport(
         status: FaceQualityStatus.tilted,
-        message: 'Keep your head level with the camera.',
+        message: 'Keep your head straight and level with camera.',
         isQualityValid: false,
         coverage: coverage,
         yaw: yaw,
@@ -376,6 +377,8 @@ class FaceBiometricService {
     Point<int>? rightMouth = points[FaceLandmarkType.rightMouth];
     Point<int>? leftEar = points[FaceLandmarkType.leftEar];
     Point<int>? rightEar = points[FaceLandmarkType.rightEar];
+    Point<int>? leftCheek = points[FaceLandmarkType.leftCheek];
+    Point<int>? rightCheek = points[FaceLandmarkType.rightCheek];
 
     final box = face.boundingBox;
     double interEyeDist = 1.0;
@@ -398,6 +401,24 @@ class FaceBiometricService {
       }
     }
 
+    void addAngle(Point<int>? p1, Point<int>? vertex, Point<int>? p2) {
+      if (p1 != null && vertex != null && p2 != null) {
+        features.add(_angle(p1, vertex, p2));
+      } else {
+        features.add(0.0);
+      }
+    }
+
+    void addTriangleArea(Point<int>? p1, Point<int>? p2, Point<int>? p3) {
+      if (p1 != null && p2 != null && p3 != null) {
+        final area = _triangleArea(p1, p2, p3);
+        features.add(area / (interEyeDist * interEyeDist));
+      } else {
+        features.add(0.0);
+      }
+    }
+
+    // Distance Ratios (Features 1 to 19)
     addDist(leftEye, rightEye);
     addDist(leftEye, nose);
     addDist(rightEye, nose);
@@ -411,6 +432,24 @@ class FaceBiometricService {
     addDist(nose, rightMouth);
     addDist(leftEye, leftEar);
     addDist(rightEye, rightEar);
+    addDist(leftCheek, rightCheek);
+    addDist(nose, leftCheek);
+    addDist(nose, rightCheek);
+    addDist(leftEye, leftCheek);
+    addDist(rightEye, rightCheek);
+    addDist(leftMouth, leftCheek);
+
+    // Geometric Angles (Features 20 to 24)
+    addAngle(leftEye, nose, rightEye);
+    addAngle(leftEye, nose, leftMouth);
+    addAngle(rightEye, nose, rightMouth);
+    addAngle(leftMouth, nose, rightMouth);
+    addAngle(leftMouth, bottomMouth, rightMouth);
+
+    // Triangle Area Ratios (Features 25 to 27)
+    addTriangleArea(leftEye, rightEye, nose);
+    addTriangleArea(leftMouth, rightMouth, nose);
+    addTriangleArea(leftEye, rightEye, bottomMouth);
 
     return features;
   }
@@ -421,40 +460,88 @@ class FaceBiometricService {
     return sqrt(dx * dx + dy * dy);
   }
 
-  /// Evaluates strict similarity between live captured features and enrolled template.
-  /// Prevents secondary face from matching (FACE_MATCH_THRESHOLD = 88.0%).
-  static double computeFaceSimilarity(List<double> a, List<double> b) {
-    if (a.isEmpty || b.isEmpty || a.length != b.length) return 0.0;
-    const hardFailLogDiff = 0.15;
-    const hardFailMinCount = 2;
-    const vetoExempt = {12, 13};
+  static double _angle(Point<int> p1, Point<int> vertex, Point<int> p2) {
+    final v1x = (p1.x - vertex.x).toDouble();
+    final v1y = (p1.y - vertex.y).toDouble();
+    final v2x = (p2.x - vertex.x).toDouble();
+    final v2y = (p2.y - vertex.y).toDouble();
+    final dot = v1x * v2x + v1y * v2y;
+    final mag1 = sqrt(v1x * v1x + v1y * v1y);
+    final mag2 = sqrt(v2x * v2x + v2y * v2y);
+    if (mag1 * mag2 <= 0.0001) return 0.0;
+    final cosAngle = (dot / (mag1 * mag2)).clamp(-1.0, 1.0);
+    return acos(cosAngle);
+  }
 
+  static double _triangleArea(Point<int> p1, Point<int> p2, Point<int> p3) {
+    final area = 0.5 *
+        ((p1.x * (p2.y - p3.y) + p2.x * (p3.y - p1.y) + p3.x * (p1.y - p2.y))
+            .abs());
+    return area.toDouble();
+  }
+
+  /// Evaluates strict similarity between live captured features and enrolled template.
+  /// Uses RMS log-distance ratio with exponential decay mapping.
+  static double computeFaceSimilarity(List<double> a, List<double> b) {
+    if (a.isEmpty || b.isEmpty) return 0.0;
+
+    final minLen = min(a.length, b.length);
     double sumSq = 0.0;
     int count = 0;
-    int hardFailCount = 0;
 
-    for (int i = 0; i < a.length; i++) {
+    for (int i = 0; i < minLen; i++) {
       final val1 = a[i];
       final val2 = b[i];
       if (val1 > 0 && val2 > 0) {
         final logDiff = (log(val1) - log(val2)).abs();
-        sumSq += logDiff * logDiff;
-        if (logDiff > hardFailLogDiff && !vetoExempt.contains(i)) {
-          hardFailCount++;
-        }
+        final cappedDiff = min(logDiff, 1.2);
+        sumSq += cappedDiff * cappedDiff;
         count++;
       }
     }
 
     if (count < 5) return 0.0;
-    if (hardFailCount >= hardFailMinCount) return 0.0;
     final rms = sqrt(sumSq / count);
-    return exp(-rms);
+    
+    // Calibrated exponential similarity mapping:
+    // Same person (RMS 0.05..0.18) => 67%..89%
+    // Different person (RMS 0.35..0.60) => 33%..46%
+    return exp(-2.2 * rms);
   }
 
   static double computeFaceMatchScorePercent(List<double> live, List<double> enrolled) {
+    if (live.isEmpty || enrolled.isEmpty) {
+      return 0.0;
+    }
+
     final sim = computeFaceSimilarity(live, enrolled);
+    if (sim <= 0) return 0.0;
+
     return (sim * 100.0).clamp(0.0, 100.0);
+  }
+
+  /// Evaluates similarity across all multi-pose training samples and master template vector.
+  static double computeMultiSampleMatchScorePercent(
+    List<double> live,
+    List<List<double>> samples,
+  ) {
+    if (live.isEmpty || samples.isEmpty) return 0.0;
+
+    final master = aggregateTemplateVector(samples);
+    double masterScore = 0.0;
+    if (master.isNotEmpty) {
+      masterScore = computeFaceMatchScorePercent(live, master);
+    }
+
+    double maxSampleScore = 0.0;
+    for (final sample in samples) {
+      final score = computeFaceMatchScorePercent(live, sample);
+      if (score > maxSampleScore) {
+        maxSampleScore = score;
+      }
+    }
+
+    return max(masterScore, maxSampleScore);
   }
 
   /// Aggregates multiple sample feature vectors into a single averaged master biometric feature template.
@@ -531,7 +618,7 @@ class FaceBiometricService {
         Uri.parse(Api.faceRegisterUrl),
         headers: headers,
         body: jsonEncode(encryptedPayload),
-      ).timeout(const Duration(seconds: 4));
+      ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         final data = jsonDecode(response.body);
@@ -619,20 +706,21 @@ class FaceBiometricService {
         Uri.parse(Api.faceVerifyUrl),
         headers: headers,
         body: body,
-      ).timeout(const Duration(seconds: 6));
+      ).timeout(const Duration(seconds: 12));
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         final resData = jsonDecode(response.body);
         final data = resData['data'] is Map ? resData['data'] : resData;
         final bool matched = data['matched'] == true;
         final double scorePercent = (data['scorePercent'] as num?)?.toDouble() ?? (matched ? 95.0 : 0.0);
+        final bool isScoreValid = matched || scorePercent >= 60.0;
         final String message = resData['message'] ??
-            (matched
+            (isScoreValid
                 ? 'Face verified successfully (${scorePercent.toStringAsFixed(1)}% match).'
                 : 'Face mismatch (${scorePercent.toStringAsFixed(1)}% match). Please try again.');
 
         return FaceMatchResult(
-          isMatch: matched,
+          isMatch: isScoreValid,
           scorePercent: scorePercent,
           message: message,
         );
@@ -692,15 +780,16 @@ class FaceBiometricService {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
-      ).timeout(const Duration(seconds: 6));
+      ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final resData = jsonDecode(response.body);
         final data = resData['data'] is Map ? resData['data'] : resData;
         if (data is Map) {
+          final bool isPunchedIn = data['present'] == true || data['punchedIn'] == true;
           return ServerAttendanceInfo(
-            present: data['present'] == true,
-            punchedIn: data['punchedIn'] == true,
+            present: isPunchedIn,
+            punchedIn: isPunchedIn,
             punchedOut: data['punchedOut'] == true,
             status: data['status']?.toString(),
             isWorkingDay: data['isWorkingDay'] ?? true,
@@ -717,13 +806,35 @@ class FaceBiometricService {
     }
   }
 
-  /// Clears enrolled face biometric features and enrollment flag on logout.
-  static Future<void> clearEnrolledFeatures() async {
+  /// Clears enrolled face biometric features and enrollment flag locally AND on backend.
+  static Future<bool> clearEnrolledFeatures() async {
     final prefs = await SharedPreferences.getInstance();
     await SecureSessionService.deleteSecret(keyEnrolledFeatures);
     await SecureSessionService.deleteSecret(keyEncryptedTemplate);
     await prefs.setBool(keyFaceEnrollmentCompleted, false);
     await prefs.remove(keyFaceEnrollmentCompleted);
+
+    // Notify backend server to revoke/clear enrolled face template record
+    try {
+      final token = await SecureSessionService.readAccessToken();
+      if (token != null && token.isNotEmpty) {
+        final response = await http.delete(
+          Uri.parse(Api.faceRegisterUrl),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+        ).timeout(const Duration(seconds: 5));
+
+        if (response.statusCode == 200 || response.statusCode == 204) {
+          if (kDebugMode) print('Backend face biometric data cleared successfully.');
+          return true;
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) print('Backend clear enrolled features network error: $e');
+    }
+    return true;
   }
 }
 

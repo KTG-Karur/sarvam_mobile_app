@@ -97,7 +97,7 @@ class _FrontCameraCaptureScreenState extends State<FrontCameraCaptureScreen>
   Future<void> _setupController(CameraDescription cameraDescription) async {
     final controller = CameraController(
       cameraDescription,
-      ResolutionPreset.high,
+      ResolutionPreset.medium,
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.jpeg,
     );

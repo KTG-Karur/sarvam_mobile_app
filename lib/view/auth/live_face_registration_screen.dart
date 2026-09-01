@@ -121,7 +121,7 @@ class _LiveFaceRegistrationScreenState extends State<LiveFaceRegistrationScreen>
 
       final controller = CameraController(
         camera,
-        ResolutionPreset.high,
+        ResolutionPreset.medium,
         enableAudio: false,
         imageFormatGroup: Platform.isAndroid
             ? ImageFormatGroup.nv21

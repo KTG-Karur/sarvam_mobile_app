@@ -14,7 +14,7 @@ import 'package:sarvam/view/auth/mpin_login_screen.dart';
 import 'package:sarvam/view/auth/face_verification_screen.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 
-enum TrainingStep { intro, step1Straight, step2Left, step3Right, previewConfirm, success, failed }
+enum TrainingStep { intro, step1Straight, step2Left, step3Right, step4Smile, step5Center, previewConfirm, success, failed }
 
 class FaceTrainingScreen extends StatefulWidget {
   const FaceTrainingScreen({super.key, this.autoStart = false});
@@ -54,6 +54,7 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
   @override
   void initState() {
     super.initState();
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     WidgetsBinding.instance.addObserver(this);
     _faceDetector = FaceDetector(
       options: FaceDetectorOptions(
@@ -72,19 +73,39 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _stopImageStream();
-    _cameraController?.dispose();
-    _faceDetector.close();
+    final controller = _cameraController;
+    _cameraController = null;
+    try {
+      controller?.dispose();
+    } catch (_) {}
+    try {
+      _faceDetector.close();
+    } catch (_) {}
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (_cameraController == null || !_cameraController!.value.isInitialized) {
-      return;
-    }
-    if (state == AppLifecycleState.inactive) {
+    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
       _stopImageStream();
-      _cameraController?.dispose();
+      final controller = _cameraController;
+      if (mounted) {
+        setState(() {
+          _cameraController = null;
+          _isInitializing = true;
+        });
+      } else {
+        _cameraController = null;
+      }
+      try {
+        controller?.dispose();
+      } catch (_) {}
     } else if (state == AppLifecycleState.resumed &&
         _currentStep != TrainingStep.intro &&
         _currentStep != TrainingStep.previewConfirm &&
@@ -96,6 +117,8 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
 
   Future<void> _startTraining() async {
     final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
+    if (!mounted) return;
+
     if (serverInfo != null && !serverInfo.faceTrainingAllowed) {
       Get.snackbar(
         'Training Restricted',
@@ -107,6 +130,7 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
       return;
     }
 
+    if (!mounted) return;
     setState(() {
       _currentStep = TrainingStep.step1Straight;
       _capturedSamples.clear();
@@ -120,6 +144,7 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
   }
 
   Future<void> _initializeCamera() async {
+    if (!mounted) return;
     setState(() {
       _isInitializing = true;
       _errorMessage = null;
@@ -127,6 +152,7 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
 
     try {
       _cameras = await availableCameras();
+      if (!mounted) return;
       if (_cameras.isEmpty) {
         setState(() {
           _errorMessage = 'No camera found on this device.';
@@ -141,19 +167,30 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
       );
       final camera = frontCameraIndex != -1 ? _cameras[frontCameraIndex] : _cameras[0];
 
+      _stopImageStream();
+      final oldController = _cameraController;
+      _cameraController = null;
+      try {
+        await oldController?.dispose();
+      } catch (_) {}
+
       final controller = CameraController(
         camera,
-        ResolutionPreset.high,
+        ResolutionPreset.medium,
         enableAudio: false,
         imageFormatGroup: Platform.isAndroid
             ? ImageFormatGroup.nv21
             : ImageFormatGroup.bgra8888,
       );
 
-      _cameraController = controller;
       await controller.initialize();
 
-      if (!mounted) return;
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+
+      _cameraController = controller;
 
       setState(() {
         _isInitializing = false;
@@ -235,20 +272,32 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
       String poseInstruction = '';
       if (primaryFace != null) {
         final yaw = primaryFace.headEulerAngleY ?? 0.0;
+        final pitch = primaryFace.headEulerAngleX ?? 0.0;
         if (_currentStep == TrainingStep.step1Straight) {
-          if (yaw.abs() > 12.0) {
+          if (yaw.abs() > 12.0 || pitch.abs() > 15.0) {
             isPoseValid = false;
-            poseInstruction = 'Look straight at camera';
+            poseInstruction = '👤 Step 1/5: Look straight at camera';
           }
         } else if (_currentStep == TrainingStep.step2Left) {
-          if (yaw < 8.0) {
+          if (yaw < 6.0) {
             isPoseValid = false;
-            poseInstruction = 'Turn face slightly left';
+            poseInstruction = '👈 Step 2/5: Turn face slightly left';
           }
         } else if (_currentStep == TrainingStep.step3Right) {
-          if (yaw > -8.0) {
+          if (yaw > -6.0) {
             isPoseValid = false;
-            poseInstruction = 'Turn face slightly right';
+            poseInstruction = '👉 Step 3/5: Turn face slightly right';
+          }
+        } else if (_currentStep == TrainingStep.step4Smile) {
+          final smileProb = primaryFace.smilingProbability ?? 0.0;
+          if (smileProb < 0.20 && yaw.abs() > 14.0) {
+            isPoseValid = false;
+            poseInstruction = '😊 Step 4/5: Smile slightly at camera';
+          }
+        } else if (_currentStep == TrainingStep.step5Center) {
+          if (yaw.abs() > 10.0 || pitch.abs() > 12.0) {
+            isPoseValid = false;
+            poseInstruction = '🎯 Step 5/5: Final Straight Alignment';
           }
         }
       }
@@ -261,8 +310,8 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
           _holdProgress = 0.0;
         } else {
           final elapsedMs = DateTime.now().difference(_holdStartTime!).inMilliseconds;
-          // 1200ms (1.2 seconds) sustained hold time requirement
-          final progress = (elapsedMs / 1200.0).clamp(0.0, 1.0);
+          // 400ms sustained hold time requirement for fast capture
+          final progress = (elapsedMs / 400.0).clamp(0.0, 1.0);
           if (mounted) {
             setState(() {
               _faceDetected = true;
@@ -317,11 +366,16 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
     final format = InputImageFormatValue.fromRawValue(image.format.raw);
     if (format == null || image.planes.isEmpty) return null;
 
-    final WriteBuffer allBytes = WriteBuffer();
-    for (final Plane plane in image.planes) {
-      allBytes.putUint8List(plane.bytes);
+    final Uint8List bytes;
+    if (image.planes.length == 1) {
+      bytes = image.planes[0].bytes;
+    } else {
+      final WriteBuffer allBytes = WriteBuffer();
+      for (final Plane plane in image.planes) {
+        allBytes.putUint8List(plane.bytes);
+      }
+      bytes = allBytes.done().buffer.asUint8List();
     }
-    final bytes = allBytes.done().buffer.asUint8List();
 
     return InputImage.fromBytes(
       bytes: bytes,
@@ -348,15 +402,27 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
       setState(() {
         _currentStep = TrainingStep.step2Left;
         _isCapturing = false;
-        _statusInstructionMessage = 'Turn face slightly left';
+        _statusInstructionMessage = '👈 Step 2 of 5: Turn face slightly left';
       });
     } else if (_currentStep == TrainingStep.step2Left) {
       setState(() {
         _currentStep = TrainingStep.step3Right;
         _isCapturing = false;
-        _statusInstructionMessage = 'Turn face slightly right';
+        _statusInstructionMessage = '👉 Step 3 of 5: Turn face slightly right';
       });
     } else if (_currentStep == TrainingStep.step3Right) {
+      setState(() {
+        _currentStep = TrainingStep.step4Smile;
+        _isCapturing = false;
+        _statusInstructionMessage = '😊 Step 4 of 5: Smile slightly at camera';
+      });
+    } else if (_currentStep == TrainingStep.step4Smile) {
+      setState(() {
+        _currentStep = TrainingStep.step5Center;
+        _isCapturing = false;
+        _statusInstructionMessage = '🎯 Step 5 of 5: Look straight & hold still';
+      });
+    } else if (_currentStep == TrainingStep.step5Center) {
       await _preparePreviewConfirm();
     }
   }
@@ -640,14 +706,20 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
   // ───────────────────────────────────────────────────────────────────────────
   Widget _buildStepCaptureUI() {
     int stepNum = 1;
-    String stepTitle = 'Step 1 of 3';
+    String stepTitle = 'Step 1 of 5';
 
     if (_currentStep == TrainingStep.step2Left) {
       stepNum = 2;
-      stepTitle = 'Step 2 of 3';
+      stepTitle = 'Step 2 of 5';
     } else if (_currentStep == TrainingStep.step3Right) {
       stepNum = 3;
-      stepTitle = 'Step 3 of 3';
+      stepTitle = 'Step 3 of 5';
+    } else if (_currentStep == TrainingStep.step4Smile) {
+      stepNum = 4;
+      stepTitle = 'Step 4 of 5';
+    } else if (_currentStep == TrainingStep.step5Center) {
+      stepNum = 5;
+      stepTitle = 'Step 5 of 5';
     }
 
     return Scaffold(
@@ -784,8 +856,15 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
                               padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
                               decoration: BoxDecoration(
                                 color: _faceDetected
-                                    ? const Color(0xFF0D6842).withValues(alpha: 0.9)
-                                    : Colors.black.withValues(alpha: 0.65),
+                                    ? const Color(0xFF0D6842).withValues(alpha: 0.95)
+                                    : _statusInstructionMessage.contains('far') ||
+                                            _statusInstructionMessage.contains('close') ||
+                                            _statusInstructionMessage.contains('eyes') ||
+                                            _statusInstructionMessage.contains('straight') ||
+                                            _statusInstructionMessage.contains('multiple') ||
+                                            _statusInstructionMessage.contains('frame')
+                                        ? const Color(0xFFDC2626).withValues(alpha: 0.95)
+                                        : Colors.black.withValues(alpha: 0.75),
                                 borderRadius: BorderRadius.circular(20.r),
                                 boxShadow: [
                                   BoxShadow(
@@ -801,9 +880,15 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
                                   Icon(
                                     _faceDetected
                                         ? Icons.check_circle_rounded
-                                        : Icons.face_retouching_natural_rounded,
+                                        : _statusInstructionMessage.contains('far') ||
+                                                _statusInstructionMessage.contains('close') ||
+                                                _statusInstructionMessage.contains('eyes') ||
+                                                _statusInstructionMessage.contains('straight') ||
+                                                _statusInstructionMessage.contains('multiple')
+                                            ? Icons.warning_amber_rounded
+                                            : Icons.face_retouching_natural_rounded,
                                     color: Colors.white,
-                                    size: 16.sp,
+                                    size: 18.sp,
                                   ),
                                   SizedBox(width: 8.w),
                                   Text(
@@ -814,7 +899,7 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
                                             : '$stepTitle: $_statusInstructionMessage',
                                     style: TextStyle(
                                       fontSize: 13.sp,
-                                      fontWeight: FontWeight.w600,
+                                      fontWeight: FontWeight.bold,
                                       color: Colors.white,
                                     ),
                                   ),
@@ -865,6 +950,10 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
                               _buildStepNode(2, 'Left', stepNum),
                               _buildStepLine(stepNum > 2),
                               _buildStepNode(3, 'Right', stepNum),
+                              _buildStepLine(stepNum > 3),
+                              _buildStepNode(4, 'Smile', stepNum),
+                              _buildStepLine(stepNum > 4),
+                              _buildStepNode(5, 'Center', stepNum),
                             ],
                           ),
                         ),

@@ -1615,7 +1615,10 @@ class _DemandCollectionState extends State<DemandCollection> {
                         SizedBox(height: 4.h),
                         TextFormField(
                           key: ValueKey('coll_${item['clientId']}_${item['loanNumber']}'),
-                          initialValue: (item['collectedAmount'] ?? item['totalDemand'] ?? 0).toString(),
+                          initialValue: (item['collectedAmount'] != null && _asNum(item['collectedAmount']) > 0
+                                  ? _asNum(item['collectedAmount'])
+                                  : _asNum(item['totalDemand']))
+                              .toString(),
                           // Read-only for a fully-collected client — nothing
                           // remains to collect, so this just shows their
                           // collection history, not an editable submission
@@ -1778,6 +1781,8 @@ class _DemandCollectionState extends State<DemandCollection> {
                 item['advanceAmount'],
           ),
     );
+    final num grandTotal = totalCollection + totalAdvance;
+
     return Row(
       children: [
         Expanded(
@@ -1810,9 +1815,18 @@ class _DemandCollectionState extends State<DemandCollection> {
                       }
                     },
               icon: const Icon(Icons.arrow_forward_rounded),
-              label: Text(
-                'Continue (₹${totalCollection.toStringAsFixed(2)} + Loan Adv ₹${totalAdvance.toStringAsFixed(2)})',
-                overflow: TextOverflow.ellipsis,
+              label: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  totalAdvance > 0
+                      ? 'Continue (₹${totalCollection.toStringAsFixed(0)} + Adv ₹${totalAdvance.toStringAsFixed(0)} = ₹${grandTotal.toStringAsFixed(0)})'
+                      : 'Continue (₹${grandTotal.toStringAsFixed(0)})',
+                  maxLines: 1,
+                  style: TextStyle(
+                    fontSize: 13.sp,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF008A3D),

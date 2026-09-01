@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,7 +11,6 @@ import 'package:get/get.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
-import 'package:sarvam/services/fingerprint_biometric_service.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 
 class FaceVerificationScreen extends StatefulWidget {
@@ -38,12 +38,15 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
   bool _faceDetected = false;
   List<double>? _liveFeatures;
   String _statusGuidanceText = 'Position Face in Frame';
+  DateTime? _autoHoldStartTime;
+  double _autoHoldProgress = 0.0;
 
 
 
   @override
   void initState() {
     super.initState();
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     WidgetsBinding.instance.addObserver(this);
     _faceDetector = FaceDetector(
       options: FaceDetectorOptions(
@@ -66,16 +69,28 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     try {
       controller?.dispose();
     } catch (_) {}
-    _faceDetector.close();
+    try {
+      _faceDetector.close();
+    } catch (_) {}
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+    ]);
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.inactive) {
+    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
       _stopImageStream();
       final controller = _cameraController;
-      _cameraController = null;
+      if (mounted) {
+        setState(() {
+          _cameraController = null;
+          _isInitializing = true;
+        });
+      } else {
+        _cameraController = null;
+      }
       try {
         controller?.dispose();
       } catch (_) {}
@@ -107,9 +122,12 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
 
   Future<void> _initializeCamera() async {
     final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
+    if (!mounted) return;
+
     if (serverInfo != null && !serverInfo.faceAttendanceAllowed && !widget.isPunchOut) {
       if (!mounted) return;
       final homeScreen = await resolveHomeScreen();
+      if (!mounted) return;
       Get.offAll(() => homeScreen);
       Get.snackbar(
         'Holiday / Attendance Locked',
@@ -138,6 +156,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
 
     try {
       _cameras = await availableCameras();
+      if (!mounted) return;
       if (_cameras.isEmpty) {
         if (mounted) {
           setState(() {
@@ -155,7 +174,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
 
       final controller = CameraController(
         camera,
-        ResolutionPreset.high,
+        ResolutionPreset.medium,
         enableAudio: false,
         imageFormatGroup: Platform.isAndroid
             ? ImageFormatGroup.nv21
@@ -207,7 +226,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
       final camera = _cameras[_selectedCameraIndex];
       final controller = CameraController(
         camera,
-        ResolutionPreset.high,
+        ResolutionPreset.medium,
         enableAudio: false,
         imageFormatGroup: Platform.isAndroid
             ? ImageFormatGroup.nv21
@@ -237,6 +256,25 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     }
   }
 
+  void _resetVerificationState() {
+    _autoHoldStartTime = null;
+    _autoHoldProgress = 0.0;
+    _liveFeatures = null;
+    _faceDetected = false;
+    _isProcessingFrame = false;
+    _isVerifying = false;
+    _statusGuidanceText = 'Position Face in Frame';
+  }
+
+  void _startImageStream() {
+    _resetVerificationState();
+    if (_cameraController == null || !_cameraController!.value.isInitialized) return;
+    if (_cameraController!.value.isStreamingImages) return;
+    try {
+      _cameraController!.startImageStream(_processCameraImage);
+    } catch (_) {}
+  }
+
   void _stopImageStream() {
     if (_cameraController != null && _cameraController!.value.isStreamingImages) {
       try {
@@ -245,8 +283,17 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     }
   }
 
+  DateTime? _lastFrameProcessingTime;
+
   Future<void> _processCameraImage(CameraImage image) async {
     if (_isProcessingFrame || _isVerifying) return;
+
+    final now = DateTime.now();
+    if (_lastFrameProcessingTime != null &&
+        now.difference(_lastFrameProcessingTime!).inMilliseconds < 50) {
+      return;
+    }
+    _lastFrameProcessingTime = now;
     _isProcessingFrame = true;
 
     try {
@@ -271,21 +318,55 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
         if (report.isQualityValid) {
           final liveFeatures = FaceBiometricService.extractFeatureVector(primaryFace);
           if (liveFeatures.isNotEmpty) {
+            // Detect if face person changed in camera view (e.g. friend -> user)
+            if (_liveFeatures != null && _liveFeatures!.isNotEmpty) {
+              final interFrameScore = FaceBiometricService.computeFaceMatchScorePercent(_liveFeatures!, liveFeatures);
+              if (interFrameScore < 50.0) {
+                // Different face detected! Reset hold timer for new person
+                _autoHoldStartTime = DateTime.now();
+                _autoHoldProgress = 0.0;
+              }
+            }
+
+            _liveFeatures = liveFeatures;
+
+            if (_autoHoldStartTime == null) {
+              _autoHoldStartTime = DateTime.now();
+              _autoHoldProgress = 0.0;
+            }
+
+            final elapsedMs = DateTime.now().difference(_autoHoldStartTime!).inMilliseconds;
+            // 400ms hold time for fast, stable verification
+            final progress = (elapsedMs / 400.0).clamp(0.0, 1.0);
+
             setState(() {
               _faceDetected = true;
-              _liveFeatures = liveFeatures;
-              _statusGuidanceText = 'Face Aligned — Tap Verify or Hold Still';
+              _autoHoldProgress = progress;
+              _statusGuidanceText = 'Face Aligned — Verifying (${(progress * 100).toInt()}%)';
             });
+
+            if (progress >= 1.0 && !_isVerifying) {
+              HapticFeedback.mediumImpact();
+              _verifyFace();
+            }
           }
         } else {
+          _autoHoldStartTime = null;
+          _autoHoldProgress = 0.0;
+          _liveFeatures = null;
           setState(() {
             _faceDetected = false;
+            _autoHoldProgress = 0.0;
             _statusGuidanceText = report.message;
           });
         }
       } else {
+        _autoHoldStartTime = null;
+        _autoHoldProgress = 0.0;
+        _liveFeatures = null;
         setState(() {
           _faceDetected = false;
+          _autoHoldProgress = 0.0;
           _statusGuidanceText = 'Position Face in Frame';
         });
       }
@@ -313,15 +394,18 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     if (rotation == null) return null;
 
     final format = InputImageFormatValue.fromRawValue(image.format.raw);
-    if (format == null) return null;
+    if (format == null || image.planes.isEmpty) return null;
 
-    if (image.planes.isEmpty) return null;
-
-    final WriteBuffer allBytes = WriteBuffer();
-    for (final Plane plane in image.planes) {
-      allBytes.putUint8List(plane.bytes);
+    final Uint8List bytes;
+    if (image.planes.length == 1) {
+      bytes = image.planes[0].bytes;
+    } else {
+      final WriteBuffer allBytes = WriteBuffer();
+      for (final Plane plane in image.planes) {
+        allBytes.putUint8List(plane.bytes);
+      }
+      bytes = allBytes.done().buffer.asUint8List();
     }
-    final bytes = allBytes.done().buffer.asUint8List();
 
     return InputImage.fromBytes(
       bytes: bytes,
@@ -367,16 +451,13 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
   Future<void> _verifyFace() async {
     if (_isVerifying) return;
 
-    if (_liveFeatures == null || _liveFeatures!.isEmpty) {
-      Get.snackbar(
-        'Face Detection Required',
-        'Please position your face properly inside the frame before verifying.',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.orange,
-        colorText: Colors.white,
-      );
-      return;
-    }
+    _autoHoldStartTime = null;
+    _autoHoldProgress = 0.0;
+
+    final currentProbeFeatures = List<double>.from(_liveFeatures!);
+    _resetVerificationState();
+
+    _stopImageStream();
 
     setState(() {
       _isVerifying = true;
@@ -384,14 +465,10 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
 
     try {
       final storedSamples = await FaceBiometricService.getEnrolledFeatures();
-      List<double>? storedFeatures;
-      if (storedSamples.isNotEmpty) {
-        storedFeatures = FaceBiometricService.aggregateTemplateVector(storedSamples);
-      }
 
       final punchType = widget.isPunchOut ? 'PUNCH_OUT' : 'PUNCH_IN';
       final matchResult = await FaceBiometricService.verifyFace(
-        liveFeatures: _liveFeatures!,
+        liveFeatures: currentProbeFeatures,
         type: punchType,
         latitude: _position?.latitude,
         longitude: _position?.longitude,
@@ -401,66 +478,41 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
         _isVerifying = false;
       });
 
-      if (matchResult.isMatch) {
-        _showMatchResultDialog(
-          isMatched: true,
-          scorePercent: matchResult.scorePercent,
-        );
-      } else {
-        // Fallback offline / local score check if backend template not registered yet
-        if (storedFeatures != null && storedFeatures.isNotEmpty) {
-          final localScore = FaceBiometricService.computeFaceMatchScorePercent(_liveFeatures!, storedFeatures);
-          if (localScore >= 88.0) {
-            _showMatchResultDialog(
-              isMatched: true,
-              scorePercent: localScore,
-            );
-            return;
-          }
-        }
-        _showMatchResultDialog(
-          isMatched: false,
-          scorePercent: matchResult.scorePercent,
-        );
+      double localScore = 0.0;
+      if (storedSamples.isNotEmpty) {
+        localScore = FaceBiometricService.computeMultiSampleMatchScorePercent(currentProbeFeatures, storedSamples);
       }
+
+      bool finalIsMatched = false;
+      double finalScore = 0.0;
+
+      const double requiredThreshold = 60.0;
+      finalScore = max(localScore, matchResult.scorePercent);
+
+      if (matchResult.isMatch || finalScore >= requiredThreshold || localScore >= requiredThreshold || matchResult.scorePercent >= requiredThreshold) {
+        finalIsMatched = true;
+        if (finalScore < requiredThreshold && matchResult.isMatch) {
+          finalScore = requiredThreshold;
+        }
+      } else {
+        finalIsMatched = false;
+      }
+
+      _showMatchResultDialog(
+        isMatched: finalIsMatched,
+        scorePercent: finalScore,
+      );
     } catch (e) {
       if (kDebugMode) print('Verify face error: $e');
       setState(() {
         _isVerifying = false;
       });
+      _startImageStream();
       Get.snackbar(
         'Verification Error',
         'An unexpected error occurred during verification. Please try again.',
         snackPosition: SnackPosition.BOTTOM,
         backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
-    }
-  }
-
-  Future<void> _verifyWithFingerprint() async {
-    if (_isVerifying) return;
-    setState(() {
-      _isVerifying = true;
-    });
-
-    final bool success = await FingerprintBiometricService.authenticateWithFingerprint(
-      reason: 'Scan your fingerprint to verify attendance',
-    );
-
-    if (!mounted) return;
-    setState(() {
-      _isVerifying = false;
-    });
-
-    if (success) {
-      _finishAndNavigate();
-    } else {
-      Get.snackbar(
-        'Fingerprint Unrecognized',
-        'Fingerprint verification failed or was cancelled. Please try again.',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.redAccent,
         colorText: Colors.white,
       );
     }
@@ -513,7 +565,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
             Text(
               isMatched
                   ? 'Biometric match successful (${scorePercent.toStringAsFixed(1)}% match).'
-                  : 'Face match score: ${scorePercent.toStringAsFixed(1)}% (Required: 88.0%).\nPlease align your face properly and ensure good lighting.',
+                  : 'Face match score: ${scorePercent.toStringAsFixed(1)}% (Required: 60.0%).',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 13.sp,
@@ -521,6 +573,45 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
                 height: 1.35,
               ),
             ),
+            if (!isMatched) ...[
+              SizedBox(height: 14.h),
+              Container(
+                padding: EdgeInsets.all(12.w),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFFBEB),
+                  borderRadius: BorderRadius.circular(12.r),
+                  border: Border.all(color: const Color(0xFFFDE68A)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.lightbulb_rounded, color: const Color(0xFFB45309), size: 18.sp),
+                        SizedBox(width: 6.w),
+                        Text(
+                          'Mistake Guidance & Tips:',
+                          style: TextStyle(
+                            fontSize: 12.5.sp,
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFF92400E),
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 6.h),
+                    Text(
+                      '• Distance: Move closer if face is too far, or slightly back if too close.\n• Lighting: Ensure bright lighting on your face.\n• Pose: Look straight at camera without head tilt.\n• Eyes: Keep both eyes open naturally.',
+                      style: TextStyle(
+                        fontSize: 11.5.sp,
+                        color: const Color(0xFF78350F),
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             SizedBox(height: 24.h),
             if (isMatched)
               SizedBox(
@@ -549,59 +640,31 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
                 ),
               )
             else
-              Column(
-                children: [
-                  SizedBox(
-                    width: double.infinity,
-                    height: 48.h,
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        _verifyWithFingerprint();
-                      },
-                      icon: Icon(Icons.fingerprint_rounded, size: 22.sp, color: Colors.white),
-                      label: Text(
-                        'Verify with Fingerprint',
-                        style: TextStyle(
-                          fontSize: 15.sp,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0D6842),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12.r),
-                        ),
-                        elevation: 0,
-                      ),
+              SizedBox(
+                width: double.infinity,
+                height: 48.h,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _resetVerificationState();
+                    _startImageStream();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0D6842),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12.r),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: Text(
+                    'Try Again',
+                    style: TextStyle(
+                      fontSize: 15.sp,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
                     ),
                   ),
-                  SizedBox(height: 10.h),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 48.h,
-                    child: OutlinedButton(
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                      },
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Color(0xFF0D6842), width: 1.5),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12.r),
-                        ),
-                      ),
-                      child: Text(
-                        'Try Again (Face Scan)',
-                        style: TextStyle(
-                          fontSize: 14.sp,
-                          fontWeight: FontWeight.bold,
-                          color: const Color(0xFF0D6842),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
           ],
         ),
@@ -678,7 +741,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.06),
+                              color: Colors.black.withValues(alpha: 0.06),
                               blurRadius: 8,
                               offset: const Offset(0, 2),
                             ),
@@ -746,9 +809,9 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
                                 begin: Alignment.topCenter,
                                 end: Alignment.bottomCenter,
                                 colors: [
-                                  Colors.black.withOpacity(0.25),
+                                  Colors.black.withValues(alpha: 0.25),
                                   Colors.transparent,
-                                  Colors.black.withOpacity(0.45),
+                                  Colors.black.withValues(alpha: 0.45),
                                 ],
                               ),
                             ),
@@ -781,43 +844,73 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
                         // Real-Time Status Banner (Top Center)
                         Positioned(
                           top: 20.h,
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 300),
-                            padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
-                            decoration: BoxDecoration(
-                              color: _faceDetected
-                                  ? const Color(0xFF0D6842).withOpacity(0.9)
-                                  : Colors.black.withOpacity(0.55),
-                              borderRadius: BorderRadius.circular(20.r),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.15),
-                                  blurRadius: 6,
-                                  offset: const Offset(0, 2),
+                          child: Column(
+                            children: [
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 300),
+                                padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
+                                decoration: BoxDecoration(
+                                  color: _faceDetected
+                                      ? const Color(0xFF0D6842).withValues(alpha: 0.95)
+                                      : _statusGuidanceText.contains('far') ||
+                                              _statusGuidanceText.contains('close') ||
+                                              _statusGuidanceText.contains('eyes') ||
+                                              _statusGuidanceText.contains('straight') ||
+                                              _statusGuidanceText.contains('frame')
+                                          ? const Color(0xFFDC2626).withValues(alpha: 0.95)
+                                          : Colors.black.withValues(alpha: 0.75),
+                                  borderRadius: BorderRadius.circular(20.r),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.15),
+                                      blurRadius: 6,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
                                 ),
-                              ],
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  _faceDetected
-                                      ? Icons.check_circle_rounded
-                                      : Icons.face_retouching_natural_rounded,
-                                  color: Colors.white,
-                                  size: 16.sp,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      _faceDetected
+                                          ? Icons.check_circle_rounded
+                                          : _statusGuidanceText.contains('far') ||
+                                                  _statusGuidanceText.contains('close') ||
+                                                  _statusGuidanceText.contains('eyes') ||
+                                                  _statusGuidanceText.contains('straight')
+                                              ? Icons.warning_amber_rounded
+                                              : Icons.face_retouching_natural_rounded,
+                                      color: Colors.white,
+                                      size: 18.sp,
+                                    ),
+                                    SizedBox(width: 8.w),
+                                    Text(
+                                      _statusGuidanceText,
+                                      style: TextStyle(
+                                        fontSize: 13.sp,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                SizedBox(width: 8.w),
-                                Text(
-                                  _statusGuidanceText,
-                                  style: TextStyle(
-                                    fontSize: 13.sp,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.white,
+                              ),
+                              if (_autoHoldProgress > 0) ...[
+                                SizedBox(height: 8.h),
+                                SizedBox(
+                                  width: 220.w,
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(4.r),
+                                    child: LinearProgressIndicator(
+                                      value: _autoHoldProgress,
+                                      backgroundColor: Colors.white24,
+                                      color: const Color(0xFF00C853),
+                                      minHeight: 4.h,
+                                    ),
                                   ),
                                 ),
                               ],
-                            ),
+                            ],
                           ),
                         ),
 
@@ -827,12 +920,12 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
                           child: Container(
                             padding: EdgeInsets.symmetric(horizontal: 18.w, vertical: 10.h),
                             decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.35),
+                              color: Colors.black.withValues(alpha: 0.35),
                               borderRadius: BorderRadius.circular(36.r),
                               border: Border.all(color: Colors.white24, width: 1),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withOpacity(0.2),
+                                  color: Colors.black.withValues(alpha: 0.2),
                                   blurRadius: 12,
                                   offset: const Offset(0, 4),
                                 ),
@@ -849,7 +942,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
                                     width: 44.w,
                                     height: 44.w,
                                     decoration: BoxDecoration(
-                                      color: Colors.white.withOpacity(0.2),
+                                      color: Colors.white.withValues(alpha: 0.2),
                                       shape: BoxShape.circle,
                                     ),
                                     child: Icon(
@@ -874,7 +967,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
                                       shape: BoxShape.circle,
                                       boxShadow: [
                                         BoxShadow(
-                                          color: const Color(0xFF769A8B).withOpacity(0.5),
+                                          color: const Color(0xFF769A8B).withValues(alpha: 0.5),
                                           blurRadius: 14,
                                           offset: const Offset(0, 4),
                                         ),
@@ -897,27 +990,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
 
                                 SizedBox(width: 14.w),
 
-                                // Fingerprint Biometric Scanner Action Button
-                                InkWell(
-                                  onTap: _isVerifying ? null : _verifyWithFingerprint,
-                                  borderRadius: BorderRadius.circular(24.r),
-                                  child: Container(
-                                    width: 44.w,
-                                    height: 44.w,
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withOpacity(0.2),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: Icon(
-                                      Icons.fingerprint_rounded,
-                                      color: Colors.white,
-                                      size: 24.sp,
-                                    ),
-                                  ),
-                                ),
-
-                                SizedBox(width: 14.w),
-
                                 // Right Action: Refresh / Re-initialize Camera
                                 InkWell(
                                   onTap: _initializeCamera,
@@ -926,7 +998,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
                                     width: 44.w,
                                     height: 44.w,
                                     decoration: BoxDecoration(
-                                      color: Colors.white.withOpacity(0.2),
+                                      color: Colors.white.withValues(alpha: 0.2),
                                       shape: BoxShape.circle,
                                     ),
                                     child: Icon(

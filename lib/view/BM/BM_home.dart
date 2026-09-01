@@ -96,18 +96,22 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
   Future<void> _loadUserDetails() async {
     final prefs = await SharedPreferences.getInstance();
     final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
+    final localPunchIn = hasPunchedInToday(prefs);
+    final localPunchOut = hasPunchedOutToday(prefs);
+
     if (serverInfo != null) {
-      if (!serverInfo.present && !serverInfo.punchedOut) {
+      final bool isServerPunchedIn = serverInfo.present || serverInfo.punchedIn;
+      if (!isServerPunchedIn && !serverInfo.punchedOut && !localPunchIn) {
         await prefs.remove('lastPunchInDate');
         await prefs.remove('lastPunchInTime');
         await prefs.remove('lastPunchOutDate');
         await prefs.remove('lastPunchOutTime');
         await prefs.remove('lastPunchStatus');
       } else {
-        if (serverInfo.present) {
+        if (isServerPunchedIn || localPunchIn) {
           await prefs.setString('lastPunchInDate', todayDateKey());
         }
-        if (serverInfo.punchedOut) {
+        if (serverInfo.punchedOut || localPunchOut) {
           await prefs.setString('lastPunchOutDate', todayDateKey());
         }
         if (serverInfo.status != null) {
@@ -122,16 +126,12 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
       _userName =
           '${prefs.getString('firstName') ?? ''} ${prefs.getString('lastName') ?? ''}'
               .trim();
-      if (serverInfo != null) {
-        _punchedOutToday = serverInfo.punchedOut;
-        _presentToday = serverInfo.present;
-        _attendanceStatus = serverInfo.status;
-      } else {
-        final hasLocalPunchOut = (prefs.getString('lastPunchOutDate')?.isNotEmpty ?? false);
-        _punchedOutToday = hasPunchedOutToday(prefs) || hasLocalPunchOut;
-        _presentToday = hasPunchedInToday(prefs) || _punchedOutToday;
-        _attendanceStatus = prefs.getString('lastPunchStatus');
-      }
+      final bool isPunchedOut = localPunchOut || (serverInfo?.punchedOut == true);
+      final bool isPunchedIn = localPunchIn || (serverInfo?.present == true) || (serverInfo?.punchedIn == true);
+
+      _punchedOutToday = isPunchedOut;
+      _presentToday = isPunchedIn || isPunchedOut;
+      _attendanceStatus = serverInfo?.status ?? prefs.getString('lastPunchStatus');
       _isWorkingDay = serverInfo?.isWorkingDay ?? true;
     });
   }
