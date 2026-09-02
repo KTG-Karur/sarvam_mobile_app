@@ -10,6 +10,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 import 'package:sarvam/view/auth/face_training_screen.dart';
@@ -986,8 +987,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
                       onPressed: () async {
                         Navigator.pop(ctx);
                         await _stopImageStream();
-                        await FaceBiometricService.clearEnrolledFeatures();
-                        Get.off(() => const FaceTrainingScreen());
+                        await _handleReRegisterRequest();
                       },
                       icon: Icon(Icons.face_retouching_natural_rounded, size: 18.sp, color: const Color(0xFF0D6842)),
                       label: Text(
@@ -1044,6 +1044,102 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
       if (!mounted) return;
       Get.offAll(() => homeScreen);
     }
+  }
+
+  /// Re-registering an already-enrolled face needs Admin approval. This checks
+  /// the current decision: proceed if approved, otherwise submit / report a
+  /// pending request instead of wiping the template on the spot.
+  Future<void> _handleReRegisterRequest() async {
+    final auth = Get.isRegistered<AuthController>()
+        ? Get.find<AuthController>()
+        : Get.put(AuthController());
+
+    final status = await auth.faceReRegistrationStatus();
+    if (!mounted) return;
+
+    if (status == FaceReRegStatus.approved) {
+      await FaceBiometricService.clearEnrolledFeatures();
+      Get.off(() => const FaceTrainingScreen());
+      return;
+    }
+
+    if (status == FaceReRegStatus.pending) {
+      Get.snackbar(
+        'Awaiting Approval',
+        'Your face update request is still pending Admin approval.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: const Color(0xFFB45309),
+        colorText: Colors.white,
+        duration: const Duration(seconds: 4),
+      );
+      _resetVerificationState();
+      _startImageStream();
+      return;
+    }
+
+    final reason = await _askReRegisterReason();
+    if (!mounted) return;
+    if (reason == null) {
+      _resetVerificationState();
+      _startImageStream();
+      return;
+    }
+
+    final ok = await auth.requestFaceReRegistration(reason: reason);
+    if (!mounted) return;
+    if (ok) {
+      Get.offAll(() => const MpinLoginScreen());
+    } else {
+      _resetVerificationState();
+      _startImageStream();
+    }
+  }
+
+  Future<String?> _askReRegisterReason() {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.r)),
+        title: Text('Request Face Update',
+            style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Updating your registered face needs Admin approval. Add a short '
+              'reason (optional) and submit your request.',
+              style:
+                  TextStyle(fontSize: 12.5.sp, color: const Color(0xFF475569)),
+            ),
+            SizedBox(height: 12.h),
+            TextField(
+              controller: controller,
+              maxLines: 2,
+              decoration: InputDecoration(
+                hintText: 'e.g. appearance changed, verification keeps failing',
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10.r)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            style:
+                ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D6842)),
+            child: const Text('Submit Request',
+                style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   String _formatTime(DateTime dt) {

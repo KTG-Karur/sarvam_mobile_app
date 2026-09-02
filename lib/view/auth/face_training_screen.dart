@@ -120,12 +120,19 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
     if (!mounted) return;
 
     if (serverInfo != null && !serverInfo.faceTrainingAllowed) {
+      final bool alreadyEnrolled = await FaceBiometricService.isFaceEnrolled();
       Get.snackbar(
         'Training Restricted',
-        serverInfo.accessMessage ?? 'Face training is disabled by Admin.',
+        serverInfo.accessMessage ??
+            (alreadyEnrolled
+                ? 'Re-registering your face needs Admin approval. Request it '
+                    'from the "Re-register / Update Face" option on the '
+                    'verification screen.'
+                : 'Face training is disabled by Admin.'),
         snackPosition: SnackPosition.BOTTOM,
         backgroundColor: Colors.redAccent,
         colorText: Colors.white,
+        duration: const Duration(seconds: 4),
       );
       return;
     }

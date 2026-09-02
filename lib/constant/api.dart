@@ -17,6 +17,12 @@ class Api {
   static String get faceVerifyUrl => "$baseUrl/api/auth/face/verify";
   static String get faceAttendanceStatusUrl =>
       "$baseUrl/api/auth/face/attendance-status";
+  // Re-registration / face update needs Admin approval for an already-enrolled
+  // user. Request submits the ask; status reports the Admin decision.
+  static String get faceReRegisterRequestUrl =>
+      "$baseUrl/api/auth/face/re-register/request";
+  static String get faceReRegisterStatusUrl =>
+      "$baseUrl/api/auth/face/re-register/status";
   static String get deviceAccessRequestUrl =>
       "$baseUrl/api/mobile/device-access/request";
   static String get demandCollectionUrl => "$baseUrl/api/collections/demand";

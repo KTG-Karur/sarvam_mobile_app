@@ -10,6 +10,9 @@ import 'package:sarvam/view/auth/login_screen.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
 import 'package:sarvam/services/secure_session_service.dart';
 
+/// Admin decision on a user's request to re-register / update their face.
+enum FaceReRegStatus { none, pending, approved, rejected }
+
 class AuthController extends GetxController {
   final GetConnect _connect = GetConnect();
   final RxBool isLoading = false.obs;
@@ -764,6 +767,101 @@ class AuthController extends GetxController {
       return false;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// Submits a request for Admin approval to re-register / update the enrolled
+  /// face (POST /api/auth/face/re-register/request). First-time enrolment does
+  /// not need this — only replacing an existing template does.
+  Future<bool> requestFaceReRegistration({String? reason}) async {
+    try {
+      isLoading.value = true;
+      final token = await SecureSessionService.readAccessToken();
+      if (token == null || token.isEmpty) {
+        _showAuthError('Session expired', 'Please sign in again.');
+        return false;
+      }
+      _connect.timeout = const Duration(seconds: 15);
+      final response = await _connect.post(
+        Api.faceReRegisterRequestUrl,
+        {
+          if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+        },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      final body = response.body is Map ? response.body as Map : const {};
+      if ((response.statusCode == 200 ||
+              response.statusCode == 201 ||
+              response.statusCode == 409) &&
+          body['success'] != false) {
+        Get.snackbar(
+          'Request Submitted',
+          body['message']?.toString() ??
+              'Your face re-registration request was sent. Please wait for Admin approval.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: const Color(0xFF0D6842),
+          colorText: Colors.white,
+          duration: const Duration(seconds: 4),
+        );
+        return true;
+      }
+
+      _showAuthError(
+        'Request Failed',
+        body['error']?.toString() ??
+            body['message']?.toString() ??
+            'Could not submit the re-registration request.',
+      );
+      return false;
+    } catch (e) {
+      _showAuthError('Error',
+          'Unable to submit the request. Check your connection and try again.');
+      return false;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  /// Reads the Admin decision on a pending face re-registration request
+  /// (GET /api/auth/face/re-register/status).
+  Future<FaceReRegStatus> faceReRegistrationStatus() async {
+    try {
+      final token = await SecureSessionService.readAccessToken();
+      if (token == null || token.isEmpty) return FaceReRegStatus.none;
+
+      final response = await _connect.get(
+        Api.faceReRegisterStatusUrl,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200 && response.body != null) {
+        final raw = response.body;
+        final Map data = raw is Map
+            ? (raw['data'] is Map ? raw['data'] as Map : raw)
+            : const {};
+        if (data['approved'] == true) return FaceReRegStatus.approved;
+        final s = (data['status'] ?? '').toString().toUpperCase();
+        switch (s) {
+          case 'APPROVED':
+            return FaceReRegStatus.approved;
+          case 'PENDING':
+          case 'REQUESTED':
+            return FaceReRegStatus.pending;
+          case 'REJECTED':
+          case 'DENIED':
+            return FaceReRegStatus.rejected;
+        }
+      }
+      return FaceReRegStatus.none;
+    } catch (_) {
+      return FaceReRegStatus.none;
     }
   }
 

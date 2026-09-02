@@ -99,3 +99,43 @@ Response `data`: `{ enrolled, present, punchedIn, punchedOut, status,
 isWorkingDay, faceAttendanceAllowed, faceTrainingAllowed, accessMessage }`
 — already consumed by `FaceBiometricService.fetchServerAttendanceInfo`.
 `enrolled=false` here makes the app drop its local template and force re-enrol.
+
+**`faceTrainingAllowed` governs who may run enrolment:**
+
+| User state | `faceTrainingAllowed` |
+|---|---|
+| Never enrolled | `true` (first enrolment is always allowed) |
+| Enrolled, no re-reg approval | `false` |
+| Enrolled + Admin approved a re-reg request | `true` until the next successful `/face/register`, then back to `false` |
+| Admin pushed "Revoke & Require Re-registration" | `enrolled=false` **and** `faceTrainingAllowed=true` |
+
+Set `accessMessage` to something the user can act on when it's `false`
+(e.g. "Re-registration is awaiting Admin approval").
+
+## Face re-registration approval (Admin-gated face update)
+
+An already-enrolled user cannot silently replace their template — they request,
+Admin approves, then the app lets them re-enrol. Mirrors the MPIN-reset flow.
+
+### POST `/api/auth/face/re-register/request`
+
+Body: `{ "reason": "appearance changed" }` (reason optional). Auth required.
+
+Server: create/refresh a `PENDING` re-registration request for the user
+(idempotent — a repeat while `PENDING` returns `200`/`409` with `success:true`).
+Notify Admin. Response `{ "success": true, "message": "..." }`.
+
+### GET `/api/auth/face/re-register/status`
+
+Response `data`: `{ "approved": bool, "status": "NONE|PENDING|APPROVED|REJECTED", "message": "..." }`.
+
+- `APPROVED` → app clears the local template and opens enrolment; also set
+  `faceTrainingAllowed=true` on `attendance-status` so `/face/register` is accepted.
+- On the next successful `/face/register`, mark the request `CONSUMED` and set
+  `faceTrainingAllowed=false` again.
+- `PENDING` → app shows "awaiting Admin approval" and stays on verification.
+- `NONE` / `REJECTED` → app offers to (re)submit a request.
+
+Admin actions (web): approve / reject a request; or "Revoke & Require
+Re-registration" which revokes the template immediately (`enrolled=false`) and
+forces enrolment on next login without needing a user request.
