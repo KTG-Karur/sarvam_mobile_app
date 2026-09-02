@@ -1,4 +1,5 @@
 class Api {
+  
   static const String baseUrl = "https://sarvam.nidhimfi.com";
 
   static const String mobileLoginUrl = "$baseUrl/api/mobile/login";

@@ -449,6 +449,7 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
       userId: 'authenticated-user',
       livenessPassed: true,
       qualityScore: 99.0,
+      samples: _capturedSamples,
       photoBase64: photoBase64,
     );
 
@@ -468,21 +469,14 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
       _isUploading = true;
     });
 
-    // Left/right frames prove liveness, but their perspective distortion must
-    // not be averaged into the template used by the straight-on verifier.
-    final frontalSamples = <List<double>>[
-      if (_capturedSamples.isNotEmpty) _capturedSamples.first,
-      if (_capturedSamples.length >= 5) _capturedSamples.last,
-    ];
-    final templateSamples = frontalSamples.isNotEmpty
-        ? frontalSamples
-        : List<List<double>>.from(_capturedSamples);
     final photoBase64 = _pendingEncryptedPayload?['photoBase64']?.toString();
+    final masterVector = FaceBiometricService.aggregateTemplateVector(_capturedSamples);
     final uploadPayload = FaceBiometricService.encryptTemplatePayload(
-      FaceBiometricService.aggregateTemplateVector(templateSamples),
+      masterVector,
       userId: 'authenticated-user',
       livenessPassed: true,
       qualityScore: 99.0,
+      samples: _capturedSamples,
       photoBase64: photoBase64,
     );
 

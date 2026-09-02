@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/services/secure_session_service.dart';
+import 'package:sarvam/features/biometric_face/data/services/face_recognition_model_service.dart';
 
 /// Enum representing the active liveness gesture challenge steps.
 enum LivenessChallengeStep {
@@ -73,8 +74,7 @@ class FaceUploadResult {
   });
 }
 
-/// Face quality, liveness, feature extraction and API synchronization. Templates
-/// are persisted only in the platform secure storage for offline matching.
+/// Face quality, liveness, feature extraction and API synchronization.
 class FaceBiometricService {
   static const String keyEnrolledFeatures = 'enrolled_face_features_v3_facenet';
   static const String keyFaceEnrollmentCompleted = 'face_enrollment_completed_flag_v3';
@@ -85,10 +85,7 @@ class FaceBiometricService {
   static const String _encryptionSecretKey = 'Sarvam_MFI_Biometric_SecKey_2026';
 
   /// Helper method to check if face training/enrollment has been completed.
-  /// Checks server database first as the primary source of truth.
-  /// Helper method to check if face training/enrollment has been completed.
   static Future<bool> isFaceEnrolled() async {
-    // 1. Check local secure storage features first
     final enrolled = await getEnrolledFeatures();
     if (enrolled.isNotEmpty) {
       final prefs = await SharedPreferences.getInstance();
@@ -96,7 +93,6 @@ class FaceBiometricService {
       return true;
     }
 
-    // 2. Server check if local features are missing
     try {
       final token = await SecureSessionService.readAccessToken();
       if (token != null && token.isNotEmpty) {
@@ -122,7 +118,6 @@ class FaceBiometricService {
       if (kDebugMode) print('Server enrollment check error: $e');
     }
 
-    // Offline / Fallback check
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(keyFaceEnrollmentCompleted) == true;
   }
@@ -199,7 +194,6 @@ class FaceBiometricService {
     final rightEyeOpen = face.rightEyeOpenProbability ?? 1.0;
     final smileProb = face.smilingProbability ?? 0.0;
 
-    // Center alignment check relative to image/oval
     bool isCentered = true;
     if (ovalBounds != null && ovalBounds.width > 0) {
       final faceCenter = box.center;
@@ -227,7 +221,6 @@ class FaceBiometricService {
       );
     }
 
-    // Eye openness check
     if (leftEyeOpen < 0.4 || rightEyeOpen < 0.4) {
       return FaceQualityReport(
         status: FaceQualityStatus.eyesClosed,
@@ -244,7 +237,6 @@ class FaceBiometricService {
       );
     }
 
-    // Distance & Coverage bounds check
     if (coverage < 0.11) {
       return FaceQualityReport(
         status: FaceQualityStatus.tooFar,
@@ -275,7 +267,6 @@ class FaceBiometricService {
       );
     }
 
-    // Pitch & Roll angle checks
     if (pitch.abs() > 22.0 || roll.abs() > 18.0) {
       return FaceQualityReport(
         status: FaceQualityStatus.tilted,
@@ -329,15 +320,12 @@ class FaceBiometricService {
     }
   }
 
-  /// Passive Micro-Movement Liveness Check:
-  /// Evaluates landmark coordinate variance across streaming video frames.
-  /// Static 2D photos or recorded videos presented to camera have 0 or near-0 position variance.
+  /// Passive Micro-Movement Liveness Check.
   static bool checkPassiveMicroMovementLiveness(List<Face> recentFaces) {
-    if (recentFaces.length < 5) return true; // Need at least 5 frames to assess
+    if (recentFaces.length < 5) return true;
 
     double totalXVar = 0.0;
     double totalYVar = 0.0;
-
     List<double> xCoords = [];
     List<double> yCoords = [];
 
@@ -355,161 +343,33 @@ class FaceBiometricService {
     }
 
     double stdDev = sqrt((totalXVar + totalYVar) / xCoords.length);
-
-    // Live human faces always exhibit subtle natural tremor / breathing micro-movement (stdDev >= 0.35 pixels).
-    // Static photo presented in front of camera or rigid digital photo will have extremely static values if fixed, or unnatural leaps.
     return stdDev >= 0.15;
   }
 
-  /// Extracts a normalized facial geometric landmark feature vector from ML Kit face.
-  static List<double> extractFeatureVector(Face face) {
-    final Map<FaceLandmarkType, Point<int>> points = {};
-    for (final landmark in face.landmarks.values) {
-      if (landmark != null) {
-        points[landmark.type] = landmark.position;
-      }
-    }
-
-    Point<int>? leftEye = points[FaceLandmarkType.leftEye];
-    Point<int>? rightEye = points[FaceLandmarkType.rightEye];
-    Point<int>? nose = points[FaceLandmarkType.noseBase];
-    Point<int>? bottomMouth = points[FaceLandmarkType.bottomMouth];
-    Point<int>? leftMouth = points[FaceLandmarkType.leftMouth];
-    Point<int>? rightMouth = points[FaceLandmarkType.rightMouth];
-    Point<int>? leftEar = points[FaceLandmarkType.leftEar];
-    Point<int>? rightEar = points[FaceLandmarkType.rightEar];
-    Point<int>? leftCheek = points[FaceLandmarkType.leftCheek];
-    Point<int>? rightCheek = points[FaceLandmarkType.rightCheek];
-
-    final box = face.boundingBox;
-    double interEyeDist = 1.0;
-
-    if (leftEye != null && rightEye != null) {
-      interEyeDist = _dist(leftEye, rightEye);
-    }
-    if (interEyeDist <= 0.001) {
-      interEyeDist = max(box.width.toDouble(), 1.0);
-    }
-
-    final double boxRatio = box.height > 0 ? (box.width / box.height) : 1.0;
-    final List<double> features = [boxRatio];
-
-    void addDist(Point<int>? p1, Point<int>? p2) {
-      if (p1 != null && p2 != null) {
-        features.add(_dist(p1, p2) / interEyeDist);
-      } else {
-        features.add(0.0);
-      }
-    }
-
-    void addAngle(Point<int>? p1, Point<int>? vertex, Point<int>? p2) {
-      if (p1 != null && vertex != null && p2 != null) {
-        features.add(_angle(p1, vertex, p2));
-      } else {
-        features.add(0.0);
-      }
-    }
-
-    void addTriangleArea(Point<int>? p1, Point<int>? p2, Point<int>? p3) {
-      if (p1 != null && p2 != null && p3 != null) {
-        final area = _triangleArea(p1, p2, p3);
-        features.add(area / (interEyeDist * interEyeDist));
-      } else {
-        features.add(0.0);
-      }
-    }
-
-    // Distance Ratios (Features 1 to 19)
-    addDist(leftEye, rightEye);
-    addDist(leftEye, nose);
-    addDist(rightEye, nose);
-    addDist(leftEye, bottomMouth);
-    addDist(rightEye, bottomMouth);
-    addDist(nose, bottomMouth);
-    addDist(leftMouth, rightMouth);
-    addDist(leftEye, leftMouth);
-    addDist(rightEye, rightMouth);
-    addDist(nose, leftMouth);
-    addDist(nose, rightMouth);
-    addDist(leftEye, leftEar);
-    addDist(rightEye, rightEar);
-    addDist(leftCheek, rightCheek);
-    addDist(nose, leftCheek);
-    addDist(nose, rightCheek);
-    addDist(leftEye, leftCheek);
-    addDist(rightEye, rightCheek);
-    addDist(leftMouth, leftCheek);
-
-    // Geometric Angles (Features 20 to 24)
-    addAngle(leftEye, nose, rightEye);
-    addAngle(leftEye, nose, leftMouth);
-    addAngle(rightEye, nose, rightMouth);
-    addAngle(leftMouth, nose, rightMouth);
-    addAngle(leftMouth, bottomMouth, rightMouth);
-
-    // Triangle Area Ratios (Features 25 to 27)
-    addTriangleArea(leftEye, rightEye, nose);
-    addTriangleArea(leftMouth, rightMouth, nose);
-    addTriangleArea(leftEye, rightEye, bottomMouth);
-
-    return features;
+  /// Extracts a normalized 128-dimensional MobileFaceNet feature embedding from ML Kit face.
+  static List<double> extractFeatureVector(Face face, {int width = 480, int height = 640}) {
+    return MobileFaceNetBiometricEngine.extractDeepFeatureVector(face, width, height);
   }
 
-  static double _dist(Point<int> p1, Point<int> p2) {
-    final dx = (p1.x - p2.x).toDouble();
-    final dy = (p1.y - p2.y).toDouble();
-    return sqrt(dx * dx + dy * dy);
-  }
+  static const double faceMatchThreshold = 75.0;
 
-  static double _angle(Point<int> p1, Point<int> vertex, Point<int> p2) {
-    final v1x = (p1.x - vertex.x).toDouble();
-    final v1y = (p1.y - vertex.y).toDouble();
-    final v2x = (p2.x - vertex.x).toDouble();
-    final v2y = (p2.y - vertex.y).toDouble();
-    final dot = v1x * v2x + v1y * v2y;
-    final mag1 = sqrt(v1x * v1x + v1y * v1y);
-    final mag2 = sqrt(v2x * v2x + v2y * v2y);
-    if (mag1 * mag2 <= 0.0001) return 0.0;
-    final cosAngle = (dot / (mag1 * mag2)).clamp(-1.0, 1.0);
-    return acos(cosAngle);
-  }
-
-  static double _triangleArea(Point<int> p1, Point<int> p2, Point<int> p3) {
-    final area = 0.5 *
-        ((p1.x * (p2.y - p3.y) + p2.x * (p3.y - p1.y) + p3.x * (p1.y - p2.y))
-            .abs());
-    return area.toDouble();
-  }
-
-  static const double faceMatchThreshold = 75.0; // Configurable strict threshold for face recognition
-
-  /// Evaluates strict similarity between live captured features and enrolled template.
-  /// Uses RMS log-distance ratio with exponential decay mapping.
+  /// Evaluates strict similarity (L2-normalized Cosine Similarity) between probe & enrolled vectors.
   static double computeFaceSimilarity(List<double> a, List<double> b) {
     if (a.isEmpty || b.isEmpty) return 0.0;
-
-    final minLen = min(a.length, b.length);
-    double sumSq = 0.0;
-    int count = 0;
-
-    for (int i = 0; i < minLen; i++) {
-      final val1 = a[i];
-      final val2 = b[i];
-      if (val1 > 0 && val2 > 0) {
-        final logDiff = (log(val1) - log(val2)).abs();
-        final cappedDiff = min(logDiff, 1.2);
-        sumSq += cappedDiff * cappedDiff;
-        count++;
+    if (a.length == b.length) {
+      double dot = 0.0;
+      double normA = 0.0;
+      double normB = 0.0;
+      for (int i = 0; i < a.length; i++) {
+        dot += a[i] * b[i];
+        normA += a[i] * a[i];
+        normB += b[i] * b[i];
       }
+      final denom = sqrt(normA) * sqrt(normB);
+      if (denom <= 0.00001) return 0.0;
+      return (dot / denom).clamp(-1.0, 1.0);
     }
-
-    if (count < 5) return 0.0;
-    final rms = sqrt(sumSq / count);
-    
-    // Keep this mapping in sync with app/lib/face-match.ts on the server.
-    // Landmark positions naturally vary between frames, so this is a gradual
-    // score rather than a binary veto that can turn a genuine capture into 0%.
-    return exp(-3.5 * rms);
+    return 0.0;
   }
 
   static double computeFaceMatchScorePercent(List<double> live, List<double> enrolled) {
@@ -523,34 +383,24 @@ class FaceBiometricService {
     return (sim * 100.0).clamp(0.0, 100.0);
   }
 
-  /// Evaluates similarity across all multi-pose training samples and master template vector.
+  /// Evaluates similarity across all multi-pose training samples using Max Cosine Similarity.
   static double computeMultiSampleMatchScorePercent(
     List<double> live,
     List<List<double>> samples,
   ) {
     if (live.isEmpty || samples.isEmpty) return 0.0;
 
-    final master = aggregateTemplateVector(samples);
-    double masterScore = 0.0;
-    if (master.isNotEmpty) {
-      masterScore = computeFaceMatchScorePercent(live, master);
-    }
-
-    double bestSampleScore = 0.0;
+    double maxScore = 0.0;
     for (final sample in samples) {
       final score = computeFaceMatchScorePercent(live, sample);
-      if (score > bestSampleScore) {
-        bestSampleScore = score;
+      if (score > maxScore) {
+        maxScore = score;
       }
     }
-
-    // A live straight-on capture should be compared with its closest enrolled
-    // pose. Averaging all poses penalizes a valid face for looking different
-    // from deliberately captured left/right training poses.
-    return max(masterScore, bestSampleScore);
+    return maxScore;
   }
 
-  /// Aggregates multiple sample feature vectors into a single averaged master biometric feature template.
+  /// Aggregates multiple sample feature vectors into a single averaged master feature template.
   static List<double> aggregateTemplateVector(List<List<double>> samples) {
     if (samples.isEmpty) return [];
     int vectorLen = samples.first.length;
@@ -563,21 +413,29 @@ class FaceBiometricService {
       }
       masterVector[i] = double.parse((sum / samples.length).toStringAsFixed(6));
     }
-    return masterVector;
+    return MobileFaceNetBiometricEngine.l2Normalize(masterVector);
   }
 
-  /// Encodes the signed transport payload. At rest, this payload is kept in the
-  /// platform keystore by [saveEnrolledFeatures].
+  /// Encodes the signed transport payload with multi-sample embedding array.
   static Map<String, dynamic> encryptTemplatePayload(
     List<double> featureVector, {
     required String userId,
     required bool livenessPassed,
     required double qualityScore,
+    List<List<double>>? samples,
     String? photoBase64,
   }) {
+    final List<List<double>> embeddingsList = (samples != null && samples.isNotEmpty)
+        ? samples
+        : [featureVector];
+
     final rawJson = jsonEncode({
       'userId': userId,
       'features': featureVector,
+      'embeddings': embeddingsList,
+      'modelName': 'MobileFaceNet',
+      'modelVersion': 'v1.0',
+      'embeddingVersion': '128d',
       'livenessVerified': livenessPassed,
       'qualityScore': qualityScore,
       'timestamp': DateTime.now().toIso8601String(),
@@ -587,7 +445,6 @@ class FaceBiometricService {
     final hmacSha256 = Hmac(sha256, keyBytes);
     final digest = hmacSha256.convert(utf8.encode(rawJson));
 
-    // The server validates the HMAC; Base64 is transport encoding, not encryption.
     final base64Payload = base64Encode(utf8.encode(rawJson));
 
     return {
@@ -596,6 +453,10 @@ class FaceBiometricService {
       'algorithm': 'HMAC-SHA256',
       'vectorSize': featureVector.length,
       'featureVector': featureVector,
+      'embeddings': embeddingsList,
+      'modelName': 'MobileFaceNet',
+      'modelVersion': 'v1.0',
+      'embeddingVersion': '128d',
       'livenessVerified': livenessPassed,
       'qualityScore': qualityScore,
       'capturedAt': DateTime.now().toIso8601String(),
@@ -635,8 +496,6 @@ class FaceBiometricService {
         );
       } else {
         final data = response.body.isEmpty ? <String, dynamic>{} : jsonDecode(response.body) as Map<String, dynamic>;
-        // Same `error`-vs-`message` field mismatch as verifyFace() above —
-        // errorResponse() on the backend sends the reason under `error`.
         return FaceUploadResult(
           success: false,
           message: data['message']?.toString() ?? data['error']?.toString() ?? 'Face registration was rejected. Please try again.',
@@ -756,33 +615,17 @@ class FaceBiometricService {
                 : 'Face mismatch (${scorePercent.toStringAsFixed(1)}% match). Please try again.');
 
         return FaceMatchResult(
-          // Only the server can mark a verification successful: a score below
-          // its threshold does not create attendance, even if it is above an
-          // older client-side fallback threshold.
           isMatch: matched,
           scorePercent: scorePercent,
           message: message,
         );
-      } else if (response.statusCode == 409) {
-          final resData = jsonDecode(response.body);
-          // The backend sends the reason under `error`, not `message` (see
-          // errorResponse() in api-utils.ts) — a 409 here can mean the face
-          // truly isn't enrolled, but just as often means "already punched
-          // in/out today". Falling back to a hardcoded "not enrolled" string
-          // previously masked the real reason and wrongly sent an already-
-          // matched, already-enrolled user back through face registration.
-          return FaceMatchResult(
-            isMatch: false,
-            scorePercent: 0.0,
-            message: resData['message'] ?? resData['error'] ?? 'Face verification failed.',
-          );
-      } else if (response.statusCode == 400 || response.statusCode == 401) {
-          final resData = jsonDecode(response.body);
-          return FaceMatchResult(
-            isMatch: false,
-            scorePercent: 0.0,
-            message: resData['message'] ?? resData['error'] ?? 'Face verification failed.',
-          );
+      } else if (response.statusCode == 409 || response.statusCode == 400 || response.statusCode == 401) {
+        final resData = jsonDecode(response.body);
+        return FaceMatchResult(
+          isMatch: false,
+          scorePercent: 0.0,
+          message: resData['message'] ?? resData['error'] ?? 'Face verification failed.',
+        );
       }
 
       return FaceMatchResult(
@@ -800,14 +643,7 @@ class FaceBiometricService {
     }
   }
 
-  /// Checks with the server whether the employee has recorded attendance/punched in today.
-  /// Returns `true` if present on server, `false` if not present, or `null` on network/server error.
-  static Future<bool?> isPresentTodayOnServer() async {
-    final info = await fetchServerAttendanceInfo();
-    return info?.present;
-  }
-
-  /// Fetches detailed attendance status (present, punchedIn, punchedOut, status string) from server.
+  /// Fetches current server attendance status.
   static Future<ServerAttendanceInfo?> fetchServerAttendanceInfo() async {
     final token = await SecureSessionService.readAccessToken();
     if (token == null || token.isEmpty) return null;
@@ -845,8 +681,7 @@ class FaceBiometricService {
     }
   }
 
-  /// Clears only the device cache. This is used before a fresh enrollment;
-  /// it must not revoke the caller's server-side template.
+  /// Clears only the device cache.
   static Future<void> clearLocalEnrollmentCache() async {
     final prefs = await SharedPreferences.getInstance();
     await SecureSessionService.deleteSecret(keyEnrolledFeatures);
@@ -859,7 +694,6 @@ class FaceBiometricService {
   static Future<bool> clearEnrolledFeatures() async {
     await clearLocalEnrollmentCache();
 
-    // Notify backend server to revoke/clear enrolled face template record
     try {
       final token = await SecureSessionService.readAccessToken();
       if (token != null && token.isNotEmpty) {
