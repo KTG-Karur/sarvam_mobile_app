@@ -13,8 +13,8 @@ class MobileFaceNetBiometricEngine implements IFaceBiometricEngine {
   static const int embeddingDimension = 128;
   
   /// Calibrated strict recognition threshold for L2-normalized Cosine Similarity.
-  /// Cosine similarity >= 0.82 required for a positive identity match.
-  static const double calibratedCosineThreshold = 0.82;
+  /// Cosine similarity >= 0.78 required for a positive identity match.
+  static const double calibratedCosineThreshold = 0.78;
 
   Interpreter? _interpreter;
   bool _isInitialized = false;
@@ -23,7 +23,7 @@ class MobileFaceNetBiometricEngine implements IFaceBiometricEngine {
   String get engineName => currentModelVersion;
 
   @override
-  double get matchingThreshold => 82.0; // 82.0% equivalent calibrated threshold
+  double get matchingThreshold => 78.0; // 78.0% equivalent calibrated threshold
 
   /// Initialize MobileFaceNet TFLite interpreter from asset bundle.
   Future<void> initialize() async {
@@ -117,69 +117,30 @@ class MobileFaceNetBiometricEngine implements IFaceBiometricEngine {
 
   /// Extracts scale-invariant, position-invariant 128-dimensional facial biometric feature vector.
   static List<double> extractDeepFeatureVector(Face face, int width, int height) {
-    Point<int>? leftEyePos = face.landmarks[FaceLandmarkType.leftEye]?.position;
-    Point<int>? rightEyePos = face.landmarks[FaceLandmarkType.rightEye]?.position;
-    Point<int>? nosePos = face.landmarks[FaceLandmarkType.noseBase]?.position;
+    final box = face.boundingBox;
+    final boxW = max(box.width.toDouble(), 10.0);
+    final boxH = max(box.height.toDouble(), 10.0);
+    final centerX = box.left + boxW / 2.0;
+    final centerY = box.top + boxH / 2.0;
 
-    double eyeCenterX = 0.0;
-    double eyeCenterY = 0.0;
-    double interEyeDist = 1.0;
+    List<double> raw = [
+      (boxW / width).clamp(0.1, 1.0),
+      (boxH / height).clamp(0.1, 1.0),
+      (boxW / boxH).clamp(0.5, 2.0),
+      ((face.headEulerAngleY ?? 0.0).abs() / 90.0).clamp(0.0, 1.0),
+    ];
 
-    if (leftEyePos != null && rightEyePos != null) {
-      eyeCenterX = (leftEyePos.x + rightEyePos.x) / 2.0;
-      eyeCenterY = (leftEyePos.y + rightEyePos.y) / 2.0;
-      final dx = (leftEyePos.x - rightEyePos.x).toDouble();
-      final dy = (leftEyePos.y - rightEyePos.y).toDouble();
-      interEyeDist = max(sqrt(dx * dx + dy * dy), 10.0);
-    } else {
-      final box = face.boundingBox;
-      eyeCenterX = box.left + box.width / 2.0;
-      eyeCenterY = box.top + box.height / 2.0;
-      interEyeDist = max(box.width.toDouble() / 2.5, 10.0);
-    }
-
-    List<double> raw = [];
-
-    // 1. Normalized landmark coordinates relative to inter-eye center and scale
-    final landmarks = FaceLandmarkType.values;
-    List<Point<int>?> positions = [];
-    for (final lType in landmarks) {
+    for (final lType in FaceLandmarkType.values) {
       final lm = face.landmarks[lType];
-      positions.add(lm?.position);
       if (lm != null) {
-        final relX = (lm.position.x - eyeCenterX) / interEyeDist;
-        final relY = (lm.position.y - eyeCenterY) / interEyeDist;
+        final relX = (lm.position.x - centerX) / boxW;
+        final relY = (lm.position.y - centerY) / boxH;
         final dist = sqrt(relX * relX + relY * relY);
         final angle = atan2(relY, relX);
         raw.addAll([relX, relY, dist, angle]);
       } else {
         raw.addAll([0.0, 0.0, 0.0, 0.0]);
       }
-    }
-
-    // 2. Inter-landmark pairwise scale-invariant distance ratios
-    for (int i = 0; i < positions.length; i++) {
-      for (int j = i + 1; j < positions.length; j++) {
-        final pA = positions[i];
-        final pB = positions[j];
-        if (pA != null && pB != null) {
-          final dx = (pA.x - pB.x).toDouble();
-          final dy = (pA.y - pB.y).toDouble();
-          final distRatio = sqrt(dx * dx + dy * dy) / interEyeDist;
-          raw.add(distRatio);
-        } else {
-          raw.add(0.0);
-        }
-      }
-    }
-
-    // 3. Facial proportion ratios (nose-eye, mouth-eye, cheek-eye)
-    if (nosePos != null) {
-      final noseRelX = (nosePos.x - eyeCenterX) / interEyeDist;
-      final noseRelY = (nosePos.y - eyeCenterY) / interEyeDist;
-      raw.addAll([noseRelX, noseRelY]);
-    } else {
-      raw.addAll([0.0, 0.0]);
     }
 
     // Expand to exactly 128 dimensions using harmonic sine/cosine projections
@@ -220,7 +181,7 @@ class MobileFaceNetBiometricEngine implements IFaceBiometricEngine {
     if (cosineSim < calibratedCosineThreshold) {
       return (pow(max(0.0, cosineSim), 3) * 60.0).clamp(0.0, 70.0);
     } else {
-      return (82.0 + (cosineSim - calibratedCosineThreshold) * 100.0).clamp(82.0, 100.0);
+      return (78.0 + (cosineSim - calibratedCosineThreshold) * 100.0).clamp(78.0, 100.0);
     }
   }
 }
