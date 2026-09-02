@@ -10,7 +10,7 @@ class DefaultFaceBiometricEngine implements IFaceBiometricEngine {
   String get engineName => 'MLKit_Facial_Geometry_v1.0';
 
   @override
-  double get matchingThreshold => 60.0; // 60.0% similarity score required for match
+  double get matchingThreshold => 75.0; // Strict 75.0% threshold requirement
 
   @override
   Future<FaceEmbedding> generateEmbeddingFromFace({
@@ -115,9 +115,15 @@ class DefaultFaceBiometricEngine implements IFaceBiometricEngine {
     required FaceEmbedding probe,
   }) {
     final cosineSim = enrolled.cosineSimilarity(probe);
-    // Convert Cosine Similarity (-1 to 1) into percentage score (0% to 100%)
-    double similarityPercent = ((cosineSim + 1.0) / 2.0) * 100.0;
-    return similarityPercent.clamp(0.0, 100.0);
+    if (cosineSim <= 0.30) return 0.0;
+
+    double similarityPercent;
+    if (cosineSim < 0.72) {
+      similarityPercent = (pow(cosineSim, 3) * 100.0).clamp(0.0, 58.0);
+    } else {
+      similarityPercent = (58.0 + (cosineSim - 0.72) * 150.0).clamp(60.0, 100.0);
+    }
+    return similarityPercent;
   }
 
   double _distance(Point<int> p1, Point<int> p2) {

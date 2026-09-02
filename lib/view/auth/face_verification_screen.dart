@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -275,10 +274,10 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     } catch (_) {}
   }
 
-  void _stopImageStream() {
+  Future<void> _stopImageStream() async {
     if (_cameraController != null && _cameraController!.value.isStreamingImages) {
       try {
-        _cameraController!.stopImageStream();
+        await _cameraController!.stopImageStream();
       } catch (_) {}
     }
   }
@@ -290,10 +289,11 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
 
     final now = DateTime.now();
     if (_lastFrameProcessingTime != null &&
-        now.difference(_lastFrameProcessingTime!).inMilliseconds < 50) {
+        now.difference(_lastFrameProcessingTime!).inMilliseconds < 100) {
       return;
     }
     _lastFrameProcessingTime = now;
+
     _isProcessingFrame = true;
 
     try {
@@ -304,70 +304,75 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
       }
 
       final faces = await _faceDetector.processImage(inputImage);
-      if (!mounted) return;
+      if (!mounted) {
+        _isProcessingFrame = false;
+        return;
+      }
 
-      if (faces.isNotEmpty) {
-        final primaryFace = faces.first;
-        final report = FaceBiometricService.evaluateRealTimeQuality(
-          face: primaryFace,
-          totalFacesFound: faces.length,
-          imageWidth: image.width.toDouble(),
-          imageHeight: image.height.toDouble(),
-        );
+      if (faces.isEmpty) {
+        _resetVerificationState();
+        setState(() {
+          _statusGuidanceText = 'Position Face in Frame';
+        });
+        _isProcessingFrame = false;
+        return;
+      }
 
-        if (report.isQualityValid) {
-          final liveFeatures = FaceBiometricService.extractFeatureVector(primaryFace);
-          if (liveFeatures.isNotEmpty) {
-            // Detect if face person changed in camera view (e.g. friend -> user)
-            if (_liveFeatures != null && _liveFeatures!.isNotEmpty) {
-              final interFrameScore = FaceBiometricService.computeFaceMatchScorePercent(_liveFeatures!, liveFeatures);
-              if (interFrameScore < 50.0) {
-                // Different face detected! Reset hold timer for new person
-                _autoHoldStartTime = DateTime.now();
-                _autoHoldProgress = 0.0;
-              }
-            }
+      if (faces.length > 1) {
+        _resetVerificationState();
+        setState(() {
+          _statusGuidanceText = '⚠️ Multiple Faces Detected — Show 1 Face Only';
+        });
+        _isProcessingFrame = false;
+        return;
+      }
 
-            _liveFeatures = liveFeatures;
+      final face = faces.first;
+      final report = FaceBiometricService.evaluateRealTimeQuality(
+        face: face,
+        totalFacesFound: faces.length,
+        imageWidth: image.width.toDouble(),
+        imageHeight: image.height.toDouble(),
+      );
 
-            if (_autoHoldStartTime == null) {
-              _autoHoldStartTime = DateTime.now();
-              _autoHoldProgress = 0.0;
-            }
+      final liveFeatures = FaceBiometricService.extractFeatureVector(face);
 
-            final elapsedMs = DateTime.now().difference(_autoHoldStartTime!).inMilliseconds;
-            // 400ms hold time for fast, stable verification
-            final progress = (elapsedMs / 400.0).clamp(0.0, 1.0);
-
-            setState(() {
-              _faceDetected = true;
-              _autoHoldProgress = progress;
-              _statusGuidanceText = 'Face Aligned — Verifying (${(progress * 100).toInt()}%)';
-            });
-
-            if (progress >= 1.0 && !_isVerifying) {
-              HapticFeedback.mediumImpact();
-              _verifyFace();
-            }
-          }
-        } else {
-          _autoHoldStartTime = null;
+      if (_liveFeatures != null && _liveFeatures!.isNotEmpty) {
+        final interFrameScore = FaceBiometricService.computeFaceMatchScorePercent(_liveFeatures!, liveFeatures);
+        if (interFrameScore < 50.0) {
+          _autoHoldStartTime = DateTime.now();
           _autoHoldProgress = 0.0;
-          _liveFeatures = null;
-          setState(() {
-            _faceDetected = false;
-            _autoHoldProgress = 0.0;
-            _statusGuidanceText = report.message;
-          });
+        }
+      }
+
+      _liveFeatures = liveFeatures;
+
+      if (report.isQualityValid) {
+        if (_autoHoldStartTime == null) {
+          _autoHoldStartTime = DateTime.now();
+          _autoHoldProgress = 0.0;
+        }
+
+        final elapsedMs = DateTime.now().difference(_autoHoldStartTime!).inMilliseconds;
+        final progress = (elapsedMs / 250.0).clamp(0.0, 1.0);
+
+        setState(() {
+          _faceDetected = true;
+          _autoHoldProgress = progress;
+          _statusGuidanceText = 'Face Aligned — Verifying (${(progress * 100).toInt()}%)';
+        });
+
+        if (progress >= 1.0 && !_isVerifying) {
+          HapticFeedback.mediumImpact();
+          _verifyFace();
         }
       } else {
         _autoHoldStartTime = null;
         _autoHoldProgress = 0.0;
-        _liveFeatures = null;
         setState(() {
           _faceDetected = false;
           _autoHoldProgress = 0.0;
-          _statusGuidanceText = 'Position Face in Frame';
+          _statusGuidanceText = report.message;
         });
       }
     } catch (e) {
@@ -450,18 +455,30 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
 
   Future<void> _verifyFace() async {
     if (_isVerifying) return;
+    if (_liveFeatures == null || _liveFeatures!.isEmpty) return;
+
+    setState(() {
+      _isVerifying = true;
+      _statusGuidanceText = 'Face Aligned — Checking Identity';
+    });
 
     _autoHoldStartTime = null;
     _autoHoldProgress = 0.0;
 
     final currentProbeFeatures = List<double>.from(_liveFeatures!);
-    _resetVerificationState();
 
-    _stopImageStream();
+    await _stopImageStream();
+    await Future.delayed(const Duration(milliseconds: 60));
 
-    setState(() {
-      _isVerifying = true;
-    });
+    Uint8List? snapshotBytes;
+    try {
+      if (_cameraController != null && _cameraController!.value.isInitialized) {
+        final xfile = await _cameraController!.takePicture();
+        snapshotBytes = await xfile.readAsBytes();
+      }
+    } catch (e) {
+      if (kDebugMode) print('Take picture snapshot error: $e');
+    }
 
     try {
       final storedSamples = await FaceBiometricService.getEnrolledFeatures();
@@ -478,29 +495,31 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
         _isVerifying = false;
       });
 
-      double localScore = 0.0;
-      if (storedSamples.isNotEmpty) {
-        localScore = FaceBiometricService.computeMultiSampleMatchScorePercent(currentProbeFeatures, storedSamples);
+      // The server owns the enrolled template and the attendance decision.
+      // Keep the local score only for diagnostics; it must not overwrite a
+      // valid server score or show a misleading 0.0% result.
+      final localScore = storedSamples.isNotEmpty
+          ? FaceBiometricService.computeMultiSampleMatchScorePercent(currentProbeFeatures, storedSamples)
+          : null;
+      final bool finalIsMatched = matchResult.isMatch;
+      final double finalScore = matchResult.scorePercent;
+
+      if (kDebugMode) {
+        print('[FACE_VERIFICATION_DEBUG] Probe vector dimensions: ${currentProbeFeatures.length}');
+        print('[FACE_VERIFICATION_DEBUG] Local diagnostic score: ${localScore?.toStringAsFixed(1) ?? 'unavailable'}%');
+        print('[FACE_VERIFICATION_DEBUG] Similarity match score: ${finalScore.toStringAsFixed(1)}%');
+        print('[FACE_VERIFICATION_DEBUG] Configured threshold: ${FaceBiometricService.faceMatchThreshold}%');
+        print('[FACE_VERIFICATION_DEBUG] Final verification result: ${finalIsMatched ? "VERIFIED" : "FAILED"}');
       }
 
-      bool finalIsMatched = false;
-      double finalScore = 0.0;
-
-      const double requiredThreshold = 60.0;
-      finalScore = max(localScore, matchResult.scorePercent);
-
-      if (matchResult.isMatch || finalScore >= requiredThreshold || localScore >= requiredThreshold || matchResult.scorePercent >= requiredThreshold) {
-        finalIsMatched = true;
-        if (finalScore < requiredThreshold && matchResult.isMatch) {
-          finalScore = requiredThreshold;
-        }
-      } else {
-        finalIsMatched = false;
-      }
+      final enrolledPhotoBytes = await FaceBiometricService.getEnrolledPhotoBytes();
 
       _showMatchResultDialog(
         isMatched: finalIsMatched,
         scorePercent: finalScore,
+        message: matchResult.message,
+        imageBytes: snapshotBytes,
+        enrolledImageBytes: enrolledPhotoBytes,
       );
     } catch (e) {
       if (kDebugMode) print('Verify face error: $e');
@@ -523,6 +542,9 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
   void _showMatchResultDialog({
     required bool isMatched,
     required double scorePercent,
+    required String message,
+    Uint8List? imageBytes,
+    Uint8List? enrolledImageBytes,
   }) {
     showDialog(
       context: context,
@@ -534,38 +556,136 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 72.w,
-              height: 72.w,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isMatched
-                    ? const Color(0xFFE8F5E9)
-                    : const Color(0xFFFFEBEE),
-              ),
-              child: Icon(
-                isMatched ? Icons.check_circle_rounded : Icons.cancel_rounded,
-                size: 48.sp,
-                color: isMatched
-                    ? const Color(0xFF0D6842)
-                    : const Color(0xFFD32F2F),
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // 1. Registered / Enrolled Face Avatar Column
+                Column(
+                  children: [
+                    Container(
+                      width: 80.w,
+                      height: 80.w,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: const Color(0xFFEFF6FF),
+                        border: Border.all(
+                          color: const Color(0xFF3B82F6),
+                          width: 3.w,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.08),
+                            blurRadius: 8,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: ClipOval(
+                        child: (enrolledImageBytes != null && enrolledImageBytes.isNotEmpty)
+                            ? Image.memory(
+                                enrolledImageBytes,
+                                width: 80.w,
+                                height: 80.w,
+                                fit: BoxFit.cover,
+                              )
+                            : Icon(
+                                Icons.person_rounded,
+                                size: 44.sp,
+                                color: const Color(0xFF3B82F6),
+                              ),
+                      ),
+                    ),
+                    SizedBox(height: 6.h),
+                    Text(
+                      'Registered Face',
+                      style: TextStyle(
+                        fontSize: 11.sp,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(width: 16.w),
+                // 2. Live Verification Face Avatar Column
+                if (imageBytes != null && imageBytes.isNotEmpty)
+                  Column(
+                    children: [
+                      Stack(
+                        alignment: Alignment.bottomRight,
+                        children: [
+                          Container(
+                            width: 80.w,
+                            height: 80.w,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: isMatched ? const Color(0xFF0D6842) : const Color(0xFFD32F2F),
+                                width: 3.w,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.08),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                            ),
+                            child: ClipOval(
+                              child: Image.memory(
+                                imageBytes,
+                                width: 80.w,
+                                height: 80.w,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              width: 26.w,
+                              height: 26.w,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: isMatched ? const Color(0xFF0D6842) : const Color(0xFFD32F2F),
+                                border: Border.all(color: Colors.white, width: 2.w),
+                              ),
+                              child: Icon(
+                                isMatched ? Icons.check_rounded : Icons.close_rounded,
+                                color: Colors.white,
+                                size: 15.sp,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 6.h),
+                      Text(
+                        'Live Face',
+                        style: TextStyle(
+                          fontSize: 11.sp,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF64748B),
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
             ),
             SizedBox(height: 16.h),
             Text(
-              isMatched ? 'Face Verification Matched!' : 'Face Not Matched — Try Again',
+              isMatched ? 'Face Verification Matched!' : 'Face Verification Failed',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 18.sp,
                 fontWeight: FontWeight.bold,
-                color: const Color(0xFF0F172A),
+                color: isMatched ? const Color(0xFF0F172A) : const Color(0xFFD32F2F),
               ),
             ),
             SizedBox(height: 8.h),
             Text(
-              isMatched
-                  ? 'Biometric match successful (${scorePercent.toStringAsFixed(1)}% match).'
-                  : 'Face match score: ${scorePercent.toStringAsFixed(1)}% (Required: 60.0%).',
+              message,
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 13.sp,

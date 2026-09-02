@@ -215,10 +215,10 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
     _cameraController!.startImageStream(_processCameraFrame);
   }
 
-  void _stopImageStream() {
+  Future<void> _stopImageStream() async {
     if (_cameraController != null && _cameraController!.value.isStreamingImages) {
       try {
-        _cameraController!.stopImageStream();
+        await _cameraController!.stopImageStream();
       } catch (_) {}
     }
   }
@@ -428,7 +428,8 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
   }
 
   Future<void> _preparePreviewConfirm() async {
-    _stopImageStream();
+    await _stopImageStream();
+    await Future.delayed(const Duration(milliseconds: 60));
     Uint8List? imageBytes;
     String? photoBase64;
     try {
@@ -467,8 +468,26 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
       _isUploading = true;
     });
 
+    // Left/right frames prove liveness, but their perspective distortion must
+    // not be averaged into the template used by the straight-on verifier.
+    final frontalSamples = <List<double>>[
+      if (_capturedSamples.isNotEmpty) _capturedSamples.first,
+      if (_capturedSamples.length >= 5) _capturedSamples.last,
+    ];
+    final templateSamples = frontalSamples.isNotEmpty
+        ? frontalSamples
+        : List<List<double>>.from(_capturedSamples);
+    final photoBase64 = _pendingEncryptedPayload?['photoBase64']?.toString();
+    final uploadPayload = FaceBiometricService.encryptTemplatePayload(
+      FaceBiometricService.aggregateTemplateVector(templateSamples),
+      userId: 'authenticated-user',
+      livenessPassed: true,
+      qualityScore: 99.0,
+      photoBase64: photoBase64,
+    );
+
     final uploadResult = await FaceBiometricService.uploadFaceRegistrationTemplate(
-      encryptedPayload: _pendingEncryptedPayload!,
+      encryptedPayload: uploadPayload,
     );
 
     if (!mounted) return;
@@ -479,8 +498,9 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
 
     if (uploadResult.success) {
       await FaceBiometricService.saveEnrolledFeatures(
-        _capturedSamples,
-        encryptedPayload: _pendingEncryptedPayload,
+        templateSamples,
+        encryptedPayload: uploadPayload,
+        photoBase64: photoBase64,
       );
       setState(() {
         _currentStep = TrainingStep.success;

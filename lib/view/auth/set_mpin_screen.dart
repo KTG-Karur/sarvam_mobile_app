@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
+import 'package:sarvam/services/face_biometric_service.dart';
 import 'package:sarvam/view/auth/face_training_screen.dart';
 import 'package:sarvam/view/auth/mpin_login_screen.dart';
 
@@ -108,8 +108,9 @@ class _SetMpinScreenState extends State<SetMpinScreen> {
       if (widget.isReset) {
         Get.offAll(() => const MpinLoginScreen());
       } else {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('faceEnrollmentCompleted', false);
+        // Keep the enrollment state in the same keys used by the biometric
+        // service; the old key was never read and could leave stale state.
+        await FaceBiometricService.clearLocalEnrollmentCache();
         Get.off(() => const FaceTrainingScreen());
       }
     }

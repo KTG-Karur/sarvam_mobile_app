@@ -26,7 +26,7 @@ void main() {
       expect(score, closeTo(100.0, 0.1));
     });
 
-    test('orthogonal vectors should yield zero similarity score near 50%', () {
+    test('orthogonal vectors should yield zero similarity score near 0.0%', () {
       final emb1 = FaceEmbedding(
         userId: 'user1',
         vector: [1.0, 0.0, 0.0, 0.0],
@@ -40,7 +40,7 @@ void main() {
 
       final engine = DefaultFaceBiometricEngine();
       final score = engine.compareEmbeddings(enrolled: emb1, probe: emb2);
-      expect(score, closeTo(50.0, 0.1));
+      expect(score, closeTo(0.0, 0.1));
     });
 
     test('serialization round-trip', () {

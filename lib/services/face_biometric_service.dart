@@ -76,9 +76,10 @@ class FaceUploadResult {
 /// Face quality, liveness, feature extraction and API synchronization. Templates
 /// are persisted only in the platform secure storage for offline matching.
 class FaceBiometricService {
-  static const String keyEnrolledFeatures = 'enrolled_face_features_v2';
-  static const String keyFaceEnrollmentCompleted = 'faceEnrollmentCompleted';
-  static const String keyEncryptedTemplate = 'encrypted_face_template_payload';
+  static const String keyEnrolledFeatures = 'enrolled_face_features_v3_facenet';
+  static const String keyFaceEnrollmentCompleted = 'face_enrollment_completed_flag_v3';
+  static const String keyEncryptedTemplate = 'enrolled_face_encrypted_template_v3_facenet';
+  static const String keyEnrolledPhoto = 'enrolled_face_photo_base64_v3';
 
   // Key used to sign the registration payload before transport.
   static const String _encryptionSecretKey = 'Sarvam_MFI_Biometric_SecKey_2026';
@@ -480,6 +481,8 @@ class FaceBiometricService {
     return area.toDouble();
   }
 
+  static const double faceMatchThreshold = 75.0; // Configurable strict threshold for face recognition
+
   /// Evaluates strict similarity between live captured features and enrolled template.
   /// Uses RMS log-distance ratio with exponential decay mapping.
   static double computeFaceSimilarity(List<double> a, List<double> b) {
@@ -503,10 +506,10 @@ class FaceBiometricService {
     if (count < 5) return 0.0;
     final rms = sqrt(sumSq / count);
     
-    // Calibrated exponential similarity mapping:
-    // Same person (RMS 0.05..0.18) => 67%..89%
-    // Different person (RMS 0.35..0.60) => 33%..46%
-    return exp(-2.2 * rms);
+    // Keep this mapping in sync with app/lib/face-match.ts on the server.
+    // Landmark positions naturally vary between frames, so this is a gradual
+    // score rather than a binary veto that can turn a genuine capture into 0%.
+    return exp(-3.5 * rms);
   }
 
   static double computeFaceMatchScorePercent(List<double> live, List<double> enrolled) {
@@ -533,15 +536,18 @@ class FaceBiometricService {
       masterScore = computeFaceMatchScorePercent(live, master);
     }
 
-    double maxSampleScore = 0.0;
+    double bestSampleScore = 0.0;
     for (final sample in samples) {
       final score = computeFaceMatchScorePercent(live, sample);
-      if (score > maxSampleScore) {
-        maxSampleScore = score;
+      if (score > bestSampleScore) {
+        bestSampleScore = score;
       }
     }
 
-    return max(masterScore, maxSampleScore);
+    // A live straight-on capture should be compared with its closest enrolled
+    // pose. Averaging all poses penalizes a valid face for looking different
+    // from deliberately captured left/right training poses.
+    return max(masterScore, bestSampleScore);
   }
 
   /// Aggregates multiple sample feature vectors into a single averaged master biometric feature template.
@@ -642,10 +648,11 @@ class FaceBiometricService {
     }
   }
 
-  /// Saves enrolled sample vectors & encrypted payload to SharedPreferences for offline use.
+  /// Securely saves enrolled facial feature samples locally.
   static Future<void> saveEnrolledFeatures(
     List<List<double>> samples, {
     Map<String, dynamic>? encryptedPayload,
+    String? photoBase64,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final jsonStr = jsonEncode(samples);
@@ -653,7 +660,34 @@ class FaceBiometricService {
     await prefs.setBool(keyFaceEnrollmentCompleted, true);
     if (encryptedPayload != null) {
       await SecureSessionService.writeSecret(keyEncryptedTemplate, jsonEncode(encryptedPayload));
+      if (encryptedPayload['photo_base64'] != null) {
+        await SecureSessionService.writeSecret(keyEnrolledPhoto, encryptedPayload['photo_base64'].toString());
+      }
     }
+    if (photoBase64 != null && photoBase64.isNotEmpty) {
+      await SecureSessionService.writeSecret(keyEnrolledPhoto, photoBase64);
+    }
+  }
+
+  /// Helper to retrieve enrolled face photo bytes for UI display comparison
+  static Future<Uint8List?> getEnrolledPhotoBytes() async {
+    try {
+      final base64Str = await SecureSessionService.readSecret(keyEnrolledPhoto);
+      if (base64Str != null && base64Str.isNotEmpty) {
+        return base64Decode(base64Str);
+      }
+
+      final templateJson = await SecureSessionService.readSecret(keyEncryptedTemplate);
+      if (templateJson != null && templateJson.isNotEmpty) {
+        final Map<String, dynamic> data = jsonDecode(templateJson);
+        final String? photoBase64 = data['photo_base64']?.toString() ?? data['photoBase64']?.toString() ?? data['photo']?.toString();
+        if (photoBase64 != null && photoBase64.isNotEmpty) {
+          await SecureSessionService.writeSecret(keyEnrolledPhoto, photoBase64);
+          return base64Decode(photoBase64);
+        }
+      }
+    } catch (_) {}
+    return null;
   }
 
   /// Retrieves stored enrolled feature vectors.
@@ -712,15 +746,20 @@ class FaceBiometricService {
         final resData = jsonDecode(response.body);
         final data = resData['data'] is Map ? resData['data'] : resData;
         final bool matched = data['matched'] == true;
-        final double scorePercent = (data['scorePercent'] as num?)?.toDouble() ?? (matched ? 95.0 : 0.0);
-        final bool isScoreValid = matched || scorePercent >= 60.0;
+        final scoreValue = data['scorePercent'];
+        final double scorePercent = scoreValue is num
+            ? scoreValue.toDouble()
+            : double.tryParse(scoreValue?.toString() ?? '') ?? (matched ? 95.0 : 0.0);
         final String message = resData['message'] ??
-            (isScoreValid
+            (matched
                 ? 'Face verified successfully (${scorePercent.toStringAsFixed(1)}% match).'
                 : 'Face mismatch (${scorePercent.toStringAsFixed(1)}% match). Please try again.');
 
         return FaceMatchResult(
-          isMatch: isScoreValid,
+          // Only the server can mark a verification successful: a score below
+          // its threshold does not create attendance, even if it is above an
+          // older client-side fallback threshold.
+          isMatch: matched,
           scorePercent: scorePercent,
           message: message,
         );
@@ -806,13 +845,19 @@ class FaceBiometricService {
     }
   }
 
-  /// Clears enrolled face biometric features and enrollment flag locally AND on backend.
-  static Future<bool> clearEnrolledFeatures() async {
+  /// Clears only the device cache. This is used before a fresh enrollment;
+  /// it must not revoke the caller's server-side template.
+  static Future<void> clearLocalEnrollmentCache() async {
     final prefs = await SharedPreferences.getInstance();
     await SecureSessionService.deleteSecret(keyEnrolledFeatures);
     await SecureSessionService.deleteSecret(keyEncryptedTemplate);
-    await prefs.setBool(keyFaceEnrollmentCompleted, false);
+    await SecureSessionService.deleteSecret(keyEnrolledPhoto);
     await prefs.remove(keyFaceEnrollmentCompleted);
+  }
+
+  /// Clears enrolled face biometric features and enrollment flag locally AND on backend.
+  static Future<bool> clearEnrolledFeatures() async {
+    await clearLocalEnrollmentCache();
 
     // Notify backend server to revoke/clear enrolled face template record
     try {
