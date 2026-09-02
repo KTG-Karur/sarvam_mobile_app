@@ -8,7 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/services/secure_session_service.dart';
-import 'package:sarvam/features/biometric_face/data/services/face_recognition_model_service.dart';
+import 'package:sarvam/services/face_recognition_engine.dart';
 
 /// Enum representing the active liveness gesture challenge steps.
 enum LivenessChallengeStep {
@@ -76,10 +76,12 @@ class FaceUploadResult {
 
 /// Face quality, liveness, feature extraction and API synchronization.
 class FaceBiometricService {
-  static const String keyEnrolledFeatures = 'enrolled_face_features_v3_facenet';
-  static const String keyFaceEnrollmentCompleted = 'face_enrollment_completed_flag_v3';
-  static const String keyEncryptedTemplate = 'enrolled_face_encrypted_template_v3_facenet';
-  static const String keyEnrolledPhoto = 'enrolled_face_photo_base64_v3';
+  // v4: templates now hold real MobileFaceNet embeddings, not the old
+  // landmark-geometry heuristic. Bumping the keys retires stale v3 templates.
+  static const String keyEnrolledFeatures = 'enrolled_face_features_v4_mobilefacenet';
+  static const String keyFaceEnrollmentCompleted = 'face_enrollment_completed_flag_v4';
+  static const String keyEncryptedTemplate = 'enrolled_face_encrypted_template_v4_mobilefacenet';
+  static const String keyEnrolledPhoto = 'enrolled_face_photo_base64_v4';
 
   // Key used to sign the registration payload before transport.
   static const String _encryptionSecretKey = 'Sarvam_MFI_Biometric_SecKey_2026';
@@ -352,12 +354,61 @@ class FaceBiometricService {
     return stdDev >= 0.15;
   }
 
-  /// Extracts a normalized 128-dimensional MobileFaceNet feature embedding from ML Kit face.
+  /// Deprecated: the landmark-geometry vector could not tell two people apart.
+  /// Retained only so unused legacy screens keep compiling; it returns an empty
+  /// list and must never be used for enrolment or verification. Use
+  /// [extractEmbeddingFromJpeg] instead.
+  @Deprecated('Use extractEmbeddingFromJpeg — landmark vectors are not identity')
   static List<double> extractFeatureVector(Face face, {int width = 480, int height = 640}) {
-    return MobileFaceNetBiometricEngine.extractDeepFeatureVector(face, width, height);
+    return const <double>[];
   }
 
+  /// True once the on-device MobileFaceNet model is loaded. When false the
+  /// auth flow must treat face verification as UNAVAILABLE (fail closed).
+  static bool get isModelReady => FaceRecognitionEngine.instance.isReady;
+
+  static String get modelVersion => FaceRecognitionEngine.modelVersion;
+
+  /// Extracts an L2-normalised face embedding from a captured still (JPEG).
+  /// Returns `null` when the model is unavailable or no usable face is found —
+  /// callers MUST NOT treat null as a successful match.
+  static Future<List<double>?> extractEmbeddingFromJpeg(Uint8List jpegBytes) {
+    return FaceRecognitionEngine.instance.embedFromJpeg(jpegBytes);
+  }
+
+  /// Cosine-similarity threshold for the on-device match gate. MobileFaceNet
+  /// same-identity pairs sit well above this; different people fall below it.
+  /// Tune against a labelled set before production; 0.62 is a safe default.
+  static const double deviceCosineThreshold = 0.62;
+
+  /// Legacy 0–100 score threshold kept for diagnostic display only.
   static const double faceMatchThreshold = 75.0;
+
+  /// On-device identity gate: the probe must match at least one enrolled
+  /// sample at or above [deviceCosineThreshold]. This runs BEFORE the server
+  /// confirm call, so a stranger is rejected locally without a round trip.
+  static bool passesDeviceGate(
+    List<double> probe,
+    List<List<double>> enrolledSamples,
+  ) {
+    if (probe.isEmpty || enrolledSamples.isEmpty) return false;
+    return bestDeviceCosine(probe, enrolledSamples) >= deviceCosineThreshold;
+  }
+
+  /// Best cosine similarity between [probe] and any enrolled sample of the
+  /// same dimensionality.
+  static double bestDeviceCosine(
+    List<double> probe,
+    List<List<double>> enrolledSamples,
+  ) {
+    double best = -1.0;
+    for (final sample in enrolledSamples) {
+      if (sample.length != probe.length) continue;
+      final c = FaceRecognitionEngine.cosine(probe, sample);
+      if (c > best) best = c;
+    }
+    return best;
+  }
 
   /// Evaluates strict similarity (L2-normalized Cosine Similarity) between probe & enrolled vectors.
   static double computeFaceSimilarity(List<double> a, List<double> b) {
@@ -419,7 +470,7 @@ class FaceBiometricService {
       }
       masterVector[i] = double.parse((sum / samples.length).toStringAsFixed(6));
     }
-    return MobileFaceNetBiometricEngine.l2Normalize(masterVector);
+    return FaceRecognitionEngine.l2Normalize(masterVector);
   }
 
   /// Encodes the signed transport payload with multi-sample embedding array.
@@ -440,8 +491,8 @@ class FaceBiometricService {
       'features': featureVector,
       'embeddings': embeddingsList,
       'modelName': 'MobileFaceNet',
-      'modelVersion': 'v1.0',
-      'embeddingVersion': '128d',
+      'modelVersion': FaceRecognitionEngine.modelVersion,
+      'embeddingVersion': '${featureVector.length}d',
       'livenessVerified': livenessPassed,
       'qualityScore': qualityScore,
       'timestamp': DateTime.now().toIso8601String(),
@@ -461,8 +512,8 @@ class FaceBiometricService {
       'featureVector': featureVector,
       'embeddings': embeddingsList,
       'modelName': 'MobileFaceNet',
-      'modelVersion': 'v1.0',
-      'embeddingVersion': '128d',
+      'modelVersion': FaceRecognitionEngine.modelVersion,
+      'embeddingVersion': '${featureVector.length}d',
       'livenessVerified': livenessPassed,
       'qualityScore': qualityScore,
       'capturedAt': DateTime.now().toIso8601String(),
@@ -573,6 +624,7 @@ class FaceBiometricService {
   static Future<FaceMatchResult> verifyFace({
     required List<double> liveFeatures,
     String type = 'PUNCH_IN',
+    double? deviceCosine,
     double? latitude,
     double? longitude,
     String? deviceId,
@@ -596,6 +648,10 @@ class FaceBiometricService {
       final body = jsonEncode({
         'type': type,
         'featureVector': liveFeatures,
+        'modelName': 'MobileFaceNet',
+        'modelVersion': FaceRecognitionEngine.modelVersion,
+        'embeddingVersion': '${liveFeatures.length}d',
+        if (deviceCosine != null) 'deviceCosine': deviceCosine,
         if (latitude != null) 'latitude': latitude,
         if (longitude != null) 'longitude': longitude,
         if (deviceId != null) 'deviceId': deviceId,

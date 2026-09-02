@@ -107,17 +107,19 @@ class _AmHomeState extends State<AmHome> with SingleTickerProviderStateMixin {
 
     if (serverInfo != null) {
       final bool isServerPunchedIn = serverInfo.present || serverInfo.punchedIn;
-      if (!isServerPunchedIn && !serverInfo.punchedOut && !localPunchIn) {
+      final bool isServerPunchedOut = serverInfo.punchedOut;
+
+      if (!isServerPunchedIn && !isServerPunchedOut) {
         await prefs.remove('lastPunchInDate');
         await prefs.remove('lastPunchInTime');
         await prefs.remove('lastPunchOutDate');
         await prefs.remove('lastPunchOutTime');
         await prefs.remove('lastPunchStatus');
       } else {
-        if (isServerPunchedIn || localPunchIn) {
+        if (isServerPunchedIn) {
           await prefs.setString('lastPunchInDate', todayDateKey());
         }
-        if (serverInfo.punchedOut || localPunchOut) {
+        if (isServerPunchedOut) {
           await prefs.setString('lastPunchOutDate', todayDateKey());
         }
         if (serverInfo.status != null) {
@@ -127,8 +129,8 @@ class _AmHomeState extends State<AmHome> with SingleTickerProviderStateMixin {
     }
     if (!mounted) return;
     setState(() {
-      final bool isPunchedOut = localPunchOut || (serverInfo?.punchedOut == true);
-      final bool isPunchedIn = localPunchIn || (serverInfo?.present == true) || (serverInfo?.punchedIn == true);
+      final bool isPunchedOut = (serverInfo != null) ? serverInfo.punchedOut : localPunchOut;
+      final bool isPunchedIn = (serverInfo != null) ? (serverInfo.present || serverInfo.punchedIn) : localPunchIn;
 
       _punchedOutToday = isPunchedOut;
       _presentToday = isPunchedIn || isPunchedOut;

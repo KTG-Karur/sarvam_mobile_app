@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,6 +13,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 import 'package:sarvam/view/auth/face_training_screen.dart';
+import 'package:sarvam/view/auth/mpin_login_screen.dart';
+
+/// Steps the user works through before a probe image is captured:
+/// align the face, complete a randomised liveness challenge, then hold still.
+enum _LivenessStage { aligning, challenge, ready }
+
+enum _LivenessChallenge { blink, turnLeft, turnRight }
 
 class FaceVerificationScreen extends StatefulWidget {
   const FaceVerificationScreen({super.key, this.isPunchOut = false});
@@ -36,10 +44,21 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
   Position? _position;
 
   bool _faceDetected = false;
-  List<double>? _liveFeatures;
   String _statusGuidanceText = 'Position Face in Frame';
   DateTime? _autoHoldStartTime;
   double _autoHoldProgress = 0.0;
+
+  /// False when the on-device face model asset is missing — the screen then
+  /// refuses to verify instead of letting anyone punch in.
+  bool _modelReady = true;
+
+  // Liveness challenge state.
+  _LivenessStage _stage = _LivenessStage.aligning;
+  _LivenessChallenge _challenge = _LivenessChallenge.blink;
+  DateTime? _challengeStartedAt;
+  int _blinkPhase = 0; // 0 = waiting for eyes to close, 1 = saw closed
+  bool _turnAwaySeen = false;
+  final Random _rng = Random();
 
 
 
@@ -48,6 +67,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     super.initState();
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     WidgetsBinding.instance.addObserver(this);
+    _modelReady = FaceBiometricService.isModelReady;
     _faceDetector = FaceDetector(
       options: FaceDetectorOptions(
         performanceMode: FaceDetectorMode.accurate,
@@ -56,8 +76,59 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
         enableTracking: true,
       ),
     );
+    if (!_modelReady) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showModelUnavailableDialog();
+      });
+      return;
+    }
     _fetchLocation();
     _initializeCamera();
+  }
+
+  void _pickChallenge() {
+    _challenge = _LivenessChallenge
+        .values[_rng.nextInt(_LivenessChallenge.values.length)];
+    _challengeStartedAt = DateTime.now();
+    _blinkPhase = 0;
+    _turnAwaySeen = false;
+  }
+
+  String get _challengePrompt {
+    switch (_challenge) {
+      case _LivenessChallenge.blink:
+        return 'Blink your eyes slowly';
+      case _LivenessChallenge.turnLeft:
+        return 'Slowly turn your head left, then back';
+      case _LivenessChallenge.turnRight:
+        return 'Slowly turn your head right, then back';
+    }
+  }
+
+  void _showModelUnavailableDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20.r)),
+        title: Text('Face Verification Unavailable',
+            style: TextStyle(fontSize: 17.sp, fontWeight: FontWeight.bold)),
+        content: Text(
+          'The face recognition model is not installed on this device yet, '
+          'so identity cannot be verified. Please contact your administrator.',
+          style: TextStyle(fontSize: 13.sp, color: const Color(0xFF475569)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              Get.offAll(() => const MpinLoginScreen());
+            },
+            child: const Text('Back to Login'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -259,10 +330,13 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
   void _resetVerificationState() {
     _autoHoldStartTime = null;
     _autoHoldProgress = 0.0;
-    _liveFeatures = null;
     _faceDetected = false;
     _isProcessingFrame = false;
     _isVerifying = false;
+    _stage = _LivenessStage.aligning;
+    _challengeStartedAt = null;
+    _blinkPhase = 0;
+    _turnAwaySeen = false;
     _statusGuidanceText = 'Position Face in Frame';
   }
 
@@ -336,51 +410,103 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
         imageHeight: image.height.toDouble(),
       );
 
-      final liveFeatures = FaceBiometricService.extractFeatureVector(face);
-
-      if (_liveFeatures != null && _liveFeatures!.isNotEmpty) {
-        final interFrameScore = FaceBiometricService.computeFaceMatchScorePercent(_liveFeatures!, liveFeatures);
-        if (interFrameScore < 50.0) {
-          _autoHoldStartTime = DateTime.now();
-          _autoHoldProgress = 0.0;
-        }
-      }
-
-      _liveFeatures = liveFeatures;
-
-      if (report.isQualityValid) {
-        if (_autoHoldStartTime == null) {
-          _autoHoldStartTime = DateTime.now();
-          _autoHoldProgress = 0.0;
-        }
-
-        final elapsedMs = DateTime.now().difference(_autoHoldStartTime!).inMilliseconds;
-        final progress = (elapsedMs / 250.0).clamp(0.0, 1.0);
-
-        setState(() {
-          _faceDetected = true;
-          _autoHoldProgress = progress;
-          _statusGuidanceText = 'Face Aligned — Verifying (${(progress * 100).toInt()}%)';
-        });
-
-        if (progress >= 1.0 && !_isVerifying) {
-          HapticFeedback.mediumImpact();
-          _verifyFace();
-        }
-      } else {
-        _autoHoldStartTime = null;
-        _autoHoldProgress = 0.0;
-        setState(() {
-          _faceDetected = false;
-          _autoHoldProgress = 0.0;
-          _statusGuidanceText = report.message;
-        });
-      }
+      _advanceLiveness(face, report);
     } catch (e) {
       if (kDebugMode) print('Frame processing error: $e');
     } finally {
       _isProcessingFrame = false;
     }
+  }
+
+  /// Drives the aligning → liveness challenge → hold-still → verify sequence
+  /// off each analysed frame.
+  void _advanceLiveness(Face face, FaceQualityReport report) {
+    if (_isVerifying) return;
+
+    final yaw = face.headEulerAngleY ?? 0.0;
+    final eyeOpen = ((face.leftEyeOpenProbability ?? 1.0) +
+            (face.rightEyeOpenProbability ?? 1.0)) /
+        2.0;
+
+    switch (_stage) {
+      case _LivenessStage.aligning:
+        if (report.isQualityValid) {
+          _autoHoldStartTime ??= DateTime.now();
+          final held =
+              DateTime.now().difference(_autoHoldStartTime!).inMilliseconds;
+          if (held >= 500) {
+            _pickChallenge();
+            _setStatus(_LivenessStage.challenge, _challengePrompt,
+                detected: false);
+          } else {
+            _setStatus(_LivenessStage.aligning, 'Hold steady…', detected: true);
+          }
+        } else {
+          _autoHoldStartTime = null;
+          _setStatus(_LivenessStage.aligning, report.message, detected: false);
+        }
+        break;
+
+      case _LivenessStage.challenge:
+        // Give up and re-pick if the user stalls.
+        if (_challengeStartedAt != null &&
+            DateTime.now().difference(_challengeStartedAt!).inSeconds > 12) {
+          _pickChallenge();
+          _setStatus(_LivenessStage.challenge,
+              'Let\'s try again — $_challengePrompt', detected: false);
+          return;
+        }
+        bool passed = false;
+        if (_challenge == _LivenessChallenge.blink) {
+          if (_blinkPhase == 0 && eyeOpen < 0.25) _blinkPhase = 1;
+          if (_blinkPhase == 1 && eyeOpen > 0.65) passed = true;
+        } else {
+          final away = _challenge == _LivenessChallenge.turnLeft
+              ? yaw > 18.0
+              : yaw < -18.0;
+          if (away) _turnAwaySeen = true;
+          if (_turnAwaySeen && yaw.abs() < 12.0) passed = true;
+        }
+        if (passed) {
+          _autoHoldStartTime = DateTime.now();
+          _setStatus(_LivenessStage.ready, 'Great — hold still', detected: true);
+        } else {
+          _setStatus(_LivenessStage.challenge, _challengePrompt, detected: false);
+        }
+        break;
+
+      case _LivenessStage.ready:
+        if (!report.isQualityValid) {
+          _autoHoldStartTime = null;
+          _setStatus(_LivenessStage.aligning, report.message, detected: false);
+          return;
+        }
+        _autoHoldStartTime ??= DateTime.now();
+        final elapsed =
+            DateTime.now().difference(_autoHoldStartTime!).inMilliseconds;
+        final progress = (elapsed / 350.0).clamp(0.0, 1.0);
+        setState(() {
+          _faceDetected = true;
+          _autoHoldProgress = progress;
+          _statusGuidanceText =
+              'Face Aligned — Verifying (${(progress * 100).toInt()}%)';
+        });
+        if (progress >= 1.0 && !_isVerifying) {
+          HapticFeedback.mediumImpact();
+          _verifyFace();
+        }
+        break;
+    }
+  }
+
+  void _setStatus(_LivenessStage stage, String text, {required bool detected}) {
+    if (!mounted) return;
+    setState(() {
+      _stage = stage;
+      _faceDetected = detected;
+      _autoHoldProgress = 0.0;
+      _statusGuidanceText = text;
+    });
   }
 
   InputImage? _inputImageFromCameraImage(CameraImage image) {
@@ -456,17 +582,14 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
 
   Future<void> _verifyFace() async {
     if (_isVerifying) return;
-    if (_liveFeatures == null || _liveFeatures!.isEmpty) return;
+    if (_stage != _LivenessStage.ready) return;
 
     setState(() {
       _isVerifying = true;
       _statusGuidanceText = 'Face Aligned — Checking Identity';
     });
-
     _autoHoldStartTime = null;
     _autoHoldProgress = 0.0;
-
-    final currentProbeFeatures = List<double>.from(_liveFeatures!);
 
     await _stopImageStream();
     await Future.delayed(const Duration(milliseconds: 60));
@@ -482,51 +605,109 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     }
 
     try {
-      final storedSamples = await FaceBiometricService.getEnrolledFeatures();
+      // 1. Turn the captured still into a real face embedding on-device.
+      final probe = snapshotBytes == null
+          ? null
+          : await FaceBiometricService.extractEmbeddingFromJpeg(snapshotBytes);
 
-      final punchType = widget.isPunchOut ? 'PUNCH_OUT' : 'PUNCH_IN';
+      if (probe == null || probe.isEmpty) {
+        setState(() => _isVerifying = false);
+        _showMatchResultDialog(
+          isMatched: false,
+          scorePercent: 0,
+          message: FaceBiometricService.isModelReady
+              ? 'Could not read your face clearly. Move to brighter light, '
+                  'keep still and try again.'
+              : 'Face verification is not available on this device. '
+                  'Please contact your administrator.',
+          imageBytes: snapshotBytes,
+          enrolledImageBytes: await FaceBiometricService.getEnrolledPhotoBytes(),
+        );
+        return;
+      }
+
+      final storedSamples = await FaceBiometricService.getEnrolledFeatures();
+      if (storedSamples.isEmpty) {
+        setState(() => _isVerifying = false);
+        _showMatchResultDialog(
+          isMatched: false,
+          scorePercent: 0,
+          message: 'Your face is not enrolled on this device. '
+              'Please register your face first.',
+          imageBytes: snapshotBytes,
+          enrolledImageBytes: null,
+        );
+        return;
+      }
+
+      // 2. On-device identity gate — reject a different person before the
+      //    server is ever contacted.
+      final deviceCosine =
+          FaceBiometricService.bestDeviceCosine(probe, storedSamples);
+      final deviceOk = deviceCosine >= FaceBiometricService.deviceCosineThreshold;
+
+      if (kDebugMode) {
+        print('[FACE_VERIFY] dim=${probe.length} '
+            'deviceCosine=${deviceCosine.toStringAsFixed(3)} '
+            'threshold=${FaceBiometricService.deviceCosineThreshold} '
+            'deviceOk=$deviceOk');
+      }
+
+      final enrolledPhotoBytes =
+          await FaceBiometricService.getEnrolledPhotoBytes();
+
+      if (!deviceOk) {
+        setState(() => _isVerifying = false);
+        _showMatchResultDialog(
+          isMatched: false,
+          scorePercent: (deviceCosine.clamp(0.0, 1.0)) * 100.0,
+          message:
+              'This face does not match the enrolled user (${(deviceCosine.clamp(0.0, 1.0) * 100).toStringAsFixed(1)}% similarity). '
+              'Punch-in denied.',
+          imageBytes: snapshotBytes,
+          enrolledImageBytes: enrolledPhotoBytes,
+        );
+        return;
+      }
+
+      // 3. Server confirm — it owns the attendance decision and re-checks the
+      //    embedding against its own stored template.
+      final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
+      String punchType = widget.isPunchOut ? 'PUNCH_OUT' : 'PUNCH_IN';
+      if (serverInfo != null) {
+        final bool isServerPunchedIn =
+            serverInfo.present || serverInfo.punchedIn;
+        if (!isServerPunchedIn) {
+          punchType = 'PUNCH_IN';
+        } else if (isServerPunchedIn && !serverInfo.punchedOut) {
+          punchType = 'PUNCH_OUT';
+        }
+      }
+
       final matchResult = await FaceBiometricService.verifyFace(
-        liveFeatures: currentProbeFeatures,
+        liveFeatures: probe,
         type: punchType,
+        deviceCosine: deviceCosine,
         latitude: _position?.latitude,
         longitude: _position?.longitude,
       );
 
-      setState(() {
-        _isVerifying = false;
-      });
+      setState(() => _isVerifying = false);
 
-      // The server owns the enrolled template and the attendance decision.
-      // Keep the local score only for diagnostics; it must not overwrite a
-      // valid server score or show a misleading 0.0% result.
-      final localScore = storedSamples.isNotEmpty
-          ? FaceBiometricService.computeMultiSampleMatchScorePercent(currentProbeFeatures, storedSamples)
-          : null;
-      final bool finalIsMatched = matchResult.isMatch;
-      final double finalScore = matchResult.scorePercent;
-
-      if (kDebugMode) {
-        print('[FACE_VERIFICATION_DEBUG] Probe vector dimensions: ${currentProbeFeatures.length}');
-        print('[FACE_VERIFICATION_DEBUG] Local diagnostic score: ${localScore?.toStringAsFixed(1) ?? 'unavailable'}%');
-        print('[FACE_VERIFICATION_DEBUG] Similarity match score: ${finalScore.toStringAsFixed(1)}%');
-        print('[FACE_VERIFICATION_DEBUG] Configured threshold: ${FaceBiometricService.faceMatchThreshold}%');
-        print('[FACE_VERIFICATION_DEBUG] Final verification result: ${finalIsMatched ? "VERIFIED" : "FAILED"}');
-      }
-
-      final enrolledPhotoBytes = await FaceBiometricService.getEnrolledPhotoBytes();
-
+      // Both gates must agree. Device already passed; the server is authority
+      // on the final yes/no (fails closed if unreachable).
       _showMatchResultDialog(
-        isMatched: finalIsMatched,
-        scorePercent: finalScore,
+        isMatched: matchResult.isMatch,
+        scorePercent: matchResult.isMatch
+            ? matchResult.scorePercent
+            : (deviceCosine.clamp(0.0, 1.0)) * 100.0,
         message: matchResult.message,
         imageBytes: snapshotBytes,
         enrolledImageBytes: enrolledPhotoBytes,
       );
     } catch (e) {
       if (kDebugMode) print('Verify face error: $e');
-      setState(() {
-        _isVerifying = false;
-      });
+      setState(() => _isVerifying = false);
       _startImageStream();
       Get.snackbar(
         'Verification Error',
@@ -761,39 +942,71 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
                 ),
               )
             else
-              SizedBox(
-                width: double.infinity,
-                height: 48.h,
-                child: ElevatedButton(
-                  onPressed: () async {
-                    Navigator.pop(ctx);
-                    if (message.toLowerCase().contains('not enrolled')) {
-                      await _stopImageStream();
-                      await FaceBiometricService.clearLocalEnrollmentCache();
-                      Get.off(() => FaceTrainingScreen());
-                    } else {
-                      _resetVerificationState();
-                      _startImageStream();
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0D6842),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12.r),
+              Column(
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48.h,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        Navigator.pop(ctx);
+                        if (message.toLowerCase().contains('not enrolled')) {
+                          await _stopImageStream();
+                          await FaceBiometricService.clearLocalEnrollmentCache();
+                          Get.off(() => const FaceTrainingScreen());
+                        } else {
+                          _resetVerificationState();
+                          _startImageStream();
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0D6842),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12.r),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: Text(
+                        message.toLowerCase().contains('not enrolled')
+                            ? 'Register Face Now'
+                            : 'Try Again',
+                        style: TextStyle(
+                          fontSize: 15.sp,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
                     ),
-                    elevation: 0,
                   ),
-                  child: Text(
-                    message.toLowerCase().contains('not enrolled')
-                        ? 'Register Face Now'
-                        : 'Try Again',
-                    style: TextStyle(
-                      fontSize: 15.sp,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                  SizedBox(height: 10.h),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 44.h,
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        Navigator.pop(ctx);
+                        await _stopImageStream();
+                        await FaceBiometricService.clearEnrolledFeatures();
+                        Get.off(() => const FaceTrainingScreen());
+                      },
+                      icon: Icon(Icons.face_retouching_natural_rounded, size: 18.sp, color: const Color(0xFF0D6842)),
+                      label: Text(
+                        'Re-register / Update Face',
+                        style: TextStyle(
+                          fontSize: 14.sp,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF0D6842),
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: const Color(0xFF0D6842), width: 1.5.w),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12.r),
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                ],
               ),
           ],
         ),

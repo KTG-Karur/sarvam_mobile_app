@@ -4,6 +4,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:sarvam/view/auth/splash_screen.dart';
+import 'package:sarvam/services/face_recognition_engine.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -12,6 +13,10 @@ void main() {
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
   ]);
+
+  // Warm up the on-device face model so the auth screens know up front whether
+  // verification is available (fails closed when the asset is missing).
+  FaceRecognitionEngine.instance.initialize();
 
   runApp(const MyApp());
 }

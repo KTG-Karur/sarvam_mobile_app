@@ -130,6 +130,16 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
       return;
     }
 
+    if (!FaceBiometricService.isModelReady) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'The face recognition model is not installed on this '
+            'device yet. Please contact your administrator.';
+        _currentStep = TrainingStep.failed;
+      });
+      return;
+    }
+
     if (!mounted) return;
     setState(() {
       _currentStep = TrainingStep.step1Straight;
@@ -391,12 +401,45 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
   Future<void> _captureCurrentStep(Face face) async {
     _isCapturing = true;
     HapticFeedback.mediumImpact();
-
-    final features = FaceBiometricService.extractFeatureVector(face);
-    _capturedSamples.add(features);
-
     _holdStartTime = null;
     _holdProgress = 0.0;
+
+    // Grab a real still for this pose and turn it into a MobileFaceNet
+    // embedding. The pose landmark object alone can't identify a person.
+    await _stopImageStream();
+    await Future.delayed(const Duration(milliseconds: 60));
+
+    Uint8List? shotBytes;
+    try {
+      final c = _cameraController;
+      if (c != null && c.value.isInitialized) {
+        final x = await c.takePicture();
+        shotBytes = await x.readAsBytes();
+      }
+    } catch (e) {
+      if (kDebugMode) print('Pose capture error: $e');
+    }
+
+    final embedding = shotBytes == null
+        ? null
+        : await FaceBiometricService.extractEmbeddingFromJpeg(shotBytes);
+
+    if (embedding == null || embedding.isEmpty) {
+      if (!mounted) {
+        _isCapturing = false;
+        return;
+      }
+      setState(() {
+        _isCapturing = false;
+        _statusInstructionMessage =
+            'Could not read your face clearly — better light, hold still';
+      });
+      _startImageStream(); // retry the same pose
+      return;
+    }
+
+    _capturedSamples.add(embedding);
+    _capturedPhotoBytes = shotBytes;
 
     if (_currentStep == TrainingStep.step1Straight) {
       setState(() {
@@ -404,24 +447,28 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
         _isCapturing = false;
         _statusInstructionMessage = '👈 Step 2 of 5: Turn face slightly left';
       });
+      _startImageStream();
     } else if (_currentStep == TrainingStep.step2Left) {
       setState(() {
         _currentStep = TrainingStep.step3Right;
         _isCapturing = false;
         _statusInstructionMessage = '👉 Step 3 of 5: Turn face slightly right';
       });
+      _startImageStream();
     } else if (_currentStep == TrainingStep.step3Right) {
       setState(() {
         _currentStep = TrainingStep.step4Smile;
         _isCapturing = false;
         _statusInstructionMessage = '😊 Step 4 of 5: Smile slightly at camera';
       });
+      _startImageStream();
     } else if (_currentStep == TrainingStep.step4Smile) {
       setState(() {
         _currentStep = TrainingStep.step5Center;
         _isCapturing = false;
         _statusInstructionMessage = '🎯 Step 5 of 5: Look straight & hold still';
       });
+      _startImageStream();
     } else if (_currentStep == TrainingStep.step5Center) {
       await _preparePreviewConfirm();
     }

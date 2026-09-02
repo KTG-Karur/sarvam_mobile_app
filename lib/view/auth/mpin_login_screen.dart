@@ -107,6 +107,19 @@ class _MpinLoginScreenState extends State<MpinLoginScreen>
 
         if (!mounted) return;
 
+        // Server attendance status is the source of truth; keep the local
+        // prefs cache in step with it so home / punch-out agree.
+        if (serverInfo != null) {
+          final bool serverPunchedIn =
+              serverInfo.present || serverInfo.punchedIn;
+          if (serverPunchedIn) {
+            await prefs.setString('lastPunchInDate', todayDateKey());
+          }
+          if (serverInfo.punchedOut) {
+            await prefs.setString('lastPunchOutDate', todayDateKey());
+          }
+        }
+
         if (!faceEnrolled) {
           Get.offAll(() => const FaceTrainingScreen(autoStart: true));
         } else if (serverInfo != null && !serverInfo.faceAttendanceAllowed) {
