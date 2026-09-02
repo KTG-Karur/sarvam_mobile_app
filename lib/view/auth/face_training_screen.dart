@@ -492,7 +492,7 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
 
     if (uploadResult.success) {
       await FaceBiometricService.saveEnrolledFeatures(
-        templateSamples,
+        _capturedSamples,
         encryptedPayload: uploadPayload,
         photoBase64: photoBase64,
       );

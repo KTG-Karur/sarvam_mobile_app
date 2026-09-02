@@ -28,6 +28,7 @@ class _MpinLoginScreenState extends State<MpinLoginScreen>
 
   bool _showMpin = false;
   bool _checkingResetApproval = false;
+  bool _isLoading = false;
 
   @override
   void initState() {
@@ -72,6 +73,7 @@ class _MpinLoginScreenState extends State<MpinLoginScreen>
   }
 
   Future<void> _handleLogin() async {
+    if (_isLoading) return;
     String mpin = _mpinControllers.map((c) => c.text).join();
 
     if (mpin.length < 4) {
@@ -87,55 +89,71 @@ class _MpinLoginScreenState extends State<MpinLoginScreen>
       return;
     }
 
-    final AuthController authController = Get.isRegistered<AuthController>()
-        ? Get.find<AuthController>()
-        : Get.put(AuthController());
+    setState(() {
+      _isLoading = true;
+    });
 
-    bool isVerified = await authController.verifyMpin(mpin: mpin);
+    try {
+      final AuthController authController = Get.isRegistered<AuthController>()
+          ? Get.find<AuthController>()
+          : Get.put(AuthController());
 
-    final prefs = await SharedPreferences.getInstance();
-    if (isVerified) {
-      final bool faceEnrolled = await FaceBiometricService.isFaceEnrolled();
-      final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
+      bool isVerified = await authController.verifyMpin(mpin: mpin);
 
-      if (!faceEnrolled) {
-        Get.offAll(() => const FaceTrainingScreen(autoStart: true));
-      } else if (serverInfo != null && !serverInfo.faceAttendanceAllowed) {
-        // Today is a Holiday or Face Attendance is disabled by Admin -> Go directly to Dashboard!
-        final homeScreen = await resolveHomeScreen();
-        Get.offAll(() => homeScreen);
-        Get.snackbar(
-          'Holiday / Attendance Locked',
-          serverInfo.accessMessage ?? 'Today is a Holiday / Weekly Off. Face attendance is disabled by Admin.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: const Color(0xFFB45309),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 4),
-        );
-      } else if (hasPunchedInToday(prefs)) {
-        // Already punched in today — reopening the app goes directly to Dashboard!
-        final homeScreen = await resolveHomeScreen();
-        Get.offAll(() => homeScreen);
-      } else if (hasPunchedOutToday(prefs)) {
-        // Already completed shift today — navigate to Dashboard with notification
-        final homeScreen = await resolveHomeScreen();
-        Get.offAll(() => homeScreen);
-        Get.snackbar(
-          'Shift Completed',
-          'You have already completed your punch-out for today.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: const Color(0xFF0D6842),
-          colorText: Colors.white,
-        );
+      final prefs = await SharedPreferences.getInstance();
+      if (isVerified) {
+        final bool faceEnrolled = await FaceBiometricService.isFaceEnrolled();
+        final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
+
+        if (!mounted) return;
+
+        if (!faceEnrolled) {
+          Get.offAll(() => const FaceTrainingScreen(autoStart: true));
+        } else if (serverInfo != null && !serverInfo.faceAttendanceAllowed) {
+          final homeScreen = await resolveHomeScreen();
+          Get.offAll(() => homeScreen);
+          Get.snackbar(
+            'Holiday / Attendance Locked',
+            serverInfo.accessMessage ?? 'Today is a Holiday / Weekly Off. Face attendance is disabled by Admin.',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: const Color(0xFFB45309),
+            colorText: Colors.white,
+            duration: const Duration(seconds: 4),
+          );
+        } else if (hasPunchedInToday(prefs)) {
+          final homeScreen = await resolveHomeScreen();
+          Get.offAll(() => homeScreen);
+        } else if (hasPunchedOutToday(prefs)) {
+          final homeScreen = await resolveHomeScreen();
+          Get.offAll(() => homeScreen);
+          Get.snackbar(
+            'Shift Completed',
+            'You have already completed your punch-out for today.',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: const Color(0xFF0D6842),
+            colorText: Colors.white,
+          );
+        } else {
+          Get.offAll(() => const FaceVerificationScreen());
+        }
       } else {
-        Get.offAll(() => const FaceVerificationScreen());
+        for (var c in _mpinControllers) {
+          c.clear();
+        }
+        if (_mpinFocusNodes.isNotEmpty) {
+          _mpinFocusNodes[0].requestFocus();
+        }
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
       }
-    } else {
-      for (var c in _mpinControllers) {
-        c.clear();
-      }
-      if (_mpinFocusNodes.isNotEmpty) {
-        _mpinFocusNodes[0].requestFocus();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
       }
     }
   }
@@ -397,6 +415,7 @@ class _MpinLoginScreenState extends State<MpinLoginScreen>
                                                 .requestFocus();
                                           } else {
                                             _mpinFocusNodes[index].unfocus();
+                                            _handleLogin();
                                           }
                                         } else {
                                           if (index > 0) {
@@ -493,23 +512,33 @@ class _MpinLoginScreenState extends State<MpinLoginScreen>
                             width: double.infinity,
                             height: 54.h,
                             child: ElevatedButton(
-                              onPressed: _handleLogin,
+                              onPressed: _isLoading ? null : _handleLogin,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF0D6842),
+                                disabledBackgroundColor: const Color(0xFF0D6842).withValues(alpha: 0.6),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(27.r),
                                 ),
                                 elevation: 0,
                               ),
-                              child: Text(
-                                'LOGIN',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16.sp,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 1.2,
-                                ),
-                              ),
+                              child: _isLoading
+                                  ? SizedBox(
+                                      width: 24.w,
+                                      height: 24.w,
+                                      child: const CircularProgressIndicator(
+                                        color: Colors.white,
+                                        strokeWidth: 2.5,
+                                      ),
+                                    )
+                                  : Text(
+                                      'LOGIN',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16.sp,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 1.2,
+                                      ),
+                                    ),
                             ),
                           ),
 

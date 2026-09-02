@@ -11,6 +11,7 @@ import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
+import 'package:sarvam/view/auth/face_training_screen.dart';
 
 class FaceVerificationScreen extends StatefulWidget {
   const FaceVerificationScreen({super.key, this.isPunchOut = false});
@@ -764,10 +765,16 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
                 width: double.infinity,
                 height: 48.h,
                 child: ElevatedButton(
-                  onPressed: () {
+                  onPressed: () async {
                     Navigator.pop(ctx);
-                    _resetVerificationState();
-                    _startImageStream();
+                    if (message.toLowerCase().contains('not enrolled')) {
+                      await _stopImageStream();
+                      await FaceBiometricService.clearLocalEnrollmentCache();
+                      Get.off(() => FaceTrainingScreen());
+                    } else {
+                      _resetVerificationState();
+                      _startImageStream();
+                    }
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF0D6842),
@@ -777,7 +784,9 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
                     elevation: 0,
                   ),
                   child: Text(
-                    'Try Again',
+                    message.toLowerCase().contains('not enrolled')
+                        ? 'Register Face Now'
+                        : 'Try Again',
                     style: TextStyle(
                       fontSize: 15.sp,
                       fontWeight: FontWeight.bold,

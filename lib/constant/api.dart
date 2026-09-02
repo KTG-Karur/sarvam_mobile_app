@@ -1,6 +1,5 @@
 class Api {
-  
-  static const String baseUrl = "https://sarvam.nidhimfi.com";
+  static const String baseUrl = "http://localhost:3320";
 
   static const String mobileLoginUrl = "$baseUrl/api/mobile/login";
   static const String loginUrl = "$baseUrl/api/mobile/login";

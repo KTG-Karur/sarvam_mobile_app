@@ -85,14 +85,8 @@ class FaceBiometricService {
   static const String _encryptionSecretKey = 'Sarvam_MFI_Biometric_SecKey_2026';
 
   /// Helper method to check if face training/enrollment has been completed.
+  /// Server DB is the primary source of truth.
   static Future<bool> isFaceEnrolled() async {
-    final enrolled = await getEnrolledFeatures();
-    if (enrolled.isNotEmpty) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(keyFaceEnrollmentCompleted, true);
-      return true;
-    }
-
     try {
       final token = await SecureSessionService.readAccessToken();
       if (token != null && token.isNotEmpty) {
@@ -107,7 +101,12 @@ class FaceBiometricService {
         if (response.statusCode == 200) {
           final resData = jsonDecode(response.body);
           final data = resData['data'] is Map ? resData['data'] : resData;
-          if (data is Map && data['enrolled'] == true) {
+          if (data is Map) {
+            final bool isServerEnrolled = data['enrolled'] == true;
+            if (!isServerEnrolled) {
+              await clearLocalEnrollmentCache();
+              return false;
+            }
             final prefs = await SharedPreferences.getInstance();
             await prefs.setBool(keyFaceEnrollmentCompleted, true);
             return true;
@@ -116,6 +115,13 @@ class FaceBiometricService {
       }
     } catch (e) {
       if (kDebugMode) print('Server enrollment check error: $e');
+    }
+
+    final enrolled = await getEnrolledFeatures();
+    if (enrolled.isNotEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(keyFaceEnrollmentCompleted, true);
+      return true;
     }
 
     final prefs = await SharedPreferences.getInstance();
