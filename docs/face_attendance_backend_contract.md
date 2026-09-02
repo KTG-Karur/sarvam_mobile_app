@@ -139,3 +139,11 @@ Response `data`: `{ "approved": bool, "status": "NONE|PENDING|APPROVED|REJECTED"
 Admin actions (web): approve / reject a request; or "Revoke & Require
 Re-registration" which revokes the template immediately (`enrolled=false`) and
 forces enrolment on next login without needing a user request.
+
+**Implemented in `sarvan_microfinance`:**
+- `POST /api/auth/face/re-register/request`, `GET /api/auth/face/re-register/status` (mobile)
+- `GET /api/employees/face-rereg-requests` — Admin/Sub-Admin list (filters: `status`, `branchId`, `search`, `from`, `to`, `page`, `pageSize`)
+- `POST /api/employees/face-rereg-requests/{id}/approve`
+- `POST /api/employees/face-rereg-requests/{id}/reject` (body `{ reason }`)
+- `attendance-status` now returns `faceTrainingAllowed=false` for an enrolled user until an `APPROVED` request exists; `POST /face/register` returns `403` for an enrolled user without one and marks the approved request `COMPLETED` on success.
+- Model: `FaceReRegistrationRequest` (migration `20260902_face_reregistration_requests`).
