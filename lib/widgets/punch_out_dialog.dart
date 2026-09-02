@@ -25,20 +25,30 @@ class PunchOutDialog extends StatefulWidget {
       return;
     }
 
-    if (!hasPunchedInToday(prefs)) {
+    // Make the local cache match the server (clears stale marks too), then
+    // decide from the reconciled state.
+    await reconcilePunchPrefs(prefs, serverInfo);
+
+    final bool punchedOut =
+        (serverInfo?.punchedOut ?? false) || hasPunchedOutToday(prefs);
+    final bool punchedIn = (serverInfo?.present ?? false) ||
+        (serverInfo?.punchedIn ?? false) ||
+        hasPunchedInToday(prefs);
+
+    if (punchedOut) {
       Get.snackbar(
         'Punch Out',
-        'Please Punch-In first before performing Punch-Out.',
+        'You have already punched out for today.',
         snackPosition: SnackPosition.BOTTOM,
         backgroundColor: Colors.orange,
         colorText: Colors.white,
       );
       return;
     }
-    if (hasPunchedOutToday(prefs)) {
+    if (!punchedIn) {
       Get.snackbar(
         'Punch Out',
-        'You have already punched out for today.',
+        'Please Punch-In first before performing Punch-Out.',
         snackPosition: SnackPosition.BOTTOM,
         backgroundColor: Colors.orange,
         colorText: Colors.white,

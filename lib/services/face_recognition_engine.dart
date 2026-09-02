@@ -1,7 +1,8 @@
 import 'dart:io';
 import 'dart:math';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/services.dart' show rootBundle, AssetManifest;
 import 'package:image/image.dart' as img;
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:path_provider/path_provider.dart';
@@ -56,8 +57,10 @@ class FaceRecognitionEngine {
   Future<void> initialize() async {
     if (_ready || _initStarted) return;
     _initStarted = true;
+
+    final available = await _bundledAssets();
     for (final asset in _assetCandidates) {
-      if (!await _assetExists(asset)) continue;
+      if (!available.contains(asset)) continue;
       try {
         final interp = await Interpreter.fromAsset(
           asset,
@@ -85,12 +88,16 @@ class FaceRecognitionEngine {
     }
   }
 
-  Future<bool> _assetExists(String key) async {
+  /// Asset keys bundled into the app, read from the manifest so a missing
+  /// model does NOT raise a caught exception on every launch (which trips the
+  /// debugger's "all exceptions" mode) before someone adds the file.
+  Future<Set<String>> _bundledAssets() async {
     try {
-      await rootBundle.load(key);
-      return true;
-    } catch (_) {
-      return false;
+      final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
+      return manifest.listAssets().toSet();
+    } catch (e) {
+      if (kDebugMode) print('[FaceRecognitionEngine] asset manifest read failed: $e');
+      return <String>{};
     }
   }
 
@@ -115,7 +122,7 @@ class FaceRecognitionEngine {
     final face = await _detectLargestFace(jpegBytes);
     if (face == null) return null;
 
-    final aligned = _cropAndAlign(decoded, face);
+    final aligned = _alignFace(decoded, face);
     if (aligned == null) return null;
 
     return _runModel(aligned);
@@ -143,52 +150,182 @@ class FaceRecognitionEngine {
     }
   }
 
-  /// Expands the face box by a margin, rotates so the eyes are level, and
-  /// returns a square [_inputSize] RGB image ready for the model.
-  img.Image? _cropAndAlign(img.Image src, Face face) {
-    final box = face.boundingBox;
+  /// ArcFace canonical 5-point template for a 112x112 aligned face:
+  /// left eye, right eye, nose tip, left mouth corner, right mouth corner.
+  static const List<List<double>> _arcFaceTemplate = <List<double>>[
+    <double>[38.2946, 51.6963],
+    <double>[73.5318, 51.5014],
+    <double>[56.0252, 71.7366],
+    <double>[41.5493, 92.3655],
+    <double>[70.7299, 92.2041],
+  ];
 
-    // Margin around the detected box (forehead + chin room).
+  /// Warps the face onto the canonical [_inputSize] template using a
+  /// similarity transform fitted to ML Kit landmarks (proper alignment gives
+  /// MobileFaceNet a much steadier embedding than a plain crop). Falls back
+  /// to an eyes-only fit, then to a margin crop.
+  img.Image? _alignFace(img.Image src, Face face) {
+    final lm = face.landmarks;
+    final le = lm[FaceLandmarkType.leftEye]?.position;
+    final re = lm[FaceLandmarkType.rightEye]?.position;
+    final nose = lm[FaceLandmarkType.noseBase]?.position;
+    final lmo = lm[FaceLandmarkType.leftMouth]?.position;
+    final rmo = lm[FaceLandmarkType.rightMouth]?.position;
+
+    if (le != null && re != null && nose != null && lmo != null && rmo != null) {
+      final m = _fitSimilarity(
+        <List<double>>[
+          <double>[le.x.toDouble(), le.y.toDouble()],
+          <double>[re.x.toDouble(), re.y.toDouble()],
+          <double>[nose.x.toDouble(), nose.y.toDouble()],
+          <double>[lmo.x.toDouble(), lmo.y.toDouble()],
+          <double>[rmo.x.toDouble(), rmo.y.toDouble()],
+        ],
+        _arcFaceTemplate,
+      );
+      if (m != null) return _warpInverse(src, m);
+    }
+
+    if (le != null && re != null) {
+      final m = _fitSimilarity(
+        <List<double>>[
+          <double>[le.x.toDouble(), le.y.toDouble()],
+          <double>[re.x.toDouble(), re.y.toDouble()],
+        ],
+        <List<double>>[_arcFaceTemplate[0], _arcFaceTemplate[1]],
+      );
+      if (m != null) return _warpInverse(src, m);
+    }
+
+    return _marginCrop(src, face);
+  }
+
+  /// Least-squares similarity transform (scale + rotation + translation)
+  /// mapping [srcPts] -> [dstPts]. Returns `[a, b, c, d]` where
+  /// `X = a*x - b*y + c`, `Y = b*x + a*y + d`. Null if degenerate.
+  List<double>? _fitSimilarity(
+      List<List<double>> srcPts, List<List<double>> dstPts) {
+    final n = srcPts.length;
+    if (n < 2 || dstPts.length != n) return null;
+
+    // Normal equations for the 4 unknowns [a, b, c, d].
+    final ata = List<List<double>>.generate(4, (_) => List<double>.filled(4, 0));
+    final atb = List<double>.filled(4, 0);
+    for (int i = 0; i < n; i++) {
+      final x = srcPts[i][0], y = srcPts[i][1];
+      final xx = dstPts[i][0], yy = dstPts[i][1];
+      final rows = <List<double>>[
+        <double>[x, -y, 1, 0], // -> X
+        <double>[y, x, 0, 1], // -> Y
+      ];
+      final targets = <double>[xx, yy];
+      for (int r = 0; r < 2; r++) {
+        for (int p = 0; p < 4; p++) {
+          atb[p] += rows[r][p] * targets[r];
+          for (int q = 0; q < 4; q++) {
+            ata[p][q] += rows[r][p] * rows[r][q];
+          }
+        }
+      }
+    }
+    final sol = _solve4(ata, atb);
+    if (sol == null) return null;
+    if ((sol[0] * sol[0] + sol[1] * sol[1]) < 1e-9) return null;
+    return sol;
+  }
+
+  /// Gaussian elimination with partial pivoting for a 4x4 system.
+  List<double>? _solve4(List<List<double>> a, List<double> b) {
+    final m = List<List<double>>.generate(4, (i) => <double>[...a[i], b[i]]);
+    for (int col = 0; col < 4; col++) {
+      int piv = col;
+      for (int r = col + 1; r < 4; r++) {
+        if (m[r][col].abs() > m[piv][col].abs()) piv = r;
+      }
+      if (m[piv][col].abs() < 1e-12) return null;
+      final tmp = m[col];
+      m[col] = m[piv];
+      m[piv] = tmp;
+      for (int r = 0; r < 4; r++) {
+        if (r == col) continue;
+        final f = m[r][col] / m[col][col];
+        for (int k = col; k <= 4; k++) {
+          m[r][k] -= f * m[col][k];
+        }
+      }
+    }
+    return <double>[
+      m[0][4] / m[0][0],
+      m[1][4] / m[1][1],
+      m[2][4] / m[2][2],
+      m[3][4] / m[3][3],
+    ];
+  }
+
+  /// Inverse-warps [src] into an [_inputSize] square using similarity
+  /// coefficients `[a, b, c, d]`, sampling bilinearly with edge clamping.
+  img.Image _warpInverse(img.Image src, List<double> m) {
+    final a = m[0], b = m[1], c = m[2], d = m[3];
+    final det = a * a + b * b;
+    final out = img.Image(width: _inputSize, height: _inputSize, numChannels: 3);
+    for (int oy = 0; oy < _inputSize; oy++) {
+      for (int ox = 0; ox < _inputSize; ox++) {
+        final xt = ox - c;
+        final yt = oy - d;
+        final sx = (a * xt + b * yt) / det;
+        final sy = (-b * xt + a * yt) / det;
+        final px = _sampleBilinear(src, sx, sy);
+        out.setPixelRgb(ox, oy, px[0], px[1], px[2]);
+      }
+    }
+    return out;
+  }
+
+  List<int> _sampleBilinear(img.Image src, double x, double y) {
+    final x0 = x.floor().clamp(0, src.width - 1);
+    final y0 = y.floor().clamp(0, src.height - 1);
+    final x1 = (x0 + 1).clamp(0, src.width - 1);
+    final y1 = (y0 + 1).clamp(0, src.height - 1);
+    final fx = (x - x0).clamp(0.0, 1.0);
+    final fy = (y - y0).clamp(0.0, 1.0);
+    final p00 = src.getPixel(x0, y0);
+    final p10 = src.getPixel(x1, y0);
+    final p01 = src.getPixel(x0, y1);
+    final p11 = src.getPixel(x1, y1);
+    double lerp(num a, num b, num c, num dd) =>
+        (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + dd * fx) * fy;
+    return <int>[
+      lerp(p00.r, p10.r, p01.r, p11.r).round().clamp(0, 255),
+      lerp(p00.g, p10.g, p01.g, p11.g).round().clamp(0, 255),
+      lerp(p00.b, p10.b, p01.b, p11.b).round().clamp(0, 255),
+    ];
+  }
+
+  /// Fallback when landmarks are missing: square crop around the face box
+  /// with margin, resized to the model input.
+  img.Image? _marginCrop(img.Image src, Face face) {
+    final box = face.boundingBox;
     final marginX = box.width * 0.30;
     final marginY = box.height * 0.30;
-    int left = (box.left - marginX).round().clamp(0, src.width - 1);
-    int top = (box.top - marginY).round().clamp(0, src.height - 1);
-    int right = (box.right + marginX).round().clamp(0, src.width - 1);
-    int bottom = (box.bottom + marginY).round().clamp(0, src.height - 1);
-    int cropW = right - left;
-    int cropH = bottom - top;
+    final left = (box.left - marginX).round().clamp(0, src.width - 1);
+    final top = (box.top - marginY).round().clamp(0, src.height - 1);
+    final right = (box.right + marginX).round().clamp(0, src.width - 1);
+    final bottom = (box.bottom + marginY).round().clamp(0, src.height - 1);
+    final cropW = right - left;
+    final cropH = bottom - top;
     if (cropW < 20 || cropH < 20) return null;
-
-    // Make the crop square around its centre.
     final side = max(cropW, cropH);
     final cx = left + cropW / 2.0;
     final cy = top + cropH / 2.0;
-    left = (cx - side / 2).round().clamp(0, src.width - 1);
-    top = (cy - side / 2).round().clamp(0, src.height - 1);
-    final sqSide = min(side, min(src.width - left, src.height - top));
-    if (sqSide < 20) return null;
-
-    img.Image patch =
-        img.copyCrop(src, x: left, y: top, width: sqSide, height: sqSide);
-
-    // Eye-level alignment (landmarks are in src coordinates).
-    final le = face.landmarks[FaceLandmarkType.leftEye]?.position;
-    final re = face.landmarks[FaceLandmarkType.rightEye]?.position;
-    if (le != null && re != null) {
-      final dx = (re.x - le.x).toDouble();
-      final dy = (re.y - le.y).toDouble();
-      final angleDeg = atan2(dy, dx) * 180.0 / pi;
-      if (angleDeg.abs() > 3.0 && angleDeg.abs() < 35.0) {
-        patch = img.copyRotate(patch, angle: -angleDeg);
-        // Re-centre-crop to drop the rotation border.
-        final keep = (patch.width * 0.86).round();
-        final off = ((patch.width - keep) / 2).round();
-        patch = img.copyCrop(patch, x: off, y: off, width: keep, height: keep);
-      }
-    }
-
+    final l = (cx - side / 2).round().clamp(0, src.width - 1);
+    final t = (cy - side / 2).round().clamp(0, src.height - 1);
+    final sq = min(side, min(src.width - l, src.height - t));
+    if (sq < 20) return null;
+    final patch = img.copyCrop(src, x: l, y: t, width: sq, height: sq);
     return img.copyResize(patch,
-        width: _inputSize, height: _inputSize, interpolation: img.Interpolation.linear);
+        width: _inputSize,
+        height: _inputSize,
+        interpolation: img.Interpolation.linear);
   }
 
   List<double> _runModel(img.Image face112) {
@@ -198,10 +335,11 @@ class FaceRecognitionEngine {
         _inputSize,
         (y) => List.generate(_inputSize, (x) {
           final p = face112.getPixel(x, y);
+          // MobileFaceNet preprocessing: (pixel - 128) / 128  ->  [-1, 1).
           return <double>[
-            (p.r - 127.5) / 128.0,
-            (p.g - 127.5) / 128.0,
-            (p.b - 127.5) / 128.0,
+            (p.r - 128.0) / 128.0,
+            (p.g - 128.0) / 128.0,
+            (p.b - 128.0) / 128.0,
           ];
         }),
       ),

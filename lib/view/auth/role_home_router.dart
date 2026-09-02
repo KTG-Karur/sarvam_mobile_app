@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/constant/roles.dart';
+import 'package:sarvam/services/face_biometric_service.dart';
 import 'package:sarvam/view/FDO/home/home.dart';
 import 'package:sarvam/view/BM/BM_home.dart';
 import 'package:sarvam/view/AM/AM_home.dart';
@@ -30,6 +31,46 @@ bool hasPunchedOutToday(SharedPreferences prefs) {
   final lastPunchOut = prefs.getString('lastPunchOutDate');
   if (lastPunchOut == null || lastPunchOut.isEmpty) return false;
   return lastPunchOut == todayDateKey() || lastPunchOut.startsWith(todayDateKey());
+}
+
+/// Makes the local punch-state cache mirror the authoritative server status —
+/// both directions. Without the "clear when the server denies" half, a stale
+/// `lastPunchOutDate` from earlier testing makes the app wrongly report
+/// "already punched out" right after a fresh punch-in.
+///
+/// No-op when [info] is null (offline): the local cache is kept as-is.
+Future<void> reconcilePunchPrefs(
+  SharedPreferences prefs,
+  ServerAttendanceInfo? info,
+) async {
+  if (info == null) return;
+  final today = todayDateKey();
+  final serverIn = info.present || info.punchedIn;
+  final serverOut = info.punchedOut;
+
+  if (!serverIn && !serverOut) {
+    // Server has no attendance for today — drop every local trace.
+    await prefs.remove('lastPunchInDate');
+    await prefs.remove('lastPunchInTime');
+    await prefs.remove('lastPunchOutDate');
+    await prefs.remove('lastPunchOutTime');
+    await prefs.remove('lastPunchStatus');
+    return;
+  }
+
+  if (serverIn) {
+    await prefs.setString('lastPunchInDate', today);
+  }
+  if (serverOut) {
+    await prefs.setString('lastPunchOutDate', today);
+  } else {
+    // Punched in but not out — clear any stale punch-out mark.
+    await prefs.remove('lastPunchOutDate');
+    await prefs.remove('lastPunchOutTime');
+  }
+  if (info.status != null) {
+    await prefs.setString('lastPunchStatus', info.status!);
+  }
 }
 
 /// Resolves which dashboard to land on after login/MPIN, based on the

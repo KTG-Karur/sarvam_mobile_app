@@ -107,20 +107,25 @@ class _MpinLoginScreenState extends State<MpinLoginScreen>
 
         if (!mounted) return;
 
-        // Server attendance status is the source of truth; keep the local
-        // prefs cache in step with it so home / punch-out agree.
-        if (serverInfo != null) {
-          final bool serverPunchedIn =
-              serverInfo.present || serverInfo.punchedIn;
-          if (serverPunchedIn) {
-            await prefs.setString('lastPunchInDate', todayDateKey());
-          }
-          if (serverInfo.punchedOut) {
-            await prefs.setString('lastPunchOutDate', todayDateKey());
-          }
-        }
+        // Server attendance status is the source of truth; make the local
+        // prefs cache mirror it (both directions) so home / punch-out agree.
+        await reconcilePunchPrefs(prefs, serverInfo);
 
-        if (!faceEnrolled) {
+        if (!FaceBiometricService.isModelReady) {
+          // No on-device face model: face enrol/verify cannot run. Don't trap
+          // the user in the training loop — let them in on MPIN only.
+          final homeScreen = await resolveHomeScreen();
+          Get.offAll(() => homeScreen);
+          Get.snackbar(
+            'Face check unavailable',
+            'The face recognition model is not installed on this device. '
+                'Signed in with MPIN only — contact your administrator.',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: const Color(0xFFB45309),
+            colorText: Colors.white,
+            duration: const Duration(seconds: 4),
+          );
+        } else if (!faceEnrolled) {
           Get.offAll(() => const FaceTrainingScreen(autoStart: true));
         } else if (serverInfo != null && !serverInfo.faceAttendanceAllowed) {
           final homeScreen = await resolveHomeScreen();

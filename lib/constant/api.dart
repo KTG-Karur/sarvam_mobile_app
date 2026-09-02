@@ -1,6 +1,6 @@
 class Api {
   // Uses http://localhost:3320 (working via adb reverse tcp:3320 tcp:3320 for Android emulators/devices)
-  static String get baseUrl => "http://localhost:3320";
+  static String get baseUrl => "http://192.168.29.204:3320";
 
   static String get mobileLoginUrl => "$baseUrl/api/mobile/login";
   static String get loginUrl => "$baseUrl/api/mobile/login";
@@ -62,8 +62,7 @@ class Api {
   static String get loanPurposesUrl => "$baseUrl/api/loan-purposes";
   static String get economicActivityTypesUrl =>
       "$baseUrl/api/economic-activity-types";
-  static String get economicActivitiesUrl =>
-      "$baseUrl/api/economic-activities";
+  static String get economicActivitiesUrl => "$baseUrl/api/economic-activities";
   static String get ifscUrl => "$baseUrl/api/ifsc";
 
   static String get geoDrivingDistanceUrl =>
@@ -88,8 +87,7 @@ class Api {
   static String get loanIndexesUrl => "$baseUrl/api/loan-indexes";
   static String get loanIndexesUnindexedLoansUrl =>
       "$baseUrl/api/loan-indexes/unindexed-loans";
-  static String get loanIndexesNextIdUrl =>
-      "$baseUrl/api/loan-indexes/next-id";
+  static String get loanIndexesNextIdUrl => "$baseUrl/api/loan-indexes/next-id";
 
   // Member Individual (BM post-indexation, pre-disbursement per-loan data
   // collection — mirrors components/loan-module/MemberIndividualClient.tsx /

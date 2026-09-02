@@ -554,8 +554,24 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
     }
   }
 
-  void _resetAndRetry() {
+  void _resetAndRetry() async {
     _stopImageStream();
+    // Retrying is pointless when the model asset is missing — it just loops
+    // back to this screen. Send the user home on MPIN only instead.
+    if (!FaceBiometricService.isModelReady) {
+      final homeScreen = await resolveHomeScreen();
+      Get.offAll(() => homeScreen);
+      Get.snackbar(
+        'Face check unavailable',
+        'The face recognition model is not installed on this device. '
+            'Continuing with MPIN only — contact your administrator.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: const Color(0xFFB45309),
+        colorText: Colors.white,
+        duration: const Duration(seconds: 4),
+      );
+      return;
+    }
     _startTraining();
   }
 

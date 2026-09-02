@@ -72,28 +72,7 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
     final localPunchIn = hasPunchedInToday(prefs);
     final localPunchOut = hasPunchedOutToday(prefs);
 
-    if (serverInfo != null) {
-      final bool isServerPunchedIn = serverInfo.present || serverInfo.punchedIn;
-      final bool isServerPunchedOut = serverInfo.punchedOut;
-
-      if (!isServerPunchedIn && !isServerPunchedOut) {
-        await prefs.remove('lastPunchInDate');
-        await prefs.remove('lastPunchInTime');
-        await prefs.remove('lastPunchOutDate');
-        await prefs.remove('lastPunchOutTime');
-        await prefs.remove('lastPunchStatus');
-      } else {
-        if (isServerPunchedIn) {
-          await prefs.setString('lastPunchInDate', todayDateKey());
-        }
-        if (isServerPunchedOut) {
-          await prefs.setString('lastPunchOutDate', todayDateKey());
-        }
-        if (serverInfo.status != null) {
-          await prefs.setString('lastPunchStatus', serverInfo.status!);
-        }
-      }
-    }
+    await reconcilePunchPrefs(prefs, serverInfo);
     if (!mounted) return;
     setState(() {
       _employeeId = prefs.getString('employeeId') ?? '';
