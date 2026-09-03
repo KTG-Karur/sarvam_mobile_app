@@ -10,6 +10,7 @@ import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/controller/dashboard_controller.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 import 'package:sarvam/widgets/punch_out_dialog.dart';
+import 'package:sarvam/widgets/biometric_gate_dialog.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
 import 'package:sarvam/view/auth/face_verification_screen.dart';
 
@@ -69,9 +70,9 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
   Future<void> _loadUserDetails() async {
     final prefs = await SharedPreferences.getInstance();
     final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
-    final localPunchIn = hasPunchedInToday(prefs);
-    final localPunchOut = hasPunchedOutToday(prefs);
 
+    // Rolls a stale previous day into history (offline-safe) and mirrors the
+    // server, so the local flags below reflect *today* only.
     await reconcilePunchPrefs(prefs, serverInfo);
     if (!mounted) return;
     setState(() {
@@ -80,13 +81,18 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
       _fdoName =
           '${prefs.getString('firstName') ?? ''} ${prefs.getString('lastName') ?? ''}'
               .trim();
-      
-      final bool isPunchedOut = (serverInfo != null) ? serverInfo.punchedOut : localPunchOut;
-      final bool isPunchedIn = (serverInfo != null) ? (serverInfo.present || serverInfo.punchedIn) : localPunchIn;
+
+      final bool isPunchedOut = (serverInfo != null)
+          ? serverInfo.punchedOut
+          : hasPunchedOutToday(prefs);
+      final bool isPunchedIn = (serverInfo != null)
+          ? (serverInfo.present || serverInfo.punchedIn)
+          : hasPunchedInToday(prefs);
 
       _punchedOutToday = isPunchedOut;
       _presentToday = isPunchedIn || isPunchedOut;
-      _attendanceStatus = serverInfo?.status ?? prefs.getString('lastPunchStatus');
+      _attendanceStatus =
+          serverInfo?.status ?? prefs.getString(kPunchStatusKey);
       _isWorkingDay = serverInfo?.isWorkingDay ?? true;
     });
   }
@@ -94,22 +100,13 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
   bool _isWorkingDay = true;
 
   String get _attendanceStatusText {
-    if (!_isWorkingDay || _attendanceStatus == 'HOLIDAY') {
-      return 'Holiday / Off';
-    }
-    if (_punchedOutToday) {
-      if (_attendanceStatus == 'HALF_DAY') {
-        return 'Half Day Present';
-      }
-      if (_attendanceStatus == 'FULL_DAY') {
-        return 'Full Day Present';
-      }
-      return 'Half Day Present';
-    }
-    if (_presentToday) {
-      return 'Present';
-    }
-    return 'Not Punched';
+    final status = resolveAttendanceDayStatus(
+      isWorkingDay: _isWorkingDay,
+      punchedInToday: _presentToday && !_punchedOutToday,
+      punchedOutToday: _punchedOutToday,
+      serverStatus: _attendanceStatus,
+    );
+    return attendanceStatusLabel(status, serverStatus: _attendanceStatus);
   }
 
   String _formatCurrency(num value) {
@@ -825,7 +822,7 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
           ),
           SizedBox(width: 8.w),
           InkWell(
-            onTap: () {
+            onTap: () async {
               if (_punchedOutToday) {
                 Get.snackbar(
                   'Shift Completed',
@@ -834,11 +831,12 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
                   backgroundColor: const Color(0xFF0D6842),
                   colorText: Colors.white,
                 );
-              } else if (_presentToday) {
-                Get.to(() => const FaceVerificationScreen(isPunchOut: true));
-              } else {
-                Get.to(() => const FaceVerificationScreen(isPunchOut: false));
+                return;
               }
+              final isPunchOut = _presentToday;
+              await BiometricGateDialog.maybeShow(context, isPunchOut: isPunchOut);
+              if (!mounted) return;
+              Get.to(() => FaceVerificationScreen(isPunchOut: isPunchOut));
             },
             borderRadius: BorderRadius.circular(12.r),
             child: Container(

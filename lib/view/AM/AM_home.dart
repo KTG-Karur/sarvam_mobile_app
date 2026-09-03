@@ -102,73 +102,50 @@ class _AmHomeState extends State<AmHome> with SingleTickerProviderStateMixin {
   Future<void> _loadUserDetails() async {
     final prefs = await SharedPreferences.getInstance();
     final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
-    final localPunchIn = hasPunchedInToday(prefs);
-    final localPunchOut = hasPunchedOutToday(prefs);
 
-    if (serverInfo != null) {
-      final bool isServerPunchedIn = serverInfo.present || serverInfo.punchedIn;
-      final bool isServerPunchedOut = serverInfo.punchedOut;
-
-      if (!isServerPunchedIn && !isServerPunchedOut) {
-        await prefs.remove('lastPunchInDate');
-        await prefs.remove('lastPunchInTime');
-        await prefs.remove('lastPunchOutDate');
-        await prefs.remove('lastPunchOutTime');
-        await prefs.remove('lastPunchStatus');
-      } else {
-        if (isServerPunchedIn) {
-          await prefs.setString('lastPunchInDate', todayDateKey());
-        }
-        if (isServerPunchedOut) {
-          await prefs.setString('lastPunchOutDate', todayDateKey());
-        }
-        if (serverInfo.status != null) {
-          await prefs.setString('lastPunchStatus', serverInfo.status!);
-        }
-      }
-    }
+    // Rolls a stale previous day into history (offline-safe) and mirrors the
+    // server, so the local flags below reflect *today* only.
+    await reconcilePunchPrefs(prefs, serverInfo);
     if (!mounted) return;
     setState(() {
-      final bool isPunchedOut = (serverInfo != null) ? serverInfo.punchedOut : localPunchOut;
-      final bool isPunchedIn = (serverInfo != null) ? (serverInfo.present || serverInfo.punchedIn) : localPunchIn;
+      final bool isPunchedOut = (serverInfo != null)
+          ? serverInfo.punchedOut
+          : hasPunchedOutToday(prefs);
+      final bool isPunchedIn = (serverInfo != null)
+          ? (serverInfo.present || serverInfo.punchedIn)
+          : hasPunchedInToday(prefs);
 
       _punchedOutToday = isPunchedOut;
       _presentToday = isPunchedIn || isPunchedOut;
-      _attendanceStatus = serverInfo?.status ?? prefs.getString('lastPunchStatus');
+      _attendanceStatus =
+          serverInfo?.status ?? prefs.getString(kPunchStatusKey);
       _isWorkingDay = serverInfo?.isWorkingDay ?? true;
     });
   }
 
-  String get _attendanceStatusText {
-    if (!_isWorkingDay || _attendanceStatus == 'HOLIDAY') {
-      return 'Holiday / Off';
-    }
-    if (_punchedOutToday) {
-      if (_attendanceStatus == 'HALF_DAY') {
-        return 'Half Day Present';
-      }
-      if (_attendanceStatus == 'FULL_DAY') {
-        return 'Full Day Present';
-      }
-      return 'Shift Completed';
-    }
-    if (_presentToday) {
-      return 'Present (Punched In)';
-    }
-    return 'Absent (Not Punched)';
-  }
+  AttendanceDayStatus get _attendanceDayStatus => resolveAttendanceDayStatus(
+        isWorkingDay: _isWorkingDay,
+        punchedInToday: _presentToday && !_punchedOutToday,
+        punchedOutToday: _punchedOutToday,
+        serverStatus: _attendanceStatus,
+      );
+
+  String get _attendanceStatusText =>
+      attendanceStatusLabel(_attendanceDayStatus, serverStatus: _attendanceStatus);
 
   String get _attendanceStatusBadgeText {
-    if (!_isWorkingDay || _attendanceStatus == 'HOLIDAY') {
-      return 'Holiday';
+    switch (_attendanceDayStatus) {
+      case AttendanceDayStatus.holiday:
+        return 'Holiday';
+      case AttendanceDayStatus.completed:
+        return 'Completed';
+      case AttendanceDayStatus.inProgress:
+        return 'In Progress';
+      case AttendanceDayStatus.incomplete:
+        return 'Punch-Out Missing';
+      case AttendanceDayStatus.notStarted:
+        return 'Not Started';
     }
-    if (_punchedOutToday) {
-      return 'Punched Out';
-    }
-    if (_presentToday) {
-      return 'Present';
-    }
-    return 'Absent';
   }
 
   Color get _attendanceStatusColor {

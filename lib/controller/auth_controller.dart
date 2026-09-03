@@ -987,6 +987,7 @@ class AuthController extends GetxController {
       await prefs.remove('lastPunchInTime');
       await prefs.remove('lastPunchOutDate');
       await prefs.remove('lastPunchOutTime');
+      await prefs.remove('lastPunchStatus');
       await prefs.setBool('isMpinSet', false);
       await prefs.setBool('faceEnrollmentCompleted', false);
 

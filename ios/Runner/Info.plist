@@ -51,5 +51,7 @@
 	<string>This app requires access to your camera to complete face enrollment and verification.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>This app requires access to your photo library to upload KYC documents.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>This app uses Face ID / Touch ID as an optional quick check before punch-in and punch-out.</string>
 </dict>
 </plist>

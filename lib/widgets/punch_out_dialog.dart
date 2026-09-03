@@ -7,6 +7,7 @@ import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/view/auth/face_verification_screen.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
+import 'package:sarvam/widgets/biometric_gate_dialog.dart';
 
 class PunchOutDialog extends StatefulWidget {
   const PunchOutDialog({super.key});
@@ -128,6 +129,9 @@ class _PunchOutDialogState extends State<PunchOutDialog> {
         return;
       }
 
+      if (!mounted) return;
+
+      await BiometricGateDialog.maybeShow(context, isPunchOut: true);
       if (!mounted) return;
       Navigator.of(context).pop();
 

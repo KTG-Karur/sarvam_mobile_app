@@ -93,6 +93,57 @@ On no-match respond `200` with `data.matched=false` and `scorePercent` set, or
 `409`/`400` with `message`. The app treats any non-matched / error response as a
 failed punch (fail closed).
 
+## POST `/api/auth/attendance/device-biometric`
+
+Optional shortcut from the "Check Your Face" screen: the user confirmed with the
+OS fingerprint / Face unlock (`local_auth`) instead of the face camera. The
+device check has already passed; this call just records the punch. The server
+still owns the decision and must log the method for audit — this is a
+convenience path, not a replacement for the face-recognition identity gate, so
+policy may restrict it (e.g. only after at least one successful face punch, or
+only for certain roles).
+
+Body (from `FaceBiometricService.recordDeviceBiometricPunch`):
+
+```jsonc
+{
+  "type": "PUNCH_IN" | "PUNCH_OUT",
+  "method": "DEVICE_BIOMETRIC",
+  "latitude": 11.0, "longitude": 77.0,
+  "deviceId": "..."
+}
+```
+
+Server:
+1. Resolve the user from the bearer token.
+2. Optionally enforce policy (see above). Reject with `403` +
+   `{ "message": "..." }` if device-biometric punching is not allowed for this
+   user — the app shows the message and the user falls back to face.
+3. Record attendance for `type` — same idempotency rules as `/face/verify`
+   (ignore a duplicate PUNCH_IN, require a prior PUNCH_IN for PUNCH_OUT).
+4. Log `method`, lat/long, deviceId.
+
+Response `200`:
+
+```jsonc
+{
+  "message": "Attendance confirmed with device fingerprint.",
+  "data": { "recorded": true, "type": "PUNCH_IN", "recordedAt": "2026-09-03T..." }
+}
+```
+
+On failure respond `200` with `data.recorded=false` + `message`, or
+`400`/`401`/`403`/`409` with `message`. The app treats anything else as a failed
+punch (fail closed) and keeps the face camera available.
+
+**Implemented in `sarvan_microfinance`:** `POST /api/auth/attendance/device-biometric`
+(`app/api/auth/attendance/device-biometric/route.ts`). Policy: allowed only for a
+user who already has an active `FaceTemplate` (else `403`). Same Attendance upsert
+and idempotency rules as `/face/verify`; day gate via `checkDayAttendanceAllowed`.
+Audit row written to `FaceVerificationLog` with `matched=true`, `scorePercent=100`,
+`modelVersion` = the `method` string (`DEVICE_BIOMETRIC`). Response `data`:
+`{ recorded, matched, type, recordedAt, attendanceDate }`.
+
 ## GET `/api/auth/face/attendance-status`
 
 Response `data`: `{ enrolled, present, punchedIn, punchedOut, status,

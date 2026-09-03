@@ -17,6 +17,11 @@ class Api {
   static String get faceVerifyUrl => "$baseUrl/api/auth/face/verify";
   static String get faceAttendanceStatusUrl =>
       "$baseUrl/api/auth/face/attendance-status";
+  // Optional device-biometric (fingerprint / Face unlock) punch. The OS check
+  // runs on-device; the server still owns the attendance decision and logs the
+  // method. See docs/face_attendance_backend_contract.md.
+  static String get deviceBiometricPunchUrl =>
+      "$baseUrl/api/auth/attendance/device-biometric";
   // Re-registration / face update needs Admin approval for an already-enrolled
   // user. Request submits the ask; status reports the Admin decision.
   static String get faceReRegisterRequestUrl =>

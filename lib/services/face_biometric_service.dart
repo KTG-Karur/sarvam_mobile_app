@@ -705,6 +705,88 @@ class FaceBiometricService {
     }
   }
 
+  /// Records an attendance punch that the user confirmed with the device
+  /// biometric (fingerprint / Face unlock) instead of the face-recognition
+  /// camera. The OS check has already succeeded on-device; the server still
+  /// owns the decision (idempotent per day, requires a prior PUNCH_IN for a
+  /// PUNCH_OUT) and logs `method` for audit. Fails closed on any error or if
+  /// the endpoint is not live yet.
+  static Future<FaceMatchResult> recordDeviceBiometricPunch({
+    String type = 'PUNCH_IN',
+    double? latitude,
+    double? longitude,
+    String? deviceId,
+  }) async {
+    final token = await SecureSessionService.readAccessToken();
+    if (token == null || token.isEmpty) {
+      return FaceMatchResult(
+        isMatch: false,
+        scorePercent: 0,
+        message: 'Your session has expired. Please sign in again.',
+      );
+    }
+
+    try {
+      final response = await http.post(
+        Uri.parse(Api.deviceBiometricPunchUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'type': type,
+          'method': 'DEVICE_BIOMETRIC',
+          if (latitude != null) 'latitude': latitude,
+          if (longitude != null) 'longitude': longitude,
+          if (deviceId != null) 'deviceId': deviceId,
+        }),
+      ).timeout(const Duration(seconds: 12));
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final resData = jsonDecode(response.body);
+        final data = resData['data'] is Map ? resData['data'] : resData;
+        final bool recorded =
+            data['recorded'] == true || data['matched'] == true;
+        final String message = resData['message'] ??
+            (recorded
+                ? 'Attendance confirmed with device fingerprint.'
+                : 'Could not record your punch. Please try face verification.');
+        return FaceMatchResult(
+          isMatch: recorded,
+          scorePercent: recorded ? 100.0 : 0.0,
+          message: message,
+        );
+      } else if (response.statusCode == 409 ||
+          response.statusCode == 400 ||
+          response.statusCode == 401 ||
+          response.statusCode == 403) {
+        final resData = jsonDecode(response.body);
+        return FaceMatchResult(
+          isMatch: false,
+          scorePercent: 0.0,
+          message: resData['message']?.toString() ??
+              resData['error']?.toString() ??
+              'Attendance punch was rejected.',
+        );
+      }
+
+      return FaceMatchResult(
+        isMatch: false,
+        scorePercent: 0.0,
+        message:
+            'Fingerprint punch is unavailable right now. Please use face verification.',
+      );
+    } catch (e) {
+      if (kDebugMode) print('Device-biometric punch error: $e');
+      return FaceMatchResult(
+        isMatch: false,
+        scorePercent: 0.0,
+        message:
+            'Unable to record your punch. Check your connection or use face verification.',
+      );
+    }
+  }
+
   /// Fetches current server attendance status.
   static Future<ServerAttendanceInfo?> fetchServerAttendanceInfo() async {
     final token = await SecureSessionService.readAccessToken();
