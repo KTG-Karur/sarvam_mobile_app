@@ -97,6 +97,50 @@ String attendanceStatusLabel(
   }
 }
 
+/// 12-hour clock string ('h:mm AM/PM') used for the stored punch times shown
+/// on the home dashboards and in local history.
+String formatPunchTime(DateTime dt) {
+  final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+  final minute = dt.minute.toString().padLeft(2, '0');
+  final period = dt.hour >= 12 ? 'PM' : 'AM';
+  return '$hour:$minute $period';
+}
+
+/// Writes a successful punch (in or out) into the local working keys, and — for
+/// a punch-out — closes today out in local history straight away. This is the
+/// single place every verified-punch path (face match or device fingerprint)
+/// funnels through so the local cache never drifts between them. Returns the
+/// stored time string.
+Future<String> recordLocalPunch(
+  SharedPreferences prefs, {
+  required bool isPunchOut,
+}) async {
+  final today = todayDateKey();
+  final nowTimeStr = formatPunchTime(DateTime.now());
+
+  if (isPunchOut) {
+    await prefs.setString(kPunchOutDateKey, today);
+    await prefs.setString(kPunchOutTimeKey, nowTimeStr);
+    await prefs.setString(kPunchStatusKey, 'COMPLETED');
+    // First write wins, so a later rollover can't create a second record.
+    await archiveAttendanceDay(
+      prefs,
+      date: today,
+      punchInTime: prefs.getString(kPunchInTimeKey),
+      punchOutTime: nowTimeStr,
+      status: 'COMPLETED',
+    );
+  } else {
+    await prefs.setString(kPunchInDateKey, today);
+    await prefs.setString(kPunchInTimeKey, nowTimeStr);
+    await prefs.setString(kPunchStatusKey, 'IN_PROGRESS');
+    // A fresh punch-in owns the day — drop any stale punch-out mark.
+    await prefs.remove(kPunchOutDateKey);
+    await prefs.remove(kPunchOutTimeKey);
+  }
+  return nowTimeStr;
+}
+
 // ─── Local attendance history ─────────────────────────────────────────────
 
 String _attendanceHistoryKey(SharedPreferences prefs) {

@@ -10,9 +10,8 @@ import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/controller/dashboard_controller.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 import 'package:sarvam/widgets/punch_out_dialog.dart';
-import 'package:sarvam/widgets/biometric_gate_dialog.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
-import 'package:sarvam/view/auth/face_verification_screen.dart';
+import 'package:sarvam/view/auth/punch_method_screen.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -822,7 +821,7 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
           ),
           SizedBox(width: 8.w),
           InkWell(
-            onTap: () async {
+            onTap: () {
               if (_punchedOutToday) {
                 Get.snackbar(
                   'Shift Completed',
@@ -834,9 +833,7 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
                 return;
               }
               final isPunchOut = _presentToday;
-              await BiometricGateDialog.maybeShow(context, isPunchOut: isPunchOut);
-              if (!mounted) return;
-              Get.to(() => FaceVerificationScreen(isPunchOut: isPunchOut));
+              Get.to(() => PunchMethodScreen(isPunchOut: isPunchOut));
             },
             borderRadius: BorderRadius.circular(12.r),
             child: Container(

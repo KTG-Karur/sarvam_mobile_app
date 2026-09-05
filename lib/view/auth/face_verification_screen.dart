@@ -11,7 +11,6 @@ import 'package:get/get.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
-import 'package:sarvam/services/device_biometric_service.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 import 'package:sarvam/view/auth/face_training_screen.dart';
@@ -54,14 +53,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
   /// refuses to verify instead of letting anyone punch in.
   bool _modelReady = true;
 
-  /// True once we've confirmed this device has an enrolled fingerprint / Face
-  /// unlock. Gates the optional fingerprint-punch button in the control pill.
-  bool _deviceBiometricAvailable = false;
-
-  /// True while the fingerprint-punch path is running, so the face-capture
-  /// controls and the fingerprint button lock out each other.
-  bool _fingerprintPunchBusy = false;
-
   // Liveness challenge state.
   _LivenessStage _stage = _LivenessStage.aligning;
   _LivenessChallenge _challenge = _LivenessChallenge.blink;
@@ -94,13 +85,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     }
     _fetchLocation();
     _initializeCamera();
-    _checkDeviceBiometricAvailability();
-  }
-
-  Future<void> _checkDeviceBiometricAvailability() async {
-    final available = await DeviceBiometricService.isAvailable();
-    if (!mounted) return;
-    setState(() => _deviceBiometricAvailable = available);
   }
 
   void _pickChallenge() {
@@ -184,7 +168,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
       } catch (_) {}
     } else if (state == AppLifecycleState.resumed) {
       _initializeCamera();
-      _checkDeviceBiometricAvailability();
     }
   }
 
@@ -714,12 +697,14 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
 
       // Both gates must agree. Device already passed; the server is authority
       // on the final yes/no (fails closed if unreachable).
+      final successMessage =
+          'Face Verification Successful – Punch-${widget.isPunchOut ? 'Out' : 'In'} Completed.';
       _showMatchResultDialog(
         isMatched: matchResult.isMatch,
         scorePercent: matchResult.isMatch
             ? matchResult.scorePercent
             : (deviceCosine.clamp(0.0, 1.0)) * 100.0,
-        message: matchResult.message,
+        message: matchResult.isMatch ? successMessage : matchResult.message,
         imageBytes: snapshotBytes,
         enrolledImageBytes: enrolledPhotoBytes,
       );
@@ -736,101 +721,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
       );
     }
   }
-
-
-
-  /// Optional shortcut: confirm identity with the device fingerprint / Face
-  /// unlock instead of the face-recognition camera. The OS check runs
-  /// on-device; the server still records the punch and owns the decision.
-  Future<void> _punchWithFingerprint() async {
-    if (_isVerifying || _fingerprintPunchBusy) return;
-
-    setState(() {
-      _fingerprintPunchBusy = true;
-      _isVerifying = true;
-      _statusGuidanceText = 'Confirm with your fingerprint…';
-    });
-    _autoHoldStartTime = null;
-    _autoHoldProgress = 0.0;
-    await _stopImageStream();
-
-    final action = widget.isPunchOut ? 'punch-out' : 'punch-in';
-    final authResult = await DeviceBiometricService.authenticate(
-      'Verify it\'s you before $action',
-    );
-
-    if (!mounted) return;
-
-    if (authResult != DeviceBiometricResult.success) {
-      setState(() {
-        _fingerprintPunchBusy = false;
-        _isVerifying = false;
-      });
-      _resetVerificationState();
-      _startImageStream();
-      Get.snackbar(
-        'Fingerprint Not Confirmed',
-        switch (authResult) {
-          DeviceBiometricResult.cancelled =>
-            'Cancelled. You can try again or use face verification.',
-          DeviceBiometricResult.unavailable =>
-            'Device biometrics are unavailable right now. Please use face verification.',
-          _ => 'Could not confirm your fingerprint. Please use face verification.',
-        },
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: const Color(0xFFB45309),
-        colorText: Colors.white,
-        duration: const Duration(seconds: 3),
-      );
-      return;
-    }
-
-    setState(() => _statusGuidanceText = 'Recording your punch…');
-
-    // Mirror _verifyFace: let the server's current state decide the punch type.
-    final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
-    String punchType = widget.isPunchOut ? 'PUNCH_OUT' : 'PUNCH_IN';
-    if (serverInfo != null) {
-      final bool isServerPunchedIn =
-          serverInfo.present || serverInfo.punchedIn;
-      if (!isServerPunchedIn) {
-        punchType = 'PUNCH_IN';
-      } else if (isServerPunchedIn && !serverInfo.punchedOut) {
-        punchType = 'PUNCH_OUT';
-      }
-    }
-
-    final deviceId = await _authControllerForPunch().getOrCreateDeviceId();
-    final result = await FaceBiometricService.recordDeviceBiometricPunch(
-      type: punchType,
-      latitude: _position?.latitude,
-      longitude: _position?.longitude,
-      deviceId: deviceId,
-    );
-
-    if (!mounted) return;
-    setState(() {
-      _fingerprintPunchBusy = false;
-      _isVerifying = false;
-    });
-
-    if (!result.isMatch) {
-      _resetVerificationState();
-      _startImageStream();
-    }
-
-    _showMatchResultDialog(
-      isMatched: result.isMatch,
-      scorePercent: result.scorePercent,
-      message: result.message,
-      imageBytes: null,
-      enrolledImageBytes: await FaceBiometricService.getEnrolledPhotoBytes(),
-    );
-  }
-
-  AuthController _authControllerForPunch() => Get.isRegistered<AuthController>()
-      ? Get.find<AuthController>()
-      : Get.put(AuthController());
 
   void _showMatchResultDialog({
     required bool isMatched,
@@ -968,7 +858,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
             ),
             SizedBox(height: 16.h),
             Text(
-              isMatched ? 'Face Verification Matched!' : 'Face Verification Failed',
+              isMatched ? 'Face Verification Successful' : 'Face Verification Failed',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 18.sp,
@@ -1130,25 +1020,14 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
 
   Future<void> _finishAndNavigate() async {
     final prefs = await SharedPreferences.getInstance();
-    final today = todayDateKey();
-    final nowTimeStr = _formatTime(DateTime.now());
+    final nowTimeStr =
+        await recordLocalPunch(prefs, isPunchOut: widget.isPunchOut);
+
+    final homeScreen = await resolveHomeScreen();
+    if (!mounted) return;
+    Get.offAll(() => homeScreen);
 
     if (widget.isPunchOut) {
-      await prefs.setString(kPunchOutDateKey, today);
-      await prefs.setString(kPunchOutTimeKey, nowTimeStr);
-      await prefs.setString(kPunchStatusKey, 'COMPLETED');
-      // Close today out in local history straight away (first write wins, so a
-      // later rollover can't create a second record for the same date).
-      await archiveAttendanceDay(
-        prefs,
-        date: today,
-        punchInTime: prefs.getString(kPunchInTimeKey),
-        punchOutTime: nowTimeStr,
-        status: 'COMPLETED',
-      );
-      final homeScreen = await resolveHomeScreen();
-      if (!mounted) return;
-      Get.offAll(() => homeScreen);
       Get.snackbar(
         'Shift Completed',
         'Your punch-out for today has been recorded successfully at $nowTimeStr.',
@@ -1157,16 +1036,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
         colorText: Colors.white,
         duration: const Duration(seconds: 4),
       );
-    } else {
-      await prefs.setString(kPunchInDateKey, today);
-      await prefs.setString(kPunchInTimeKey, nowTimeStr);
-      await prefs.setString(kPunchStatusKey, 'IN_PROGRESS');
-      // A fresh punch-in owns the day — drop any stale punch-out mark.
-      await prefs.remove(kPunchOutDateKey);
-      await prefs.remove(kPunchOutTimeKey);
-      final homeScreen = await resolveHomeScreen();
-      if (!mounted) return;
-      Get.offAll(() => homeScreen);
     }
   }
 
@@ -1264,13 +1133,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
         ],
       ),
     );
-  }
-
-  String _formatTime(DateTime dt) {
-    final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
-    final minute = dt.minute.toString().padLeft(2, '0');
-    final period = dt.hour >= 12 ? 'PM' : 'AM';
-    return '$hour:$minute $period';
   }
 
   @override
@@ -1496,39 +1358,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                // Optional Action: Punch with device fingerprint
-                                // / Face unlock instead of the face camera.
-                                if (_deviceBiometricAvailable) ...[
-                                  InkWell(
-                                    onTap: (_isVerifying || _fingerprintPunchBusy)
-                                        ? null
-                                        : _punchWithFingerprint,
-                                    borderRadius: BorderRadius.circular(24.r),
-                                    child: Container(
-                                      width: 44.w,
-                                      height: 44.w,
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withValues(alpha: 0.2),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: _fingerprintPunchBusy
-                                          ? Padding(
-                                              padding: EdgeInsets.all(12.w),
-                                              child: const CircularProgressIndicator(
-                                                color: Colors.white,
-                                                strokeWidth: 2,
-                                              ),
-                                            )
-                                          : Icon(
-                                              Icons.fingerprint_rounded,
-                                              color: Colors.white,
-                                              size: 22.sp,
-                                            ),
-                                    ),
-                                  ),
-                                  SizedBox(width: 18.w),
-                                ],
-
                                 // Left Action: Flip / Switch Camera
                                 InkWell(
                                   onTap: _toggleCameraLens,

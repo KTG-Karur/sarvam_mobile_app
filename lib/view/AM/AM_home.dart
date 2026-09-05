@@ -22,7 +22,7 @@ import 'package:sarvam/view/BM/member_approval.dart';
 import 'package:sarvam/view/BM/member_individual/member_individual.dart';
 import 'package:sarvam/view/FDO/client_loan_tracker/client_loan_tracker.dart';
 import 'package:sarvam/view/FDO/client_search_locate/client_search_locate.dart';
-import 'package:sarvam/view/auth/face_verification_screen.dart';
+import 'package:sarvam/view/auth/punch_method_screen.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 import 'package:sarvam/widgets/punch_out_dialog.dart';
@@ -743,11 +743,11 @@ class _AmHomeState extends State<AmHome> with SingleTickerProviderStateMixin {
               _ModuleItem(
                 icon: Icons.logout_rounded,
                 title: 'Punch Out',
-                subtitle: 'Face-verify and end today\'s shift',
+                subtitle: 'Verify with face or fingerprint to end today\'s shift',
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) =>
-                        const FaceVerificationScreen(isPunchOut: true),
+                        const PunchMethodScreen(isPunchOut: true),
                   ),
                 ),
               ),
@@ -1359,7 +1359,7 @@ class _AmHomeState extends State<AmHome> with SingleTickerProviderStateMixin {
               onPressed: () => Navigator.of(context)
                   .push(
                     MaterialPageRoute(
-                      builder: (_) => const FaceVerificationScreen(),
+                      builder: (_) => const PunchMethodScreen(),
                     ),
                   )
                   .then((_) => _loadUserDetails()),

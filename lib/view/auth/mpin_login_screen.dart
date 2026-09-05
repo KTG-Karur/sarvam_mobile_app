@@ -7,7 +7,7 @@ import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/view/auth/login_screen.dart';
 import 'package:sarvam/view/auth/set_mpin_screen.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
-import 'package:sarvam/view/auth/face_verification_screen.dart';
+import 'package:sarvam/view/auth/punch_method_screen.dart';
 import 'package:sarvam/view/auth/face_training_screen.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
 
@@ -152,7 +152,7 @@ class _MpinLoginScreenState extends State<MpinLoginScreen>
             colorText: Colors.white,
           );
         } else {
-          Get.offAll(() => const FaceVerificationScreen());
+          Get.offAll(() => const PunchMethodScreen());
         }
       } else {
         for (var c in _mpinControllers) {

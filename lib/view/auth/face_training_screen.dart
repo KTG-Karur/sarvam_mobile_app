@@ -11,7 +11,7 @@ import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
 import 'package:sarvam/view/auth/mpin_login_screen.dart';
-import 'package:sarvam/view/auth/face_verification_screen.dart';
+import 'package:sarvam/view/auth/punch_method_screen.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 
 enum TrainingStep { intro, step1Straight, step2Left, step3Right, step4Smile, step5Center, previewConfirm, success, failed }
@@ -588,7 +588,7 @@ class _FaceTrainingScreenState extends State<FaceTrainingScreen>
       final homeScreen = await resolveHomeScreen();
       Get.offAll(() => homeScreen);
     } else {
-      Get.offAll(() => const FaceVerificationScreen());
+      Get.offAll(() => const PunchMethodScreen());
     }
   }
 
