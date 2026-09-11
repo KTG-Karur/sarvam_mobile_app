@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -30,17 +31,38 @@ class _MpinLoginScreenState extends State<MpinLoginScreen>
   bool _checkingResetApproval = false;
   bool _isLoading = false;
 
+  // Admin approval of a forgot-MPIN request previously only got picked up on
+  // screen load or app resume — a user just sitting on this screen (the
+  // common case: they submitted the request and are waiting) would never see
+  // it update on its own, needing to background/reopen the app or hot-reload
+  // to notice. Poll while this screen is actually visible and foregrounded so
+  // it updates on its own.
+  Timer? _approvalPollTimer;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _openNewMpinScreenWhenApproved();
+    _startApprovalPolling();
+  }
+
+  void _startApprovalPolling() {
+    _approvalPollTimer?.cancel();
+    _approvalPollTimer = Timer.periodic(
+      const Duration(seconds: 8),
+      (_) => _openNewMpinScreenWhenApproved(),
+    );
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _openNewMpinScreenWhenApproved();
+      _startApprovalPolling();
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
+      _approvalPollTimer?.cancel();
     }
   }
 
@@ -63,6 +85,7 @@ class _MpinLoginScreenState extends State<MpinLoginScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _approvalPollTimer?.cancel();
     for (var controller in _mpinControllers) {
       controller.dispose();
     }
@@ -180,18 +203,41 @@ class _MpinLoginScreenState extends State<MpinLoginScreen>
     final authController = Get.isRegistered<AuthController>()
         ? Get.find<AuthController>()
         : Get.put(AuthController());
+
+    // Check the existing request's real status FIRST, rather than
+    // optimistically POSTing a new request and reacting to a 409 — an
+    // APPROVED (or PENDING) request must never be treated as a failure.
+    //   APPROVED           -> open Set MPIN directly
+    //   PENDING            -> show a pending message, nothing else
+    //   REJECTED/COMPLETED/none -> fall through to the normal request flow
+    final status = await authController.getMpinChangeRequestStatus();
+    if (!mounted) return;
+
+    if (status == 'APPROVED') {
+      Get.offAll(() => const SetMpinScreen(isReset: true));
+      return;
+    }
+
+    if (status == 'PENDING') {
+      Get .snackbar(
+        'Request Pending',
+        'Your MPIN reset request is awaiting administrator approval.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: const Color(0xFF0D6842),
+        colorText: Colors.white,
+        duration: const Duration(seconds: 3),
+      );
+      return;
+    }
+
     final requested = await authController.forgotMpin();
     if (!mounted) return;
 
-    // A 409 can mean the administrator has already approved an earlier
-    // request. That is actionable: open the replacement-MPIN form directly.
-    // The /mpin/forgot response itself now says so (`canChangeMpin`); fall
-    // back to the separate /mpin/change-status check only if that wasn't set.
     if (!requested) {
-      final canSetNewMpin = authController.lastForgotMpinCanChange ||
-          await authController.canChangeForgottenMpin();
-      if (canSetNewMpin && mounted) {
-        Get.closeAllSnackbars();
+      // Safety net for a race (e.g. approved between the status check above
+      // and this call) — forgotMpin() stays silent for that case and just
+      // reports whether it's now safe to proceed.
+      if (authController.lastForgotMpinCanChange && mounted) {
         Get.offAll(() => const SetMpinScreen(isReset: true));
       }
       return;

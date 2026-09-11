@@ -736,12 +736,31 @@ class AuthController extends GetxController {
       }
 
       String errorMsg = 'Failed to reset MPIN.';
+      String? code;
       if (response.body != null && response.body is Map) {
         final body = response.body as Map;
         errorMsg = (body['error'] ?? body['message'])?.toString() ?? errorMsg;
+        code = body['code']?.toString();
         lastForgotMpinCanChange = body['canChangeMpin'] == true;
       }
-      Get.snackbar('Reset Failed', errorMsg, snackPosition: SnackPosition.BOTTOM);
+
+      if (lastForgotMpinCanChange) {
+        // Already approved — this isn't a failure, it's the normal path to
+        // "set your new MPIN". The caller routes straight to that screen;
+        // showing "Reset Failed" here would just be a confusing flash right
+        // before the redirect.
+      } else if (code == 'MPIN_CHANGE_REQUEST_PENDING') {
+        // Awaiting admin review — distinct from an actual failure.
+        Get.snackbar(
+          'Request Pending',
+          errorMsg,
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: const Color(0xFF0D6842),
+          colorText: Colors.white,
+        );
+      } else {
+        Get.snackbar('Reset Failed', errorMsg, snackPosition: SnackPosition.BOTTOM);
+      }
       return false;
     } catch (e) {
       Get.snackbar('Error', 'An error occurred: $e', snackPosition: SnackPosition.BOTTOM);
@@ -778,6 +797,39 @@ class AuthController extends GetxController {
       return false;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// Fetches the employee's current MPIN change request status directly
+  /// (GET /api/mobile/mpin/change-status), so the caller can branch on the
+  /// real state — PENDING / APPROVED / REJECTED / COMPLETED / none — instead
+  /// of inferring it from a side effect of POSTing a new request. Returns
+  /// null if there's no request on file or the check itself failed (network
+  /// error, no token, etc.) — callers should treat null like "no unconsumed
+  /// request" and fall through to the normal forgot-MPIN flow.
+  Future<String?> getMpinChangeRequestStatus() async {
+    try {
+      final token = await SecureSessionService.readPendingToken() ??
+          await SecureSessionService.readAccessToken();
+      if (token == null || token.isEmpty) return null;
+
+      final response = await _connect.get(
+        Api.mpinChangeStatusUrl,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200 && response.body != null) {
+        final body = response.body as Map;
+        final data = body['data'] is Map ? body['data'] as Map : body;
+        final status = data['status'];
+        return status?.toString().toUpperCase();
+      }
+      return null;
+    } catch (_) {
+      return null;
     }
   }
 
