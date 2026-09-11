@@ -121,6 +121,21 @@ class _AmHomeState extends State<AmHome> with SingleTickerProviderStateMixin {
           serverInfo?.status ?? prefs.getString(kPunchStatusKey);
       _isWorkingDay = serverInfo?.isWorkingDay ?? true;
     });
+    _enforcePunchInGate();
+  }
+
+  bool _redirectingToPunchIn = false;
+
+  // Members must punch in before using the app. Without this, a user who
+  // backed out of the mandatory punch-in screen (or had a stale session)
+  // could still reach and use every home feature.
+  void _enforcePunchInGate() {
+    if (_redirectingToPunchIn) return;
+    if (!_isWorkingDay || _attendanceStatus == 'HOLIDAY' || _presentToday) {
+      return;
+    }
+    _redirectingToPunchIn = true;
+    Get.offAll(() => const PunchMethodScreen(isPunchOut: false));
   }
 
   AttendanceDayStatus get _attendanceDayStatus => resolveAttendanceDayStatus(

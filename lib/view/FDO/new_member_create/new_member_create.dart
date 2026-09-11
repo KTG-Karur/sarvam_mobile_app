@@ -35,7 +35,7 @@ class _NewMemberCreateState extends State<NewMemberCreate> {
   @override
   Widget build(BuildContext context) => PopScope(
     onPopInvokedWithResult: (didPop, result) {
-      if (didPop) {
+      if (didPop && result != true) {
         controller.saveDraft(silent: true);
       }
     },

@@ -246,6 +246,12 @@ class _PunchMethodScreenState extends State<PunchMethodScreen> {
       Navigator.of(context).pop();
       return;
     }
+    // This screen is reached via `Get.offAll`, so there is nothing left on
+    // the stack to pop above. For a mandatory punch-in, there is no home
+    // screen to safely fall back to — doing so let un-punched-in members
+    // bypass attendance entirely. Only punch-OUT (already punched in) may
+    // fall back to the dashboard.
+    if (!widget.isPunchOut) return;
     final homeScreen = await resolveHomeScreen();
     Get.offAll(() => homeScreen);
   }

@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/controller/dashboard_controller.dart';
+import 'package:sarvam/view/auth/punch_method_screen.dart';
 import 'package:sarvam/view/AM/collection_view/collection_view_hub.dart';
 import 'package:sarvam/view/FDO/client_search_locate/client_search_locate.dart';
 import 'package:sarvam/view/FDO/loan_disbursement/loan_disbursement.dart';
@@ -120,6 +121,21 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
           serverInfo?.status ?? prefs.getString(kPunchStatusKey);
       _isWorkingDay = serverInfo?.isWorkingDay ?? true;
     });
+    _enforcePunchInGate();
+  }
+
+  bool _redirectingToPunchIn = false;
+
+  // Members must punch in before using the app. Without this, a user who
+  // backed out of the mandatory punch-in screen (or had a stale session)
+  // could still reach and use every home feature.
+  void _enforcePunchInGate() {
+    if (_redirectingToPunchIn) return;
+    if (!_isWorkingDay || _attendanceStatus == 'HOLIDAY' || _presentToday) {
+      return;
+    }
+    _redirectingToPunchIn = true;
+    Get.offAll(() => const PunchMethodScreen(isPunchOut: false));
   }
 
   bool _isWorkingDay = true;
