@@ -185,8 +185,11 @@ class _MpinLoginScreenState extends State<MpinLoginScreen>
 
     // A 409 can mean the administrator has already approved an earlier
     // request. That is actionable: open the replacement-MPIN form directly.
+    // The /mpin/forgot response itself now says so (`canChangeMpin`); fall
+    // back to the separate /mpin/change-status check only if that wasn't set.
     if (!requested) {
-      final canSetNewMpin = await authController.canChangeForgottenMpin();
+      final canSetNewMpin = authController.lastForgotMpinCanChange ||
+          await authController.canChangeForgottenMpin();
       if (canSetNewMpin && mounted) {
         Get.closeAllSnackbars();
         Get.offAll(() => const SetMpinScreen(isReset: true));

@@ -18,10 +18,21 @@ class NewMemberCreate extends StatefulWidget {
 }
 
 class _NewMemberCreateState extends State<NewMemberCreate> {
-  final ClientEnrollmentController controller =
-      Get.isRegistered<ClientEnrollmentController>()
-      ? Get.find<ClientEnrollmentController>()
-      : Get.put(ClientEnrollmentController());
+  // Always start from a clean controller. Reusing a previously-registered
+  // instance let stale state (credit-check result/consent/in-flight flag,
+  // form fields, draft id) from a prior enrollment session bleed into a new
+  // one — e.g. a completed Highmark report or a still-`true` in-flight flag
+  // from a client the FDO abandoned mid-flow would make the next client's
+  // "Run Credit Check" tap look like it did nothing. Server-side draft
+  // resumption still works via `loadDraftIfExists()` in `onInit`.
+  final ClientEnrollmentController controller = _freshEnrollmentController();
+
+  static ClientEnrollmentController _freshEnrollmentController() {
+    if (Get.isRegistered<ClientEnrollmentController>()) {
+      Get.delete<ClientEnrollmentController>(force: true);
+    }
+    return Get.put(ClientEnrollmentController());
+  }
 
   static const _steps = [
     ('Member Details', Icons.shield_outlined),

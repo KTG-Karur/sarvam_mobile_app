@@ -696,9 +696,16 @@ class AuthController extends GetxController {
   }
 
   /// Forgot MPIN request (POST /api/mobile/mpin/forgot)
+  /// Set by [forgotMpin] on a failed (already-requested) attempt when the
+  /// backend reports the existing request is already APPROVED — lets the
+  /// caller route straight to the "set new MPIN" screen without a separate
+  /// /mpin/change-status round trip.
+  bool lastForgotMpinCanChange = false;
+
   Future<bool> forgotMpin({
     String? deviceId,
   }) async {
+    lastForgotMpinCanChange = false;
     try {
       isLoading.value = true;
       final prefs = await SharedPreferences.getInstance();
@@ -729,8 +736,10 @@ class AuthController extends GetxController {
       }
 
       String errorMsg = 'Failed to reset MPIN.';
-      if (response.body != null && response.body is Map && response.body['error'] != null) {
-        errorMsg = response.body['error'].toString();
+      if (response.body != null && response.body is Map) {
+        final body = response.body as Map;
+        errorMsg = (body['error'] ?? body['message'])?.toString() ?? errorMsg;
+        lastForgotMpinCanChange = body['canChangeMpin'] == true;
       }
       Get.snackbar('Reset Failed', errorMsg, snackPosition: SnackPosition.BOTTOM);
       return false;
@@ -742,17 +751,19 @@ class AuthController extends GetxController {
     }
   }
 
-  /// Checks whether user can change forgotten MPIN (POST /api/mobile/mpin/change-status)
+  /// Checks whether user can change forgotten MPIN (GET /api/mobile/mpin/change-status)
   Future<bool> canChangeForgottenMpin() async {
     try {
       final token = await SecureSessionService.readPendingToken() ??
           await SecureSessionService.readAccessToken();
       if (token == null || token.isEmpty) return false;
 
-      final response = 
-      await _connect.post(
+      // The endpoint is GET-only on the server. It was previously called with
+      // POST here, which 405'd on every attempt (silently, since this method
+      // just returns false on any non-200) — the app could never detect that
+      // an admin had approved a forgot-MPIN request.
+      final response = await _connect.get(
         Api.mpinChangeStatusUrl,
-        {},
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
@@ -865,12 +876,19 @@ class AuthController extends GetxController {
     }
   }
 
+  /// Set when [changeMpin] fails specifically because the one-time approval
+  /// was already consumed/expired (backend code MPIN_CHANGE_NOT_APPROVED) —
+  /// there is nothing left to retry; the caller should send the user back to
+  /// request a fresh forgot-MPIN approval rather than leave them stuck.
+  bool lastChangeMpinNotApproved = false;
+
   /// Change MPIN for authenticated user (POST /api/mobile/mpin/change)
   Future<bool> changeMpin({
     required String mpin,
     required String confirmMpin,
     String? oldMpin,
   }) async {
+    lastChangeMpinNotApproved = false;
     try {
       isLoading.value = true;
       final prefs = await SharedPreferences.getInstance();
@@ -909,8 +927,10 @@ class AuthController extends GetxController {
       }
 
       String errorMsg = 'Failed to change MPIN.';
-      if (response.body != null && response.body is Map && response.body['error'] != null) {
-        errorMsg = response.body['error'].toString();
+      if (response.body != null && response.body is Map) {
+        final body = response.body as Map;
+        errorMsg = (body['error'] ?? body['message'])?.toString() ?? errorMsg;
+        lastChangeMpinNotApproved = body['code'] == 'MPIN_CHANGE_NOT_APPROVED';
       }
       Get.snackbar('Change Failed', errorMsg, snackPosition: SnackPosition.BOTTOM);
       return false;

@@ -37,6 +37,7 @@ class _SetMpinScreenState extends State<SetMpinScreen> {
 
   bool _showEnterMpin = false;
   bool _showConfirmMpin = false;
+  bool _submitting = false;
 
   @override
   void dispose() {
@@ -56,63 +57,82 @@ class _SetMpinScreenState extends State<SetMpinScreen> {
   }
 
   Future<void> _handleSetMpin() async {
-    String mpin = _enterMpinControllers.map((c) => c.text).join();
-    String confirm = _confirmMpinControllers.map((c) => c.text).join();
+    // The request that claims the admin's one-time approval is not
+    // idempotent — a second near-simultaneous tap (no loading state was
+    // shown, so a double-tap was easy to trigger) would race the first,
+    // lose the claim, and surface a confusing "no approved request found"
+    // error even though the first tap already succeeded.
+    if (_submitting) return;
+    setState(() => _submitting = true);
+    try {
+      String mpin = _enterMpinControllers.map((c) => c.text).join();
+      String confirm = _confirmMpinControllers.map((c) => c.text).join();
 
-    if (mpin.length < 4) {
-      Get.snackbar(
-        'Required',
-        'Please enter a 4-digit MPIN',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.redAccent,
-        colorText: Colors.white,
-        margin: EdgeInsets.all(16.w),
-        borderRadius: 8.r,
-      );
-      return;
-    }
-    if (confirm.length < 4) {
-      Get.snackbar(
-        'Required',
-        'Please confirm your MPIN',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.redAccent,
-        colorText: Colors.white,
-        margin: EdgeInsets.all(16.w),
-        borderRadius: 8.r,
-      );
-      return;
-    }
-    if (mpin != confirm) {
-      Get.snackbar(
-        'Mismatch',
-        'MPINs do not match. Please try again.',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.redAccent,
-        colorText: Colors.white,
-        margin: EdgeInsets.all(16.w),
-        borderRadius: 8.r,
-      );
-      return;
-    }
-
-    final AuthController authController = Get.isRegistered<AuthController>()
-        ? Get.find<AuthController>()
-        : Get.put(AuthController());
-
-    final bool success = widget.isReset
-        ? await authController.changeMpin(mpin: mpin, confirmMpin: confirm)
-        : await authController.setupMpin(mpin: mpin, confirmMpin: confirm);
-
-    if (success) {
-      if (widget.isReset) {
-        Get.offAll(() => const MpinLoginScreen());
-      } else {
-        // Keep the enrollment state in the same keys used by the biometric
-        // service; the old key was never read and could leave stale state.
-        await FaceBiometricService.clearLocalEnrollmentCache();
-        Get.off(() => const FaceTrainingScreen());
+      if (mpin.length < 4) {
+        Get.snackbar(
+          'Required',
+          'Please enter a 4-digit MPIN',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.redAccent,
+          colorText: Colors.white,
+          margin: EdgeInsets.all(16.w),
+          borderRadius: 8.r,
+        );
+        return;
       }
+      if (confirm.length < 4) {
+        Get.snackbar(
+          'Required',
+          'Please confirm your MPIN',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.redAccent,
+          colorText: Colors.white,
+          margin: EdgeInsets.all(16.w),
+          borderRadius: 8.r,
+        );
+        return;
+      }
+      if (mpin != confirm) {
+        Get.snackbar(
+          'Mismatch',
+          'MPINs do not match. Please try again.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.redAccent,
+          colorText: Colors.white,
+          margin: EdgeInsets.all(16.w),
+          borderRadius: 8.r,
+        );
+        return;
+      }
+
+      final AuthController authController = Get.isRegistered<AuthController>()
+          ? Get.find<AuthController>()
+          : Get.put(AuthController());
+
+      final bool success = widget.isReset
+          ? await authController.changeMpin(mpin: mpin, confirmMpin: confirm)
+          : await authController.setupMpin(mpin: mpin, confirmMpin: confirm);
+
+      if (success) {
+        if (widget.isReset) {
+          Get.offAll(() => const MpinLoginScreen());
+        } else {
+          // Keep the enrollment state in the same keys used by the biometric
+          // service; the old key was never read and could leave stale state.
+          await FaceBiometricService.clearLocalEnrollmentCache();
+          Get.off(() => const FaceTrainingScreen());
+        }
+      } else if (widget.isReset && authController.lastChangeMpinNotApproved && mounted) {
+        // The one-time approval was already used up (or expired) by the
+        // time this request reached the server — there is nothing left to
+        // retry on this screen. Send the user back to request a fresh
+        // forgot-MPIN approval instead of leaving them stuck here. Any
+        // other failure (network error, validation) stays on this screen
+        // so the user can just retry.
+        Get.offAll(() => const MpinLoginScreen());
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
     }
   }
 
@@ -479,23 +499,33 @@ class _SetMpinScreenState extends State<SetMpinScreen> {
                             width: double.infinity,
                             height: 54.h,
                             child: ElevatedButton(
-                              onPressed: _handleSetMpin,
+                              onPressed: _submitting ? null : _handleSetMpin,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF0D6842),
+                                disabledBackgroundColor: const Color(0xFF0D6842).withValues(alpha: 0.6),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(27.r),
                                 ),
                                 elevation: 0,
                               ),
-                              child: Text(
-                                'SET MPIN',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16.sp,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 1.2,
-                                ),
-                              ),
+                              child: _submitting
+                                  ? SizedBox(
+                                      width: 20.sp,
+                                      height: 20.sp,
+                                      child: const CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : Text(
+                                      'SET MPIN',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16.sp,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 1.2,
+                                      ),
+                                    ),
                             ),
                           ),
                           SizedBox(height: 50.h),
