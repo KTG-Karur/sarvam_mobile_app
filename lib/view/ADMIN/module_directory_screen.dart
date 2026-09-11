@@ -19,6 +19,7 @@ import 'package:sarvam/view/ADMIN/transactions/transaction_management.dart';
 import 'package:sarvam/view/ADMIN/eod/eod_execution.dart';
 import 'package:sarvam/view/ADMIN/reports/admin_reports_overview.dart';
 import 'package:sarvam/view/ADMIN/settings/profile_settings.dart';
+
 import 'package:sarvam/view/BM/member_approval.dart';
 import 'package:sarvam/view/BM/centre_approval.dart';
 import 'package:sarvam/view/BM/final_disbursement/final_disbursement.dart';
@@ -262,6 +263,17 @@ class _ModuleDirectoryScreenState extends State<ModuleDirectoryScreen> {
         'Loan Advance Revert',
       ],
     },
+    // ── Notifications (with Wishes) ──────────────────────────────────────────
+    {
+      'name': 'Notifications',
+      'icon': Icons.notifications_rounded,
+      'color': const Color(0xFFDC2626),
+      'children': [
+        'System Alerts',
+        'Wishes',
+        'Announcements',
+      ],
+    },
   ];
 
   @override
@@ -280,7 +292,7 @@ class _ModuleDirectoryScreenState extends State<ModuleDirectoryScreen> {
           onPressed: () => Get.back(),
         ),
         title: Text(
-          '18-Module Navigation Hub',
+          '20-Module Navigation Hub',
           style: GoogleFonts.inter(
             fontSize: 18.sp,
             fontWeight: FontWeight.w700,
@@ -317,7 +329,8 @@ class _ModuleDirectoryScreenState extends State<ModuleDirectoryScreen> {
                     }
                   }
 
-                  return _buildModuleCard(name, icon, color, children);
+                  final String? badge = mod['badge'] as String?;
+                  return _buildModuleCard(name, icon, color, children, badge: badge);
                 },
               ),
             ),
@@ -335,7 +348,7 @@ class _ModuleDirectoryScreenState extends State<ModuleDirectoryScreen> {
         controller: _searchController,
         onChanged: (val) => setState(() => _filterQuery = val),
         decoration: InputDecoration(
-          hintText: 'Search 18 modules & sub-items...',
+          hintText: 'Search 20 modules & sub-items...',
           hintStyle: GoogleFonts.inter(fontSize: 13.sp, color: _muted),
           prefixIcon: const Icon(Icons.search_rounded, color: _muted),
           filled: true,
@@ -354,8 +367,9 @@ class _ModuleDirectoryScreenState extends State<ModuleDirectoryScreen> {
     String name,
     IconData icon,
     Color color,
-    List<String> children,
-  ) {
+    List<String> children, {
+    String? badge,
+  }) {
     if (children.isEmpty) {
       return Container(
         decoration: BoxDecoration(
@@ -378,13 +392,18 @@ class _ModuleDirectoryScreenState extends State<ModuleDirectoryScreen> {
             ),
             child: Icon(icon, color: color, size: 20.sp),
           ),
-          title: Text(
-            name,
-            style: GoogleFonts.inter(
-              fontSize: 14.sp,
-              fontWeight: FontWeight.w700,
-              color: _darkText,
-            ),
+          title: Row(
+            children: [
+              Text(
+                name,
+                style: GoogleFonts.inter(
+                  fontSize: 14.sp,
+                  fontWeight: FontWeight.w700,
+                  color: _darkText,
+                ),
+              ),
+              if (badge != null) ..._badgeWidget(badge, color),
+            ],
           ),
           trailing: const Icon(
             Icons.arrow_forward_ios_rounded,
@@ -419,13 +438,18 @@ class _ModuleDirectoryScreenState extends State<ModuleDirectoryScreen> {
             ),
             child: Icon(icon, color: color, size: 20.sp),
           ),
-          title: Text(
-            name,
-            style: GoogleFonts.inter(
-              fontSize: 14.sp,
-              fontWeight: FontWeight.w700,
-              color: _darkText,
-            ),
+          title: Row(
+            children: [
+              Text(
+                name,
+                style: GoogleFonts.inter(
+                  fontSize: 14.sp,
+                  fontWeight: FontWeight.w700,
+                  color: _darkText,
+                ),
+              ),
+              if (badge != null) ..._badgeWidget(badge, color),
+            ],
           ),
           subtitle: Text(
             '${children.length} Features',
@@ -453,6 +477,29 @@ class _ModuleDirectoryScreenState extends State<ModuleDirectoryScreen> {
         ),
       ),
     );
+  }
+
+  List<Widget> _badgeWidget(String label, Color color) {
+    return [
+      SizedBox(width: 6.w),
+      Container(
+        padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 2.h),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(6.r),
+          border: Border.all(color: color.withOpacity(0.35), width: 0.8),
+        ),
+        child: Text(
+          label,
+          style: GoogleFonts.inter(
+            fontSize: 9.sp,
+            fontWeight: FontWeight.w700,
+            color: color,
+            letterSpacing: 0.3,
+          ),
+        ),
+      ),
+    ];
   }
 
   void _handleModuleTap(String parent, String? subItem) {
@@ -547,6 +594,13 @@ class _ModuleDirectoryScreenState extends State<ModuleDirectoryScreen> {
         break;
       case 'Profile & Settings':
         Get.to(() => const ProfileSettings());
+        break;
+      // ── Notifications ────────────────────────────────────────────
+      case 'System Alerts':
+      case 'Wishes':
+      case 'Announcements':
+      case 'Notifications':
+        Get.to(() => const AdminReportsOverview());
         break;
       default:
         Get.to(() => const AdminReportsOverview());

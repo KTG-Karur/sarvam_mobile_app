@@ -32,6 +32,7 @@ import 'package:sarvam/view/BM/member_approval.dart';
 import 'package:sarvam/view/BM/centre_approval.dart';
 import 'package:sarvam/view/BM/final_disbursement/final_disbursement.dart';
 import 'package:sarvam/view/FDO/client_search_locate/client_search_locate.dart';
+
 import 'package:sarvam/view/auth/login_screen.dart';
 
 class AdminHome extends StatefulWidget {
@@ -3461,6 +3462,17 @@ class _AdminHomeState extends State<AdminHome>
           'Loan Advance Revert',
         ],
       },
+      // ── Notifications (with Wishes) ───────────────────────────────────────
+      {
+        'name': 'Notifications',
+        'icon': Icons.notifications_rounded,
+        'color': const Color(0xFFDC2626),
+        'children': [
+          'System Alerts',
+          'Wishes',
+          'Announcements',
+        ],
+      },
     ];
 
     return Drawer(
@@ -3531,7 +3543,7 @@ class _AdminHomeState extends State<AdminHome>
               child: TextField(
                 onChanged: (val) => setState(() => _drawerSearchQuery = val),
                 decoration: InputDecoration(
-                  hintText: 'Search 18 modules & sub-items...',
+                  hintText: 'Search 20 modules & sub-items...',
                   hintStyle: GoogleFonts.inter(fontSize: 12.sp, color: _muted),
                   prefixIcon: const Icon(
                     Icons.search_rounded,
@@ -3745,6 +3757,13 @@ class _AdminHomeState extends State<AdminHome>
         break;
       case 'Profile & Settings':
         _push(const ProfileSettings());
+        break;
+      // ── Notifications ─────────────────────────────────────────────
+      case 'System Alerts':
+      case 'Wishes':
+      case 'Announcements':
+      case 'Notifications':
+        _push(const AdminReportsOverview());
         break;
       default:
         _push(const AdminReportsOverview());

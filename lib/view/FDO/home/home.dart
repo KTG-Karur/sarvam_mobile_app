@@ -12,6 +12,7 @@ import 'package:sarvam/view/auth/role_home_router.dart';
 import 'package:sarvam/widgets/punch_out_dialog.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
 import 'package:sarvam/view/auth/punch_method_screen.dart';
+import 'package:sarvam/view/FDO/HR/hr_dashboard.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -302,42 +303,35 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
                       ),
                     ),
                     SizedBox(width: 8.w),
-                    // Refresh button
-                    Obx(
-                      () => GestureDetector(
-                        onTap: _controller.isLoading.value
-                            ? null
-                            : () => _controller.getDashboardStats(),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _controller.isLoading.value
-                                ? SizedBox(
-                                    width: 22.sp,
-                                    height: 22.sp,
-                                    child: const CircularProgressIndicator(
-                                      color: Color(0xFF0D6842),
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : Icon(
-                                    Icons.refresh,
-                                    color: const Color(0xFF0F172A),
-                                    size: 22.sp,
-                                  ),
-                            Text(
-                              'Refresh',
-                              style: TextStyle(
-                                fontSize: 10.5.sp,
-                                color: const Color(0xFF64748B),
-                                fontWeight: FontWeight.w500,
-                              ),
+                    // Profile button
+                    GestureDetector(
+                      onTap: () => _showProfileBottomSheet(context),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Image.asset(
+                            'assets/icon/profile.png',
+                            width: 32.sp,
+                            height: 32.sp,
+                            fit: BoxFit.contain,
+                          ),
+                          Text(
+                            'Profile',
+                            style: TextStyle(
+                              fontSize: 10.5.sp,
+                              color: const Color(0xFF64748B),
+                              fontWeight: FontWeight.w500,
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
-                    if (_isWorkingDay && !_punchedOutToday && _presentToday) ...[
+                    SizedBox(width: 14.w),
+                    // Refresh button
+                    
+                    if (_isWorkingDay &&
+                        !_punchedOutToday &&
+                        _presentToday) ...[
                       SizedBox(width: 14.w),
                       // Punch out button
                       GestureDetector(
@@ -450,7 +444,7 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
                             _buildOutstandingBalanceCard(),
 
                             SizedBox(height: 24.h),
-                            // Quick-access shortcut tiles — row 1
+                            // Quick-access shortcut tiles
                             Row(
                               children: [
                                 Expanded(
@@ -480,15 +474,6 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
                                 SizedBox(width: 10.w),
                                 Expanded(
                                   child: _buildShortcut(
-                                    asset: 'assets/icon/profile.png',
-                                    label: 'Profile',
-                                    onTap: () =>
-                                        _showProfileBottomSheet(context),
-                                  ),
-                                ),
-                                SizedBox(width: 10.w),
-                                Expanded(
-                                  child: _buildShortcut(
                                     asset: 'assets/icon/location.png',
                                     label: 'Location',
                                     onTap: () => Navigator.of(context).push(
@@ -499,20 +484,18 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
                                     ),
                                   ),
                                 ),
-                              ],
-                            ),
-                            SizedBox(height: 10.h),
-                            // Quick-access shortcut tiles — row 2
-                            Row(
-                              children: [
                                 SizedBox(width: 10.w),
-                                // Empty spacers keep the tile width consistent
-                                // with the row above (4-column grid width).
-                                Expanded(child: SizedBox.shrink()),
-                                SizedBox(width: 10.w),
-                                Expanded(child: SizedBox.shrink()),
-                                SizedBox(width: 10.w),
-                                Expanded(child: SizedBox.shrink()),
+                                Expanded(
+                                  child: _buildShortcut(
+                                    asset: 'assets/icon/bg.png',
+                                    label: 'HRM',
+                                    onTap: () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => const HrDashboard(),
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ],
                             ),
                             SizedBox(height: 20.h),
@@ -534,6 +517,8 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
     required String asset,
     required String label,
     required VoidCallback onTap,
+    IconData? iconOverride,
+    Color? iconColor,
   }) {
     return Material(
       color: Colors.white,
@@ -553,7 +538,23 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
             children: [
               SizedBox(
                 height: 72.h,
-                child: Image.asset(asset, fit: BoxFit.contain),
+                child: iconOverride != null
+                    ? Center(
+                        child: Container(
+                          padding: EdgeInsets.all(14.w),
+                          decoration: BoxDecoration(
+                            color: (iconColor ?? const Color(0xFF0D6842))
+                                .withOpacity(0.1),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            iconOverride,
+                            color: iconColor ?? const Color(0xFF0D6842),
+                            size: 30.sp,
+                          ),
+                        ),
+                      )
+                    : Image.asset(asset, fit: BoxFit.contain),
               ),
               Text(
                 label,
