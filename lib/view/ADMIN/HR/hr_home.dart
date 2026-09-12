@@ -113,7 +113,7 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF1F5F9),
+      backgroundColor: Colors.white,
       body: SafeArea(
         child: Column(
           children: [
@@ -136,8 +136,6 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
                         _buildQuickActionsGrid(),
                         SizedBox(height: 20.h),
                         _buildMeetingCard(),
-                        SizedBox(height: 24.h),
-                        _buildRecentUpdates(),
                         SizedBox(height: 24.h),
                         _buildFooterBanner(),
                         SizedBox(height: 20.h),
@@ -527,11 +525,11 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
   Widget _buildFooterBanner() {
     return ClipRRect(
       borderRadius: BorderRadius.circular(16.r),
-      child: AspectRatio(
-        aspectRatio: 2100 / 425,
+      child: SizedBox(
+        height: 92.h,
         child: Image.asset(
           'assets/images/home_banner_bttom.png',
-          fit: BoxFit.cover,
+          fit: BoxFit.fill,
           filterQuality: FilterQuality.high,
         ),
       ),
