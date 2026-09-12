@@ -5,6 +5,8 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'live_tracking.dart';
+
 /// HrHome — the HR module's landing screen (reached from the Field Officer
 /// home screen's "HRM" tile). Shows quick-access tiles into the HR
 /// sub-modules, a next-meeting card, and recent updates.
@@ -333,7 +335,32 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
             borderRadius: BorderRadius.circular(14.r),
             child: InkWell(
               borderRadius: BorderRadius.circular(14.r),
-              onTap: () => _comingSoon(item.label.replaceAll('\n', ' ')),
+              onTap: () => item.label == 'Live Tracking'
+                  ? Navigator.of(context).push(
+                      PageRouteBuilder(
+                        transitionDuration: const Duration(milliseconds: 350),
+                        pageBuilder: (_, animation, __) => const LiveTracking(),
+                        transitionsBuilder: (_, animation, __, child) {
+                          return FadeTransition(
+                            opacity: animation,
+                            child: SlideTransition(
+                              position:
+                                  Tween<Offset>(
+                                    begin: const Offset(0.05, 0),
+                                    end: Offset.zero,
+                                  ).animate(
+                                    CurvedAnimation(
+                                      parent: animation,
+                                      curve: Curves.easeOutCubic,
+                                    ),
+                                  ),
+                              child: child,
+                            ),
+                          );
+                        },
+                      ),
+                    )
+                  : _comingSoon(item.label.replaceAll('\n', ' ')),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
