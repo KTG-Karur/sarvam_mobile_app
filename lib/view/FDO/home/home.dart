@@ -12,7 +12,7 @@ import 'package:sarvam/view/auth/role_home_router.dart';
 import 'package:sarvam/widgets/punch_out_dialog.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
 import 'package:sarvam/view/auth/punch_method_screen.dart';
-import 'package:sarvam/view/FDO/HR/hr_dashboard.dart';
+import 'package:sarvam/view/ADMIN/HR/hr_home.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -328,7 +328,7 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
                     ),
                     SizedBox(width: 14.w),
                     // Refresh button
-                    
+
                     if (_isWorkingDay &&
                         !_punchedOutToday &&
                         _presentToday) ...[
@@ -491,7 +491,7 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
                                     label: 'HRM',
                                     onTap: () => Navigator.of(context).push(
                                       MaterialPageRoute(
-                                        builder: (_) => const HrDashboard(),
+                                        builder: (_) => const HrHome(),
                                       ),
                                     ),
                                   ),

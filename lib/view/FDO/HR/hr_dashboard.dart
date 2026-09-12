@@ -168,6 +168,31 @@ class _HrDashboardState extends State<HrDashboard>
                 SizedBox(height: 12.h),
                 _buildHighlightCards(),
                 SizedBox(height: 24.h),
+                // Footer banner
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16.r),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.06),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16.r),
+                    child: Image.asset(
+                      'assets/images/home_banner_bttom.png',
+                      width: double.infinity,
+                      height: 120.h,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) =>
+                          const SizedBox.shrink(),
+                    ),
+                  ),
+                ),
+                SizedBox(height: 24.h),
               ],
             ),
           ),
@@ -179,62 +204,34 @@ class _HrDashboardState extends State<HrDashboard>
   // ── Hero banner ──────────────────────────────────────────────────────────
   Widget _buildHeroBanner() {
     return Container(
-      width: double.infinity,
-      padding: EdgeInsets.all(20.w),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF0D6842), Color(0xFF0F766E)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
         borderRadius: BorderRadius.circular(20.r),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0D6842).withOpacity(0.28),
-            blurRadius: 20,
-            offset: const Offset(0, 6),
+            color: const Color(0xFF0D6842).withOpacity(0.2),
+            blurRadius: 16,
+            offset: const Offset(0, 5),
           ),
         ],
       ),
-      child: Row(
-        children: [
-          Container(
-            padding: EdgeInsets.all(14.w),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.18),
-              shape: BoxShape.circle,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20.r),
+        child: Stack(
+          children: [
+            Image.asset(
+              'assets/images/home_banner_top.png',
+              width: double.infinity,
+              height: 140.h,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) => Image.asset(
+                'assets/images/home_banner_top.jpeg',
+                width: double.infinity,
+                height: 140.h,
+                fit: BoxFit.cover,
+              ),
             ),
-            child: Icon(
-              Icons.people_outline_rounded,
-              color: Colors.white,
-              size: 30.sp,
-            ),
-          ),
-          SizedBox(width: 14.w),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Human Resources',
-                  style: TextStyle(
-                    fontSize: 17.sp,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                  ),
-                ),
-                SizedBox(height: 4.h),
-                Text(
-                  'Attendance \u00b7 Leaves \u00b7 Payroll \u00b7 Employees',
-                  style: TextStyle(
-                    fontSize: 11.sp,
-                    color: Colors.white.withOpacity(0.85),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
