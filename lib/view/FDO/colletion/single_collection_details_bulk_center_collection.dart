@@ -133,46 +133,30 @@ class _SingleCollectionDetailsBulkCenterCollectionState
       if (parsed != null) return parsed;
     }
 
-    double totalDemand = 0;
-    for (final key in const ['totalDue', 'totalDemand', 'totalDueAmount']) {
+    // Backend (`GET /api/collections/bulk-collection`) returns `totalDue`
+    // (arrears + current demand) and a `collectedAmount` field that is
+    // ALREADY pre-filled to equal `totalDue` — it is the editable "amount
+    // to collect now" the web client (BulkCollectionClient.tsx) shows and
+    // lets the FDO adjust, NOT an "already collected" total to net out.
+    // Subtracting it here (as a prior version of this method did) always
+    // produced totalDue - totalDue = 0, silently zeroing every row's
+    // pre-filled collection amount.
+    for (final key in const ['totalDue', 'collectedAmount', 'totalDemand', 'totalDueAmount']) {
       if (item[key] is Map) {
         final data = item[key] as Map;
-        totalDemand = _asDouble(
+        final totalDemand = _asDouble(
           data['amount'] ?? data['totalDue'] ?? data['dueAmount'],
         );
-        if (totalDemand > 0) break;
+        if (totalDemand > 0) return totalDemand;
       }
       if (item[key] is num) {
-        totalDemand = (item[key] as num).toDouble();
-        break;
+        final totalDemand = (item[key] as num).toDouble();
+        if (totalDemand > 0) return totalDemand;
       }
       if (item[key] is String) {
         final parsed = double.tryParse(item[key]);
-        if (parsed != null) {
-          totalDemand = parsed;
-          break;
-        }
+        if (parsed != null && parsed > 0) return parsed;
       }
-    }
-
-    double alreadyCollected = 0;
-    for (final key in const ['alreadyCollected', 'collectedAmount', 'paidAmount']) {
-      if (item[key] is num) {
-        alreadyCollected = (item[key] as num).toDouble();
-        break;
-      }
-      if (item[key] is String) {
-        final parsed = double.tryParse(item[key]);
-        if (parsed != null) {
-          alreadyCollected = parsed;
-          break;
-        }
-      }
-    }
-
-    if (totalDemand > 0) {
-      final net = totalDemand - alreadyCollected;
-      return net < 0 ? 0 : net;
     }
 
     return _asDouble(item['duePrincipal']) + _asDouble(item['dueInterest']);
