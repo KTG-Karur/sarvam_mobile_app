@@ -332,48 +332,6 @@ class _CollectionApprovalState extends State<CollectionApproval>
     }
   }
 
-  Future<void> _approveAllPendingForTab(String modeTab) async {
-    final pendingRows = _filteredRowsForTab(modeTab)
-        .where((r) => r['status']?.toString().toUpperCase() != 'APPROVED' && !_approvedIds.contains(r['transactionId']?.toString() ?? r['id']?.toString()))
-        .toList();
-
-    if (pendingRows.isEmpty) {
-      Get.snackbar('No Pending Rows', 'All items in this tab are already approved.', backgroundColor: Colors.orange, colorText: Colors.white);
-      return;
-    }
-
-    _isSubmitting.value = true;
-    try {
-      int successCount = 0;
-      for (final r in pendingRows) {
-        final txId = r['transactionId']?.toString() ?? r['id']?.toString() ?? '';
-        if (txId.isNotEmpty) {
-          final prefs = await SharedPreferences.getInstance();
-          final token = prefs.getString('accessToken') ?? '';
-          final response = await _client.post(
-            '${Api.baseUrl}/api/collections/approve',
-            {'transactionId': txId, 'action': 'APPROVE'},
-            headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
-          );
-          if (response.statusCode == 200 || response.statusCode == 201) {
-            _approvedIds.add(txId);
-            successCount++;
-          }
-        }
-      }
-      Get.snackbar(
-        'Bulk Approval Complete',
-        'Approved $successCount collection transaction(s).',
-        backgroundColor: _green,
-        colorText: Colors.white,
-      );
-    } catch (e) {
-      Get.snackbar('Bulk Approval Error', '$e', backgroundColor: Colors.redAccent, colorText: Colors.white);
-    } finally {
-      _isSubmitting.value = false;
-    }
-  }
-
   void _showRevertDialog(String transactionId) {
     final remarksCtrl = TextEditingController();
     showDialog(
@@ -691,6 +649,58 @@ class _CollectionApprovalState extends State<CollectionApproval>
     return _filteredRowsForTab(modeTab).length;
   }
 
+  /// Groups rows by funder, preserving the order each funder first appears
+  /// in — mirrors the web's `groupRowsByFunder()` in `PendingCollectionsTable.tsx`,
+  /// used to render a "Funder: X" header (with its own bulk Approve All) above
+  /// that funder's rows on the Demand/Advance/Arrear/Gold tabs.
+  List<MapEntry<String, List<Map<String, dynamic>>>> _groupRowsByFunder(
+    List<Map<String, dynamic>> rows,
+  ) {
+    final map = <String, List<Map<String, dynamic>>>{};
+    for (final row in rows) {
+      final key = (row['funderName']?.toString().trim().isNotEmpty == true)
+          ? row['funderName'].toString()
+          : 'own fund';
+      map.putIfAbsent(key, () => []).add(row);
+    }
+    return map.entries.toList();
+  }
+
+  /// Funder-wise "Approve All" — approves every pending row under one funder
+  /// (within whichever Demand/Advance/Arrear/Gold tab it was tapped from) in
+  /// one go, mirroring the web's `handleApproveFunder`.
+  Future<void> _approveFunderGroup(String funderName, List<String> transactionIds) async {
+    if (transactionIds.isEmpty) return;
+
+    _isSubmitting.value = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('accessToken') ?? '';
+      int successCount = 0;
+      for (final txId in transactionIds) {
+        final response = await _client.post(
+          '${Api.baseUrl}/api/collections/approve',
+          {'transactionId': txId, 'action': 'APPROVE'},
+          headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+        );
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          _approvedIds.add(txId);
+          successCount++;
+        }
+      }
+      Get.snackbar(
+        'Approved',
+        'Approved $successCount collection(s) for $funderName.',
+        backgroundColor: _green,
+        colorText: Colors.white,
+      );
+    } catch (e) {
+      Get.snackbar('Approval Error', '$e', backgroundColor: Colors.redAccent, colorText: Colors.white);
+    } finally {
+      _isSubmitting.value = false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isAdminOrAM = _userRole == 'ADMIN' || _userRole == 'AREA_MANAGER';
@@ -928,11 +938,13 @@ class _CollectionApprovalState extends State<CollectionApproval>
         (s, r) => s + (double.tryParse('${r['totalAmount'] ?? r['amount']}') ?? 0.0),
       );
 
-      final pendingCount = rows.where((r) => r['status']?.toString().toUpperCase() != 'APPROVED' && !_approvedIds.contains(r['transactionId']?.toString() ?? r['id']?.toString())).length;
+      final funderGroups = _groupRowsByFunder(rows);
 
       return Column(
         children: [
-          // Header summary with Search & Bulk Approve
+          // Header summary with Search — bulk approval is funder-wise below
+          // (mirrors the web's per-funder "Approve All", not a single
+          // tab-wide button).
           Container(
             padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 8.h),
             color: const Color(0xFFEBF7F0),
@@ -946,20 +958,6 @@ class _CollectionApprovalState extends State<CollectionApproval>
                         style: TextStyle(fontSize: 11.5.sp, fontWeight: FontWeight.w800, color: _darkGreen),
                       ),
                     ),
-                    if (pendingCount > 0)
-                      ElevatedButton.icon(
-                        onPressed: _isSubmitting.value ? null : () => _approveAllPendingForTab(modeTab),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _green,
-                          foregroundColor: Colors.white,
-                          padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.r)),
-                        ),
-                        icon: const Icon(Icons.done_all_rounded, size: 14),
-                        label: Text('Approve All ($pendingCount)', style: TextStyle(fontSize: 10.5.sp, fontWeight: FontWeight.bold)),
-                      ),
                   ],
                 ),
                 SizedBox(height: 6.h),
@@ -1044,17 +1042,84 @@ class _CollectionApprovalState extends State<CollectionApproval>
                 : RefreshIndicator(
                     onRefresh: _fetchRows,
                     color: _green,
-                    child: ListView.separated(
+                    child: ListView.builder(
                       padding: EdgeInsets.all(12.w),
-                      itemCount: rows.length,
-                      separatorBuilder: (_, __) => SizedBox(height: 10.h),
-                      itemBuilder: (context, index) => _buildRowCard(rows[index]),
+                      itemCount: funderGroups.length,
+                      itemBuilder: (context, index) {
+                        final group = funderGroups[index];
+                        return Padding(
+                          padding: EdgeInsets.only(bottom: 10.h),
+                          child: _buildFunderGroupSection(group.key, group.value),
+                        );
+                      },
                     ),
                   ),
           ),
         ],
       );
     });
+  }
+
+  Widget _buildFunderGroupSection(String funderName, List<Map<String, dynamic>> groupRows) {
+    final pendingIds = groupRows
+        .where((r) =>
+            r['status']?.toString().toUpperCase() != 'APPROVED' &&
+            !_approvedIds.contains(r['transactionId']?.toString() ?? r['id']?.toString()))
+        .map((r) => r['transactionId']?.toString() ?? r['id']?.toString() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(6.r),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  'Funder: $funderName',
+                  style: TextStyle(fontSize: 10.5.sp, fontWeight: FontWeight.w800, color: _darkGreen),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (pendingIds.isNotEmpty)
+                ElevatedButton.icon(
+                  onPressed: _isSubmitting.value
+                      ? null
+                      : () => _approveFunderGroup(funderName, pendingIds),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _green,
+                    foregroundColor: Colors.white,
+                    padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.r)),
+                  ),
+                  icon: const Icon(Icons.done_all_rounded, size: 13),
+                  label: Text(
+                    'Approve All (${pendingIds.length})',
+                    style: TextStyle(fontSize: 10.sp, fontWeight: FontWeight.bold),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        SizedBox(height: 8.h),
+        ...groupRows.map(
+          (r) => Padding(
+            padding: EdgeInsets.only(bottom: 10.h),
+            child: _buildRowCard(r),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildRowCard(Map<String, dynamic> r) {

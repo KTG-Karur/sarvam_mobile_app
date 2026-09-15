@@ -66,8 +66,8 @@ class LoanDisbursement extends StatelessWidget {
               SizedBox(height: 22.h),
               _actionCard(
                 context,
-                title: 'Business types',
-                subtitle: 'Create a new individual loan disbursement file',
+                title: 'New Loan File',
+                subtitle: 'New Centre, Member Enrollment, or Renewal Loan',
                 imagePath: 'assets/images/new_file.png',
                 background: const Color(0xFFE5F6EC),
                 onTap: () => Navigator.of(

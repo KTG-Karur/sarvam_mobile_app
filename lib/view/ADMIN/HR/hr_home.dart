@@ -8,6 +8,9 @@ import 'package:sarvam/view/ADMIN/HR/apply_leave_flow.dart';
 import 'package:sarvam/view/ADMIN/HR/my_leave_pages.dart';
 import 'package:sarvam/view/ADMIN/HR/live_tracking.dart';
 
+import 'attendance_status.dart';
+import 'live_tracking.dart';
+
 /// HrHome — the HR module's landing screen (reached from the Field Officer
 /// home screen's "HRM" tile). Shows quick-access tiles into the HR
 /// sub-modules, a next-meeting card, and recent updates.
@@ -97,6 +100,29 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
     ];
     final now = DateTime.now();
     return '${weekdays[now.weekday - 1]}, ${now.day} ${months[now.month - 1]} ${now.year}';
+  }
+
+  void _openWithSlideTransition(Widget page) {
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 350),
+        pageBuilder: (_, animation, __) => page,
+        transitionsBuilder: (_, animation, __, child) {
+          return FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0.05, 0),
+                end: Offset.zero,
+              ).animate(
+                CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+              ),
+              child: child,
+            ),
+          );
+        },
+      ),
+    );
   }
 
   void _comingSoon(String label) {
@@ -363,6 +389,16 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
                   return;
                 }
                 _comingSoon(label);
+                switch (item.label) {
+                  case 'Live Tracking':
+                    _openWithSlideTransition(const LiveTracking());
+                    break;
+                  case 'Attendance':
+                    _openWithSlideTransition(const AttendanceStatus());
+                    break;
+                  default:
+                    _comingSoon(item.label.replaceAll('\n', ' '));
+                }
               },
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
