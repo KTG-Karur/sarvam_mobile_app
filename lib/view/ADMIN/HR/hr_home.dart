@@ -5,6 +5,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'attendance_status.dart';
 import 'live_tracking.dart';
 
 /// HrHome — the HR module's landing screen (reached from the Field Officer
@@ -96,6 +97,29 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
     ];
     final now = DateTime.now();
     return '${weekdays[now.weekday - 1]}, ${now.day} ${months[now.month - 1]} ${now.year}';
+  }
+
+  void _openWithSlideTransition(Widget page) {
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 350),
+        pageBuilder: (_, animation, __) => page,
+        transitionsBuilder: (_, animation, __, child) {
+          return FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0.05, 0),
+                end: Offset.zero,
+              ).animate(
+                CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+              ),
+              child: child,
+            ),
+          );
+        },
+      ),
+    );
   }
 
   void _comingSoon(String label) {
@@ -335,32 +359,18 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
             borderRadius: BorderRadius.circular(14.r),
             child: InkWell(
               borderRadius: BorderRadius.circular(14.r),
-              onTap: () => item.label == 'Live Tracking'
-                  ? Navigator.of(context).push(
-                      PageRouteBuilder(
-                        transitionDuration: const Duration(milliseconds: 350),
-                        pageBuilder: (_, animation, __) => const LiveTracking(),
-                        transitionsBuilder: (_, animation, __, child) {
-                          return FadeTransition(
-                            opacity: animation,
-                            child: SlideTransition(
-                              position:
-                                  Tween<Offset>(
-                                    begin: const Offset(0.05, 0),
-                                    end: Offset.zero,
-                                  ).animate(
-                                    CurvedAnimation(
-                                      parent: animation,
-                                      curve: Curves.easeOutCubic,
-                                    ),
-                                  ),
-                              child: child,
-                            ),
-                          );
-                        },
-                      ),
-                    )
-                  : _comingSoon(item.label.replaceAll('\n', ' ')),
+              onTap: () {
+                switch (item.label) {
+                  case 'Live Tracking':
+                    _openWithSlideTransition(const LiveTracking());
+                    break;
+                  case 'Attendance':
+                    _openWithSlideTransition(const AttendanceStatus());
+                    break;
+                  default:
+                    _comingSoon(item.label.replaceAll('\n', ' '));
+                }
+              },
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
