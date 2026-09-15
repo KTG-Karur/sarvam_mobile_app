@@ -13,12 +13,18 @@ class OtherDetailsTab extends StatelessWidget {
   final ClientEnrollmentController controller;
 
   @override
-  Widget build(BuildContext context) => Obx(
-    () => EnrollmentSectionShell(
+  Widget build(BuildContext context) => Obx(() {
+    // None of this tab's fields are in web's RENEWAL_EDITABLE_KEYS — the
+    // whole tab is frozen display-only once a renewal's snapshot is loaded.
+    final locked = controller.renewalMode && controller.rnPrefilled.value;
+    return EnrollmentSectionShell(
       title: 'Member Other Details',
       subtitle: 'Additional personal, financial and bank information.',
       icon: Icons.description_outlined,
       children: [
+        RenewalLock(
+          locked: locked,
+          child: Column(children: [
         EnrollmentTextField(
           label: 'Email',
           hint: 'Enter email',
@@ -310,9 +316,11 @@ class OtherDetailsTab extends StatelessWidget {
             ),
           ),
         ),
+      ]),
+        ),
       ],
-    ),
-  );
+    );
+  });
 
   void _showScanDialog(
     BuildContext context,

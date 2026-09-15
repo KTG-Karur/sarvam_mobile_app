@@ -575,6 +575,27 @@ class EnrollmentSelectField extends StatelessWidget {
   }
 }
 
+/// Greys out + disables interaction with [child] when [locked] — mirrors the
+/// web app's `.renewal-locked` CSS (pointer-events:none + reduced opacity)
+/// used to freeze every non-editable field once a Renewal Loan's member
+/// snapshot has been prefilled. Fields inside [RENEWAL_EDITABLE_KEYS] on the
+/// web (address, co-applicant, Loan Details, house KYC) are simply never
+/// wrapped in this widget.
+class RenewalLock extends StatelessWidget {
+  const RenewalLock({super.key, required this.locked, required this.child});
+
+  final bool locked;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!locked) return child;
+    return IgnorePointer(
+      child: Opacity(opacity: 0.55, child: child),
+    );
+  }
+}
+
 /// The `id` strings for an API-fetched lookup list (`[{id, name, ...}]`) —
 /// use these, never display names, as an [EnrollmentSelectField]'s
 /// `value`/`options`, since names aren't guaranteed unique (e.g. two

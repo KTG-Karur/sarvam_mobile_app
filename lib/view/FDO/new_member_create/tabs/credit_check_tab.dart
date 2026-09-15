@@ -25,43 +25,56 @@ class _CreditCheckTabState extends State<CreditCheckTab> {
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
-    return Obx(
-      () => EnrollmentSectionShell(
+    return Obx(() {
+      // A renewal's member is already fully approved — re-running the bureau
+      // check isn't part of web's RENEWAL_EDITABLE_KEYS, so consent + the
+      // action button are frozen; the report shown is just carried over
+      // (latestHighmark) from the renewal-prefill snapshot.
+      final locked = controller.renewalMode && controller.rnPrefilled.value;
+      return EnrollmentSectionShell(
         title: 'Credit Check',
-        subtitle:
-            'Optional CRIF/Highmark bureau check for this client. Not required to save enrollment.',
+        subtitle: locked
+            ? 'Renewal — showing the last bureau report on file for this member.'
+            : 'Optional CRIF/Highmark bureau check for this client. Not required to save enrollment.',
         icon: Icons.verified_user_outlined,
         children: [
           _summaryRow('Name', '${controller.clientNameCtrl.text} ${controller.lastNameCtrl.text}'.trim()),
           _summaryRow('Aadhaar', controller.otherIdNoCtrl.text),
           _summaryRow('Mobile', controller.mobileNumberCtrl.text),
           const SizedBox(height: 7),
-          CheckboxListTile(
-            contentPadding: EdgeInsets.zero,
-            value: controller.highmarkConsent.value,
-            onChanged: (v) => controller.highmarkConsent.value = v ?? false,
-            controlAffinity: ListTileControlAffinity.leading,
-            activeColor: enrollmentGreen,
-            title: const Text(
-              'The client has given explicit consent for a Highmark check to be run on their behalf.',
-              style: TextStyle(fontSize: 12, color: Color(0xFF164A2E)),
-            ),
-          ),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: FilledButton.icon(
-              onPressed: controller.isRunningCreditCheck.value
-                  ? null
-                  : controller.runCreditCheck,
-              icon: controller.isRunningCreditCheck.value
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Icon(Icons.verified_outlined, size: 17),
-              label: const Text('Run Credit Check'),
-              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF7DBF96)),
+          RenewalLock(
+            locked: locked,
+            child: Column(
+              children: [
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: controller.highmarkConsent.value,
+                  onChanged: (v) => controller.highmarkConsent.value = v ?? false,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  activeColor: enrollmentGreen,
+                  title: const Text(
+                    'The client has given explicit consent for a Highmark check to be run on their behalf.',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF164A2E)),
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: FilledButton.icon(
+                    onPressed: controller.isRunningCreditCheck.value
+                        ? null
+                        : controller.runCreditCheck,
+                    icon: controller.isRunningCreditCheck.value
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.verified_outlined, size: 17),
+                    label: const Text('Run Credit Check'),
+                    style: FilledButton.styleFrom(backgroundColor: const Color(0xFF7DBF96)),
+                  ),
+                ),
+              ],
             ),
           ),
           if (controller.highmarkReport.value != null) ...[
@@ -71,8 +84,8 @@ class _CreditCheckTabState extends State<CreditCheckTab> {
             _buildReportCard(controller.highmarkReport.value!),
           ],
         ],
-      ),
-    );
+      );
+    });
   }
 
   Widget _buildReportCard(Map<String, dynamic> report) {

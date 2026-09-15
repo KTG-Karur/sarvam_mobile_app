@@ -17,6 +17,16 @@ mixin EnrollmentDraftMixin on GetxController {
   RxMap<String, EnrollmentDocState> get kycDocuments;
   Rxn<String> get draftDbId;
 
+  // Draft save/restore is a "New Member enrollment" concept only — Renewal
+  // Loan mode fills these same controllers from an already-approved member's
+  // record (see EnrollmentRenewalMixin.loadRenewalPrefill), and without this
+  // guard the mobile-number-driven autosave below would silently POST that
+  // renewal data to /api/clients/draft as if it were a fresh in-progress
+  // enrollment, and a stale New Member draft for the same mobile number
+  // could overwrite the renewal prefill on load. Renewal mode has no draft
+  // concept on the web app either.
+  bool get renewalMode;
+
   final isAutoSaving = false.obs;
   final lastAutoSavedAt = Rxn<DateTime>();
   Timer? _autoSaveTimer;
@@ -202,6 +212,7 @@ mixin EnrollmentDraftMixin on GetxController {
   }
 
   void scheduleAutoSave() {
+    if (renewalMode) return;
     final mobile = mobileNumberCtrl.text.trim();
     if (mobile.length < 10) return;
     _autoSaveTimer?.cancel();
@@ -282,7 +293,7 @@ mixin EnrollmentDraftMixin on GetxController {
 
     _periodicSaveTimer?.cancel();
     _periodicSaveTimer = Timer.periodic(const Duration(seconds: 20), (_) {
-      if (mobileNumberCtrl.text.trim().length >= 10) {
+      if (!renewalMode && mobileNumberCtrl.text.trim().length >= 10) {
         saveDraft(silent: true);
       }
     });
@@ -294,6 +305,7 @@ mixin EnrollmentDraftMixin on GetxController {
   }
 
   Future<void> saveDraft({bool silent = false}) async {
+    if (renewalMode) return;
     final mobile = mobileNumberCtrl.text.trim();
     if (mobile.length < 10) {
       if (!silent) {
@@ -336,6 +348,7 @@ mixin EnrollmentDraftMixin on GetxController {
   }
 
   Future<void> loadDraftIfExists() async {
+    if (renewalMode) return;
     final mobile = mobileNumberCtrl.text.trim();
     if (mobile.length < 10) return;
     try {

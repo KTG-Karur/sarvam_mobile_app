@@ -14,7 +14,9 @@ class CoApplicantTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Obx(() {
-    final locked = controller.coApplicantFieldsLockedFromSpouse.value;
+    final isRenewal = controller.renewalMode && controller.rnPrefilled.value;
+    final rnExisting = isRenewal && controller.rnCoMode.value == 'existing';
+    final locked = controller.coApplicantFieldsLockedFromSpouse.value || rnExisting;
     // Register Obx dependency on lookup lists so dropdowns update when loaded
     controller.economicActivityTypes.length;
     controller.coApplicantEconomicActivitiesForType.length;
@@ -23,6 +25,83 @@ class CoApplicantTab extends StatelessWidget {
       subtitle: 'Enter co-applicant details for this enrollment.',
       icon: Icons.group_outlined,
       children: [
+        if (isRenewal) ...[
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => controller.onRnCoModeChanged('existing'),
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: controller.rnCoMode.value == 'existing'
+                        ? enrollmentGreen.withValues(alpha: 0.12)
+                        : null,
+                    side: BorderSide(
+                      color: controller.rnCoMode.value == 'existing' ? enrollmentGreen : const Color(0xFFB9E1C7),
+                    ),
+                  ),
+                  child: Text(
+                    'Use Existing Co-Applicant',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: controller.rnCoMode.value == 'existing' ? enrollmentGreen : enrollmentDarkText,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => controller.onRnCoModeChanged('new'),
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: controller.rnCoMode.value == 'new'
+                        ? enrollmentGreen.withValues(alpha: 0.12)
+                        : null,
+                    side: BorderSide(
+                      color: controller.rnCoMode.value == 'new' ? enrollmentGreen : const Color(0xFFB9E1C7),
+                    ),
+                  ),
+                  child: Text(
+                    'Add New Co-Applicant',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: controller.rnCoMode.value == 'new' ? enrollmentGreen : enrollmentDarkText,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (controller.rnCoMode.value == 'existing')
+            controller.rnExistingCoApplicants.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      'No existing eligible co-applicants found for this member — switch to "Add New".',
+                      style: TextStyle(fontSize: 11.5, color: Color(0xFFB45309), fontWeight: FontWeight.w600),
+                    ),
+                  )
+                : EnrollmentSelectField(
+                    label: 'Existing Co-Applicant',
+                    value: controller.rnCoApplicantId.value,
+                    options: enrollmentIdOptions(controller.rnExistingCoApplicants),
+                    labelBuilder: (id) {
+                      Map? m;
+                      for (final e in controller.rnExistingCoApplicants) {
+                        if (e is Map && e['id']?.toString() == id) {
+                          m = e;
+                          break;
+                        }
+                      }
+                      if (m == null) return id;
+                      return '${m['name'] ?? ''} (${m['relationWithClient'] ?? ''})';
+                    },
+                    onChanged: controller.onRnCoApplicantSelected,
+                    required: true,
+                  ),
+        ],
         if (locked)
           Container(
             width: double.infinity,
@@ -33,15 +112,17 @@ class CoApplicantTab extends StatelessWidget {
               border: Border.all(color: const Color(0xFF9CD9B3)),
               borderRadius: BorderRadius.circular(9),
             ),
-            child: const Row(
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.info_outline, size: 17, color: enrollmentGreen),
-                SizedBox(width: 8),
+                const Icon(Icons.info_outline, size: 17, color: enrollmentGreen),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Auto-filled from Spouse details on the Other Details tab.',
-                    style: TextStyle(fontSize: 12, color: Color(0xFF164A2E)),
+                    rnExisting
+                        ? 'Auto-filled from the selected existing co-applicant\'s record.'
+                        : 'Auto-filled from Spouse details on the Other Details tab.',
+                    style: const TextStyle(fontSize: 12, color: Color(0xFF164A2E)),
                   ),
                 ),
               ],

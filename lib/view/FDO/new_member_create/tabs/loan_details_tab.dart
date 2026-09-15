@@ -20,42 +20,47 @@ class LoanDetailsTab extends StatelessWidget {
 
     return Column(
       children: [
-        EnrollmentSectionShell(
-          title: 'Member Group Status',
-          subtitle: 'Where this member will be enrolled.',
-          icon: Icons.groups_2_outlined,
-          children: [
-            EnrollmentSelectField(
-              label: 'Group Status',
-              value: controller.memberGroupStatus.value,
-              options: EnrollmentOptions.memberGroupStatuses,
-              onChanged: controller.onMemberGroupStatusChanged,
-              required: true,
-              labelBuilder: (v) => v == 'NEW_CENTER_NEW_MEMBER'
-                  ? 'New Center, New Member'
-                  : 'Existing Center, New Member',
-            ),
-            EnrollmentSelectField(
-              label: 'Center',
-              value: controller.requestedCenterId.value,
-              options: enrollmentIdOptions(controller.filteredCenters),
-              labelBuilder: enrollmentIdLabelBuilder(controller.filteredCenters),
-              onChanged: controller.onCenterChanged,
-              required: true,
-              enabled: controller.memberGroupStatus.value != null,
-            ),
-            EnrollmentSelectField(
-              label: 'Requested Group',
-              value: controller.requestedGroupId.value,
-              options: enrollmentIdOptions(controller.filteredGroups),
-              labelBuilder: enrollmentIdLabelBuilder(controller.filteredGroups),
-              onChanged: (v) => controller.requestedGroupId.value = v,
-              required: true,
-              enabled: controller.requestedCenterId.value != null,
-            ),
-          ],
-        ),
-        SizedBox(height: 16.h),
+        // Renewal already picked Center/Group via the top "Renewal Loan"
+        // panel and the submit payload only needs `centerId` — mirrors web
+        // hiding this card entirely (`renewalMode && 'hidden'`) in that mode.
+        if (!controller.renewalMode) ...[
+          EnrollmentSectionShell(
+            title: 'Member Group Status',
+            subtitle: 'Where this member will be enrolled.',
+            icon: Icons.groups_2_outlined,
+            children: [
+              EnrollmentSelectField(
+                label: 'Group Status',
+                value: controller.memberGroupStatus.value,
+                options: EnrollmentOptions.memberGroupStatuses,
+                onChanged: controller.onMemberGroupStatusChanged,
+                required: true,
+                labelBuilder: (v) => v == 'NEW_CENTER_NEW_MEMBER'
+                    ? 'New Center, New Member'
+                    : 'Existing Center, New Member',
+              ),
+              EnrollmentSelectField(
+                label: 'Center',
+                value: controller.requestedCenterId.value,
+                options: enrollmentIdOptions(controller.filteredCenters),
+                labelBuilder: enrollmentIdLabelBuilder(controller.filteredCenters),
+                onChanged: controller.onCenterChanged,
+                required: true,
+                enabled: controller.memberGroupStatus.value != null,
+              ),
+              EnrollmentSelectField(
+                label: 'Requested Group',
+                value: controller.requestedGroupId.value,
+                options: enrollmentIdOptions(controller.filteredGroups),
+                labelBuilder: enrollmentIdLabelBuilder(controller.filteredGroups),
+                onChanged: (v) => controller.requestedGroupId.value = v,
+                required: true,
+                enabled: controller.requestedCenterId.value != null,
+              ),
+            ],
+          ),
+          SizedBox(height: 16.h),
+        ],
         EnrollmentSectionShell(
           title: 'Loan Details',
           subtitle: 'Requested loan product for this member.',

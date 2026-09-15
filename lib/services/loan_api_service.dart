@@ -80,11 +80,41 @@ class LoanApiService {
   // Renewal-specific lookups
   // ---------------------------------------------------------------------
 
-  /// `GET /api/loans/eligible-clients?centerId=` — VERIFIED clients in the
-  /// center with at least one prior loan and no loan still awaiting
-  /// indexation (renewal eligibility).
-  Future<List<dynamic>> getEligibleClientsForRenewal(String centerId) =>
-      _getList("${Api.loanEligibleClientsUrl}?centerId=$centerId");
+  /// `GET /api/loans/eligible-clients?centerId=&groupId=` — VERIFIED clients
+  /// in the center with at least one prior loan and no loan still awaiting
+  /// indexation (renewal eligibility). `groupId` narrows to one group within
+  /// the center, mirroring web's Center → Group → Member cascade.
+  Future<List<dynamic>> getEligibleClientsForRenewal(
+    String centerId, {
+    String? groupId,
+  }) => _getList(
+    "${Api.loanEligibleClientsUrl}?centerId=$centerId"
+    "${groupId != null && groupId.isNotEmpty ? '&groupId=$groupId' : ''}",
+  );
+
+  /// `GET /api/clients/{clientId}/renewal-prefill` — the read-only member
+  /// snapshot used to prefill the Member Enrollment form in Renewal Loan
+  /// mode. `clientId` here is the internal `Client.id`.
+  Future<Map<String, dynamic>> getRenewalPrefill(String clientId) =>
+      _getMap(Api.clientRenewalPrefillUrl(clientId));
+
+  /// `POST /api/loans/renewal-application` — submits a renewal loan built
+  /// from the Member Enrollment form's Renewal Loan mode. Distinct from
+  /// [createLoan] (`POST /api/loans`), which is the older standalone
+  /// Renewal Loan wizard's endpoint.
+  Future<Map<String, dynamic>> submitRenewalApplication(
+    Map<String, dynamic> payload,
+  ) async {
+    final token = await _authToken();
+    _client.timeout = const Duration(seconds: 45);
+    final response = await _client.post(
+      Api.loanRenewalApplicationUrl,
+      payload,
+      headers: _authHeaders(token),
+    );
+    final data = _unwrap(response);
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+  }
 
   /// `GET /api/loans?centerId=&includeInactive=false` filtered client-side
   /// to loans still pending indexation — mirrors the web app's

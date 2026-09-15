@@ -1,6 +1,6 @@
 class Api {
   // Uses http://localhost:3320 (working via adb reverse tcp:3320 tcp:3320 for Android emulators/devices)
-  static String get baseUrl => "https://sarvam.nidhimfi.com";
+  static String get baseUrl => "https://ktg.nidhimfi.com";
 
   static String get mobileLoginUrl => "$baseUrl/api/mobile/login";
   static String get loginUrl => "$baseUrl/api/mobile/login";
@@ -92,6 +92,13 @@ class Api {
   static String get loansUrl => "$baseUrl/api/loans";
   static String get loanEligibleClientsUrl =>
       "$baseUrl/api/loans/eligible-clients";
+
+  // Renewal Loan — integrated into Member Enrollment ("Loan Type" toggle),
+  // mirrors web's ClientEnrollmentForm renewal mode.
+  static String get loanRenewalApplicationUrl =>
+      "$baseUrl/api/loans/renewal-application";
+  static String clientRenewalPrefillUrl(String clientId) =>
+      "$baseUrl/api/clients/$clientId/renewal-prefill";
 
   // Loan Indexation (BM Loan Index Approval — mirrors
   // components/loan-module/LoanIndexationClient.tsx on the web app)

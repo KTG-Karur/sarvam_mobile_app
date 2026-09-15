@@ -11,7 +11,10 @@ import 'package:sarvam/view/BM/collection_approval/collection_approval.dart';
 import 'package:sarvam/view/BM/final_disbursement/final_disbursement.dart';
 import 'package:sarvam/view/FDO/loan_disbursement/center_list.dart';
 import 'package:sarvam/view/FDO/new_member_create/new_member_create.dart';
-import 'package:sarvam/view/FDO/renewal_loan/renewal_loan.dart';
+// Renewal Loan is no longer a separate entry point — it's the "Loan Type"
+// toggle inside NewMemberCreate (Member Enrollment), matching web's single
+// Member Enrollment screen. `renewal_loan/` files are kept on disk (still
+// referenced from within themselves) but no longer navigated to from here.
 
 // Same raw-role / human-readable-role tokens used by role_home_router.dart's
 // resolveHomeScreen() — kept in sync manually since that list is private to
@@ -186,17 +189,8 @@ class _MyFileState extends State<MyFile> {
               _menuItem(
                 context,
                 'Member Enrollment',
-                'Enroll a new member into a center',
+                'Enroll a new member, or start a renewal loan',
                 'assets/images/new_member_create.png',
-                const Color(0xFF008A3D),
-                const Color(0xFFE5F6EC),
-              ),
-              SizedBox(height: 12.h),
-              _menuItem(
-                context,
-                'Renewal Loan',
-                'Start a renewal loan application',
-                'assets/images/renewal_loan.png',
                 const Color(0xFF008A3D),
                 const Color(0xFFE5F6EC),
               ),
@@ -271,12 +265,6 @@ class _MyFileState extends State<MyFile> {
           Navigator.of(
             context,
           ).push(MaterialPageRoute(builder: (_) => const NewMemberCreate()));
-          return;
-        }
-        if (title == 'Renewal Loan') {
-          Navigator.of(
-            context,
-          ).push(MaterialPageRoute(builder: (_) => const RenewalLoan()));
           return;
         }
         ScaffoldMessenger.of(

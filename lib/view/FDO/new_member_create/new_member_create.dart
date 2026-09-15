@@ -7,6 +7,7 @@ import 'package:sarvam/view/FDO/new_member_create/tabs/kyc_details_tab.dart';
 import 'package:sarvam/view/FDO/new_member_create/tabs/loan_details_tab.dart';
 import 'package:sarvam/view/FDO/new_member_create/tabs/member_details_tab.dart';
 import 'package:sarvam/view/FDO/new_member_create/tabs/other_details_tab.dart';
+import 'package:sarvam/view/FDO/new_member_create/widgets/enrollment_field_widgets.dart';
 
 const _green = Color(0xFF00843D);
 
@@ -61,7 +62,13 @@ class _NewMemberCreateState extends State<NewMemberCreate> {
               child: Obx(
                 () => SingleChildScrollView(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-                  child: _stepContent(),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _renewalPanel(),
+                      _stepContent(),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -173,6 +180,133 @@ class _NewMemberCreateState extends State<NewMemberCreate> {
       ],
     ),
   );
+
+  /// "Loan Type" dropdown ("Member Enrollment (New)" / "Renewal Loan") +,
+  /// when Renewal is picked, the Center → Group → Member picker that drives
+  /// [ClientEnrollmentController.loadRenewalPrefill] — mirrors the amber
+  /// "Renewal Loan — select the existing member" panel on the web app's
+  /// `ClientEnrollmentForm`.
+  Widget _renewalPanel() => Obx(() {
+    final renewal = controller.renewalMode;
+    return Container(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: EnrollmentSelectField(
+                  label: 'Loan Type',
+                  value: controller.loanType.value,
+                  options: const ['MEMBER_ENROLLMENT', 'RENEWAL_LOAN'],
+                  labelBuilder: (v) =>
+                      v == 'RENEWAL_LOAN' ? 'Renewal Loan' : 'Member Enrollment (New)',
+                  onChanged: controller.onLoanTypeChanged,
+                  required: true,
+                ),
+              ),
+              if (renewal && controller.rnPrefilled.value) ...[
+                const SizedBox(width: 8),
+                Container(
+                  margin: const EdgeInsets.only(bottom: 13),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD1FAE5),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFF6EE7B7)),
+                  ),
+                  child: const Text(
+                    '● Renewal — details fetched',
+                    style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800, color: Color(0xFF065F46)),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          if (renewal)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              margin: const EdgeInsets.only(bottom: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFFBEB),
+                border: Border.all(color: const Color(0xFFFCD34D)),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.groups_2_outlined, size: 15, color: Color(0xFFB45309)),
+                      SizedBox(width: 6),
+                      Text(
+                        'RENEWAL LOAN — SELECT THE EXISTING MEMBER',
+                        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Color(0xFF92400E)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  EnrollmentSelectField(
+                    label: 'Center',
+                    value: controller.rnCenterId.value,
+                    options: enrollmentIdOptions(controller.approvedCenters),
+                    labelBuilder: enrollmentIdLabelBuilder(controller.approvedCenters),
+                    onChanged: controller.onRnCenterChanged,
+                    required: true,
+                  ),
+                  EnrollmentSelectField(
+                    label: 'Group',
+                    value: controller.rnGroupId.value,
+                    options: controller.rnGroupOptions.map((g) => g['id']!).toList(),
+                    labelBuilder: (id) => controller.rnGroupOptions
+                        .firstWhere((g) => g['id'] == id, orElse: () => {'label': id})['label']!,
+                    onChanged: controller.rnCenterId.value == null ? (_) {} : controller.onRnGroupChanged,
+                    enabled: controller.rnCenterId.value != null,
+                  ),
+                  EnrollmentSelectField(
+                    label: 'Member',
+                    value: controller.rnMemberId.value,
+                    options: enrollmentIdOptions(controller.rnEligibleMembers),
+                    labelBuilder: (id) {
+                      Map? m;
+                      for (final e in controller.rnEligibleMembers) {
+                        if (e is Map && e['id']?.toString() == id) {
+                          m = e;
+                          break;
+                        }
+                      }
+                      if (m == null) return id;
+                      final flags = <String>[
+                        if (m['isDefaultMember'] == true) '🚫',
+                        if (m['hasGroup'] == false) '⚠',
+                      ].join(' ');
+                      return '${m['clientId'] ?? ''} - ${m['name'] ?? ''} $flags'.trim();
+                    },
+                    onChanged: (v) {
+                      if (v == null) return;
+                      controller.rnMemberId.value = v;
+                      controller.loadRenewalPrefill(v);
+                    },
+                    enabled: controller.rnCenterId.value != null && !controller.rnLoadingPrefill.value,
+                  ),
+                  Text(
+                    controller.rnLoadingPrefill.value
+                        ? 'Loading member details…'
+                        : controller.rnPrefilled.value
+                            ? 'Fetched — review every tab; edit address, co-applicant, Loan Details and house KYC, then submit for BM approval.'
+                            : 'Pick Center, Group and Member — all tabs auto-fill from the last approved record.',
+                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF92400E)),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  });
 
   Widget _stepsBar() => Obx(
     () => Container(
@@ -346,7 +480,9 @@ class _NewMemberCreateState extends State<NewMemberCreate> {
       controller.currentStep.value++;
       return;
     }
-    final success = await controller.submitEnrollment();
+    final success = controller.renewalMode
+        ? await controller.submitRenewal()
+        : await controller.submitEnrollment();
     if (success && mounted) {
       Navigator.of(context).pop(true);
     }

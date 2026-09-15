@@ -6,10 +6,12 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/services/api_client.dart';
 import 'package:sarvam/services/enrollment_api_service.dart';
+import 'package:sarvam/services/loan_api_service.dart';
 import 'package:sarvam/controller/client_enrollment/enrollment_lookups.dart';
 import 'package:sarvam/controller/client_enrollment/enrollment_uploads.dart';
 import 'package:sarvam/controller/client_enrollment/enrollment_draft.dart';
 import 'package:sarvam/controller/client_enrollment/enrollment_submit.dart';
+import 'package:sarvam/controller/client_enrollment/enrollment_renewal.dart';
 
 /// Drives the FDO "Member Enrollment" 6-tab wizard, matching the web app's
 /// `ClientEnrollmentForm` field-for-field and endpoint-for-endpoint. Split
@@ -22,10 +24,14 @@ class ClientEnrollmentController extends GetxController
         EnrollmentLookupsMixin,
         EnrollmentUploadsMixin,
         EnrollmentDraftMixin,
-        EnrollmentSubmitMixin {
-  ClientEnrollmentController() : api = EnrollmentApiService(ApiClient());
+        EnrollmentSubmitMixin,
+        EnrollmentRenewalMixin {
+  ClientEnrollmentController()
+      : api = EnrollmentApiService(ApiClient()),
+        loanApi = LoanApiService(ApiClient());
 
   final EnrollmentApiService api;
+  final LoanApiService loanApi;
 
   final currentStep = 0.obs;
   final isLoading = false.obs;

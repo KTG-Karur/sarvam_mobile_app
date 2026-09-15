@@ -1465,10 +1465,17 @@ class _SingleCollectionDetailsBulkCenterCollectionState
                     final double amount = i < _bulkAmounts.length
                         ? (double.tryParse(_bulkAmounts[i].text) ?? 0.0)
                         : 0.0;
-                    if (amount <= 0) continue;
                     final double advance = i < _bulkAdvances.length
                         ? (double.tryParse(_bulkAdvances[i].text) ?? 0.0)
                         : 0.0;
+                    // Backend accepts a row with amount = 0 as long as it
+                    // carries a loan advance (`isSelected && (amount > 0 ||
+                    // loanAdvance > 0)` — see POST /api/collections/bulk-
+                    // collection). Requiring amount > 0 here silently dropped
+                    // every advance-only row before it ever reached the
+                    // server — this was the actual "Advance Collection
+                    // doesn't work" bug for a client with no due amount.
+                    if (amount <= 0 && advance <= 0) continue;
                     collections.add({
                       'clientId': item['clientId'],
                       'loanId': item['loanId'],

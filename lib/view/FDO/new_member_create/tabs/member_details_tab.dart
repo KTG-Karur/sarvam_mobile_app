@@ -13,117 +13,129 @@ class MemberDetailsTab extends StatelessWidget {
   final ClientEnrollmentController controller;
 
   @override
-  Widget build(BuildContext context) => Obx(
-    () => EnrollmentSectionShell(
+  Widget build(BuildContext context) => Obx(() {
+    // On a renewal, only the address block below stays editable — identity
+    // fields are frozen from the approved member's record (mirrors web's
+    // RENEWAL_EDITABLE_KEYS: everything on this tab except
+    // permanentAddress/pincode/postOffice/district/state/country).
+    final locked = controller.renewalMode && controller.rnPrefilled.value;
+    return EnrollmentSectionShell(
       title: 'Member Details',
       subtitle: 'Primary identity and contact details',
       icon: Icons.shield_outlined,
       children: [
-        EnrollmentTextField(
-          label: 'Phone Number',
-          hint: 'Enter 10-digit mobile number',
-          controller: controller.mobileNumberCtrl,
-          focusNode: controller.mobileNumberFocus,
-          required: controller.isRequired('mobileNumber', defaultValue: true),
-          icon: Icons.phone_outlined,
-          keyboardType: TextInputType.phone,
-          maxLength: 10,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-          errorText: controller.mobileNumberError.value,
-        ),
-        EnrollmentTextField(
-          label: 'Aadhaar Number',
-          hint: '12-digit Aadhaar number',
-          controller: controller.otherIdNoCtrl,
-          focusNode: controller.otherIdNoFocus,
-          required: controller.isRequired('otherIdNo'),
-          keyboardType: TextInputType.number,
-          maxLength: 12,
-          suffixIcon: IconButton(
-            tooltip: 'Scan Aadhaar Card',
-            icon: const Icon(Icons.qr_code_scanner_rounded, color: enrollmentGreen),
-            onPressed: () => _showScanDialog(
-              context,
-              'Aadhaar Card',
-              controller.otherIdNoCtrl,
-              scanType: DocumentScanType.aadhaar,
-              isNumeric: true,
-              maxLen: 12,
-            ),
+        RenewalLock(
+          locked: locked,
+          child: Column(
+            children: [
+              EnrollmentTextField(
+                label: 'Phone Number',
+                hint: 'Enter 10-digit mobile number',
+                controller: controller.mobileNumberCtrl,
+                focusNode: controller.mobileNumberFocus,
+                required: controller.isRequired('mobileNumber', defaultValue: true),
+                icon: Icons.phone_outlined,
+                keyboardType: TextInputType.phone,
+                maxLength: 10,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                errorText: controller.mobileNumberError.value,
+              ),
+              EnrollmentTextField(
+                label: 'Aadhaar Number',
+                hint: '12-digit Aadhaar number',
+                controller: controller.otherIdNoCtrl,
+                focusNode: controller.otherIdNoFocus,
+                required: controller.isRequired('otherIdNo'),
+                keyboardType: TextInputType.number,
+                maxLength: 12,
+                suffixIcon: IconButton(
+                  tooltip: 'Scan Aadhaar Card',
+                  icon: const Icon(Icons.qr_code_scanner_rounded, color: enrollmentGreen),
+                  onPressed: () => _showScanDialog(
+                    context,
+                    'Aadhaar Card',
+                    controller.otherIdNoCtrl,
+                    scanType: DocumentScanType.aadhaar,
+                    isNumeric: true,
+                    maxLen: 12,
+                  ),
+                ),
+              ),
+              EnrollmentTextField(
+                label: 'First Name',
+                hint: 'Enter first name',
+                controller: controller.clientNameCtrl,
+                required: controller.isRequired('clientName', defaultValue: true),
+              ),
+              EnrollmentTextField(
+                label: 'Last Name',
+                hint: 'Enter last name',
+                controller: controller.lastNameCtrl,
+                required: controller.isRequired('lastName'),
+              ),
+              EnrollmentTextField(
+                label: 'PAN Card Number',
+                hint: 'ABCDE1234F',
+                controller: controller.pancardNoCtrl,
+                focusNode: controller.pancardNoFocus,
+                required: controller.isRequired('pancardNo'),
+                maxLength: 10,
+                errorText: controller.pancardNoError.value,
+                suffixIcon: IconButton(
+                  tooltip: 'Scan PAN Card',
+                  icon: const Icon(Icons.qr_code_scanner_rounded, color: enrollmentGreen),
+                  onPressed: () => _showScanDialog(
+                    context,
+                    'PAN Card',
+                    controller.pancardNoCtrl,
+                    scanType: DocumentScanType.panCard,
+                    isNumeric: false,
+                    maxLen: 10,
+                  ),
+                ),
+              ),
+              EnrollmentTextField(
+                label: 'Voter ID Number',
+                hint: 'ABC1234567',
+                controller: controller.votersIdNoCtrl,
+                focusNode: controller.votersIdNoFocus,
+                required: controller.isRequired('votersIdNo'),
+                maxLength: 30,
+                errorText: controller.votersIdNoError.value,
+                suffixIcon: IconButton(
+                  tooltip: 'Scan Voter ID',
+                  icon: const Icon(Icons.qr_code_scanner_rounded, color: enrollmentGreen),
+                  onPressed: () => _showScanDialog(
+                    context,
+                    'Voter ID',
+                    controller.votersIdNoCtrl,
+                    scanType: DocumentScanType.voterId,
+                    isNumeric: false,
+                    maxLen: 20,
+                  ),
+                ),
+              ),
+              EnrollmentDateField(
+                label: 'Date of Birth',
+                controller: controller.dobCtrl,
+                required: controller.isRequired('dateOfBirth'),
+                lastDate: DateTime.now(),
+              ),
+              EnrollmentTextField(
+                label: "Father Name",
+                hint: "Enter father's name",
+                controller: controller.fatherNameCtrl,
+                required: controller.isRequired('fatherName'),
+              ),
+              EnrollmentSelectField(
+                label: 'Gender',
+                value: controller.gender.value,
+                options: EnrollmentOptions.genders,
+                onChanged: (v) => controller.gender.value = v,
+                required: controller.isRequired('gender'),
+              ),
+            ],
           ),
-        ),
-        EnrollmentTextField(
-          label: 'First Name',
-          hint: 'Enter first name',
-          controller: controller.clientNameCtrl,
-          required: controller.isRequired('clientName', defaultValue: true),
-        ),
-        EnrollmentTextField(
-          label: 'Last Name',
-          hint: 'Enter last name',
-          controller: controller.lastNameCtrl,
-          required: controller.isRequired('lastName'),
-        ),
-        EnrollmentTextField(
-          label: 'PAN Card Number',
-          hint: 'ABCDE1234F',
-          controller: controller.pancardNoCtrl,
-          focusNode: controller.pancardNoFocus,
-          required: controller.isRequired('pancardNo'),
-          maxLength: 10,
-          errorText: controller.pancardNoError.value,
-          suffixIcon: IconButton(
-            tooltip: 'Scan PAN Card',
-            icon: const Icon(Icons.qr_code_scanner_rounded, color: enrollmentGreen),
-            onPressed: () => _showScanDialog(
-              context,
-              'PAN Card',
-              controller.pancardNoCtrl,
-              scanType: DocumentScanType.panCard,
-              isNumeric: false,
-              maxLen: 10,
-            ),
-          ),
-        ),
-        EnrollmentTextField(
-          label: 'Voter ID Number',
-          hint: 'ABC1234567',
-          controller: controller.votersIdNoCtrl,
-          focusNode: controller.votersIdNoFocus,
-          required: controller.isRequired('votersIdNo'),
-          maxLength: 30,
-          errorText: controller.votersIdNoError.value,
-          suffixIcon: IconButton(
-            tooltip: 'Scan Voter ID',
-            icon: const Icon(Icons.qr_code_scanner_rounded, color: enrollmentGreen),
-            onPressed: () => _showScanDialog(
-              context,
-              'Voter ID',
-              controller.votersIdNoCtrl,
-              scanType: DocumentScanType.voterId,
-              isNumeric: false,
-              maxLen: 20,
-            ),
-          ),
-        ),
-        EnrollmentDateField(
-          label: 'Date of Birth',
-          controller: controller.dobCtrl,
-          required: controller.isRequired('dateOfBirth'),
-          lastDate: DateTime.now(),
-        ),
-        EnrollmentTextField(
-          label: "Father Name",
-          hint: "Enter father's name",
-          controller: controller.fatherNameCtrl,
-          required: controller.isRequired('fatherName'),
-        ),
-        EnrollmentSelectField(
-          label: 'Gender',
-          value: controller.gender.value,
-          options: EnrollmentOptions.genders,
-          onChanged: (v) => controller.gender.value = v,
-          required: controller.isRequired('gender'),
         ),
         EnrollmentTextField(
           label: 'Permanent Address',
@@ -190,8 +202,8 @@ class MemberDetailsTab extends StatelessWidget {
           required: controller.isRequired('country'),
         ),
       ],
-    ),
-  );
+    );
+  });
 
   void _showScanDialog(
     BuildContext context,
