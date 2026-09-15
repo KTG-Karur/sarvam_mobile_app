@@ -4,8 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-import 'live_tracking.dart';
+import 'package:sarvam/view/ADMIN/HR/apply_leave_flow.dart';
+import 'package:sarvam/view/ADMIN/HR/my_leave_pages.dart';
+import 'package:sarvam/view/ADMIN/HR/live_tracking.dart';
 
 /// HrHome — the HR module's landing screen (reached from the Field Officer
 /// home screen's "HRM" tile). Shows quick-access tiles into the HR
@@ -335,32 +336,34 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
             borderRadius: BorderRadius.circular(14.r),
             child: InkWell(
               borderRadius: BorderRadius.circular(14.r),
-              onTap: () => item.label == 'Live Tracking'
-                  ? Navigator.of(context).push(
-                      PageRouteBuilder(
-                        transitionDuration: const Duration(milliseconds: 350),
-                        pageBuilder: (_, animation, __) => const LiveTracking(),
-                        transitionsBuilder: (_, animation, __, child) {
-                          return FadeTransition(
-                            opacity: animation,
-                            child: SlideTransition(
-                              position:
-                                  Tween<Offset>(
-                                    begin: const Offset(0.05, 0),
-                                    end: Offset.zero,
-                                  ).animate(
-                                    CurvedAnimation(
-                                      parent: animation,
-                                      curve: Curves.easeOutCubic,
-                                    ),
-                                  ),
-                              child: child,
-                            ),
-                          );
-                        },
-                      ),
-                    )
-                  : _comingSoon(item.label.replaceAll('\n', ' ')),
+              onTap: () {
+                final label = item.label.replaceAll('\n', ' ');
+                if (label == 'Apply Leave') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const ApplyLeavePage(),
+                    ),
+                  );
+                  return;
+                }
+                if (label == 'My Leave') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const MyLeaveRequestsPage(),
+                    ),
+                  );
+                  return;
+                }
+                if (label == 'Live Tracking') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const LiveTracking(),
+                    ),
+                  );
+                  return;
+                }
+                _comingSoon(label);
+              },
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -589,7 +592,11 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
         onTap: (index) {
           if (index == 0) return;
           if (index == 1) {
-            _comingSoon('Leave');
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const MyLeaveRequestsPage(),
+              ),
+            );
           } else {
             _comingSoon('Profile');
           }
