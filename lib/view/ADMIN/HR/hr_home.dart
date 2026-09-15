@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sarvam/view/ADMIN/HR/apply_leave_flow.dart';
+import 'package:sarvam/view/ADMIN/HR/my_leave_pages.dart';
+import 'package:sarvam/view/ADMIN/HR/live_tracking.dart';
 
 import 'attendance_status.dart';
 import 'live_tracking.dart';
@@ -360,6 +363,32 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
             child: InkWell(
               borderRadius: BorderRadius.circular(14.r),
               onTap: () {
+                final label = item.label.replaceAll('\n', ' ');
+                if (label == 'Apply Leave') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const ApplyLeavePage(),
+                    ),
+                  );
+                  return;
+                }
+                if (label == 'My Leave') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const MyLeaveRequestsPage(),
+                    ),
+                  );
+                  return;
+                }
+                if (label == 'Live Tracking') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const LiveTracking(),
+                    ),
+                  );
+                  return;
+                }
+                _comingSoon(label);
                 switch (item.label) {
                   case 'Live Tracking':
                     _openWithSlideTransition(const LiveTracking());
@@ -599,7 +628,11 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
         onTap: (index) {
           if (index == 0) return;
           if (index == 1) {
-            _comingSoon('Leave');
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const MyLeaveRequestsPage(),
+              ),
+            );
           } else {
             _comingSoon('Profile');
           }
