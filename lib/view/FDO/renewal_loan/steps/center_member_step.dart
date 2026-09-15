@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:sarvam/controller/renewal_loan_controller.dart';
+import 'package:sarvam/services/api_client.dart';
+import 'package:sarvam/services/enrollment_api_service.dart';
 import 'package:sarvam/view/FDO/new_member_create/widgets/enrollment_field_widgets.dart';
+import 'package:sarvam/view/shared/highmark_report_sheet.dart';
 
 /// Wizard step 1 — pick the center, the renewal-eligible client, and an
 /// optional co-applicant. Mirrors the "Basic Information" block of the web
@@ -11,6 +14,15 @@ class CenterMemberStep extends StatelessWidget {
   const CenterMemberStep({super.key, required this.controller});
 
   final RenewalLoanController controller;
+
+  // Shared by every BM/FDO screen that needs a "Highmark"/CB button next to
+  // a client — see highmark_report_sheet.dart.
+  static final EnrollmentApiService _highmarkApi = EnrollmentApiService(ApiClient());
+
+  Map? get _selectedClient => controller.eligibleClients.firstWhere(
+    (c) => c is Map && c['id']?.toString() == controller.clientId.value,
+    orElse: () => null,
+  );
 
   List<String> get _centerOptions => controller.centers
       .whereType<Map>()
@@ -123,6 +135,7 @@ class CenterMemberStep extends StatelessWidget {
                     ),
                   ),
                 ),
+              if (clientSelected) _highmarkButton(context),
             ],
             if (controller.isLoadingCoApplicants.value)
               _inlineLoader('Checking co-applicants & ongoing loans…')
@@ -153,6 +166,60 @@ class CenterMemberStep extends StatelessWidget {
       ],
     );
   });
+
+  Widget _highmarkButton(BuildContext context) {
+    final client = _selectedClient;
+    final clientDbId = client?['id']?.toString() ?? '';
+    return Padding(
+      padding: EdgeInsets.only(bottom: 13.h),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: InkWell(
+          onTap: () {
+            if (clientDbId.isEmpty) {
+              Get.snackbar(
+                'CB Report',
+                'No client ID on file to fetch the CB (Highmark) report.',
+                backgroundColor: Colors.orange,
+                colorText: Colors.white,
+              );
+              return;
+            }
+            showHighmarkReport(
+              context,
+              api: _highmarkApi,
+              clientDbId: clientDbId,
+              clientName: _clientLabel(controller.clientId.value ?? ''),
+            );
+          },
+          borderRadius: BorderRadius.circular(8.r),
+          child: Container(
+            padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF3E8FF),
+              borderRadius: BorderRadius.circular(8.r),
+              border: Border.all(color: const Color(0xFFDCC5FA)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.shield_outlined, size: 14, color: Color(0xFF7C3AED)),
+                SizedBox(width: 5.w),
+                Text(
+                  'View CB Report',
+                  style: TextStyle(
+                    fontSize: 11.sp,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF7C3AED),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _inlineLoader(String label) => Padding(
     padding: EdgeInsets.only(bottom: 13.h),

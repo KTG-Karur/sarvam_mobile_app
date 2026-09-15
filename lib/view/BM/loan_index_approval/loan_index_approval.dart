@@ -562,7 +562,7 @@ class _LoanIndexApprovalState extends State<LoanIndexApproval> {
     final isRenewal = loan['isRenewal'] == true;
     final label =
         loan['loanType']?.toString() ??
-        (isRenewal ? 'Renewal Loan' : 'New Loan');
+        (isRenewal ? 'Renewal Loan' : 'New Member Loan');
     final bg = isRenewal ? const Color(0xFFF3E8FF) : const Color(0xFFE0F2FE);
     final fg = isRenewal ? const Color(0xFF7C3AED) : const Color(0xFF0369A1);
     return _tag(label, bg, fg);
