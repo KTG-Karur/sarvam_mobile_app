@@ -6,13 +6,14 @@ import 'package:sarvam/view/FDO/client_search_locate/client_search_locate.dart';
 import 'package:sarvam/view/FDO/colletion/collection.dart';
 import 'package:sarvam/view/FDO/loan_disbursement/loan_disbursement.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/controller/dashboard_controller.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 import 'package:sarvam/widgets/punch_out_dialog.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
 import 'package:sarvam/view/auth/punch_method_screen.dart';
 import 'package:sarvam/view/ADMIN/HR/hr_home.dart';
+import 'package:sarvam/view/FDO/performance/my_performance.dart';
+import 'package:sarvam/view/FDO/profile/my_profile.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -305,7 +306,9 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
                     SizedBox(width: 8.w),
                     // Profile button
                     GestureDetector(
-                      onTap: () => _showProfileBottomSheet(context),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const MyProfile()),
+                      ),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -403,12 +406,19 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 _buildSectionHeader('ACHIEVEMENT'),
-                                Text(
-                                  'View All',
-                                  style: TextStyle(
-                                    fontSize: 12.5.sp,
-                                    fontWeight: FontWeight.bold,
-                                    color: const Color(0xFF0D6842),
+                                GestureDetector(
+                                  onTap: () => Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => const MyPerformance(),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    'View All',
+                                    style: TextStyle(
+                                      fontSize: 12.5.sp,
+                                      fontWeight: FontWeight.bold,
+                                      color: const Color(0xFF0D6842),
+                                    ),
                                   ),
                                 ),
                               ],
@@ -571,191 +581,6 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  void _showProfileBottomSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.only(
-              topLeft: Radius.circular(24.r),
-              topRight: Radius.circular(24.r),
-            ),
-          ),
-          padding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 20.h),
-          child: FutureBuilder<Map<String, String>>(
-            future: _getProfileDetails(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return SizedBox(
-                  height: 200.h,
-                  child: const Center(
-                    child: CircularProgressIndicator(color: Color(0xFF0D6842)),
-                  ),
-                );
-              }
-              final data = snapshot.data ?? {};
-              final String firstName = data['firstName'] ?? 'User';
-              final String lastName = data['lastName'] ?? '';
-              final String employeeId = data['employeeId'] ?? 'N/A';
-              final String role =
-                  data['rbacRoleName'] ?? (data['role'] ?? 'FDO');
-              final String email = data['email'] ?? 'N/A';
-              final String mobile = data['mobileNumber'] ?? 'N/A';
-              final String branch = data['branchName'] ?? 'N/A';
-              final String initials =
-                  '${firstName.isNotEmpty ? firstName[0] : ''}${lastName.isNotEmpty ? lastName[0] : ''}'
-                      .toUpperCase();
-
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 40.w,
-                    height: 5.h,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE2E8F0),
-                      borderRadius: BorderRadius.circular(10.r),
-                    ),
-                  ),
-                  SizedBox(height: 20.h),
-                  Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 30.r,
-                        backgroundColor: const Color(0xFFE4F5EB),
-                        child: Text(
-                          initials.isNotEmpty ? initials : 'U',
-                          style: TextStyle(
-                            fontSize: 22.sp,
-                            fontWeight: FontWeight.bold,
-                            color: const Color(0xFF0D6842),
-                          ),
-                        ),
-                      ),
-                      SizedBox(width: 16.w),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '$firstName $lastName',
-                              style: TextStyle(
-                                fontSize: 20.sp,
-                                fontWeight: FontWeight.bold,
-                                color: const Color(0xFF0F172A),
-                              ),
-                            ),
-                            SizedBox(height: 4.h),
-                            Text(
-                              role,
-                              style: TextStyle(
-                                fontSize: 13.5.sp,
-                                color: const Color(0xFF64748B),
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 24.h),
-                  const Divider(color: Color(0xFFF1F5F9)),
-                  SizedBox(height: 16.h),
-                  _buildDetailRow('Employee ID', employeeId),
-                  _buildDetailRow('Mobile Number', mobile),
-                  _buildDetailRow('Email Address', email),
-                  _buildDetailRow('Current Branch', branch),
-                  SizedBox(height: 32.h),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50.h,
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.pop(context); // Close bottom sheet
-                        final AuthController authController =
-                            Get.isRegistered<AuthController>()
-                            ? Get.find<AuthController>()
-                            : Get.put(AuthController());
-                        authController.confirmLogout(context);
-                      },
-                      icon: const Icon(
-                        Icons.logout_rounded,
-                        color: Colors.white,
-                      ),
-                      label: Text(
-                        'LOGOUT',
-                        style: TextStyle(
-                          fontSize: 15.5.sp,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                          letterSpacing: 1,
-                        ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFDC2626),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12.r),
-                        ),
-                      ),
-                    ),
-                  ),
-                  SizedBox(height: 10.h),
-                ],
-              );
-            },
-          ),
-        );
-      },
-    );
-  }
-
-  Future<Map<String, String>> _getProfileDetails() async {
-    final prefs = await SharedPreferences.getInstance();
-    return {
-      'firstName': prefs.getString('firstName') ?? '',
-      'lastName': prefs.getString('lastName') ?? '',
-      'employeeId': prefs.getString('employeeId') ?? '',
-      'role': prefs.getString('role') ?? '',
-      'rbacRoleName': prefs.getString('rbacRoleName') ?? '',
-      'email': prefs.getString('email') ?? '',
-      'mobileNumber': prefs.getString('mobileNumber') ?? '',
-      'branchName': prefs.getString('branchName') ?? '',
-    };
-  }
-
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: EdgeInsets.symmetric(vertical: 8.h),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 13.5.sp,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF64748B),
-            ),
-          ),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 14.5.sp,
-              fontWeight: FontWeight.bold,
-              color: const Color(0xFF1E293B),
-            ),
-          ),
-        ],
       ),
     );
   }

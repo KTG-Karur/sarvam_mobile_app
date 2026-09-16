@@ -71,6 +71,32 @@ class EnrollmentApiService {
     throw EnrollmentApiException(message);
   }
 
+  /// Resolves a stored KYC `fileUrl` to something actually viewable. New
+  /// uploads store a bare, private-GCS-bucket object key (see
+  /// `kyc-storage.ts`'s `fileUrl: key`), which `Image.network` can never
+  /// load directly — this mints a short-lived signed URL for it. A legacy
+  /// `http(s)://` value (pre-GCS-migration Supabase URLs) is already
+  /// viewable and is returned unchanged.
+  Future<String?> resolveFileUrl(String rawUrlOrKey) async {
+    if (rawUrlOrKey.isEmpty) return null;
+    if (rawUrlOrKey.startsWith('http://') || rawUrlOrKey.startsWith('https://')) {
+      return rawUrlOrKey;
+    }
+    try {
+      final token = await _authToken();
+      _client.timeout = const Duration(seconds: 15);
+      final response = await _client.get(
+        Api.signedUrl(rawUrlOrKey),
+        headers: _authHeaders(token),
+      );
+      final data = _unwrap(response);
+      return data is Map ? data['url']?.toString() : null;
+    } catch (e) {
+      debugPrint('resolveFileUrl error ($rawUrlOrKey): $e');
+      return null;
+    }
+  }
+
   Future<List<dynamic>> _getList(String url) async {
     try {
       final token = await _authToken();

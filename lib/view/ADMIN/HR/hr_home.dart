@@ -6,7 +6,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/view/ADMIN/HR/apply_leave_flow.dart';
 import 'package:sarvam/view/ADMIN/HR/my_leave_pages.dart';
-import 'package:sarvam/view/ADMIN/HR/live_tracking.dart';
+import 'package:sarvam/view/FDO/performance/my_performance.dart';
+import 'package:sarvam/view/FDO/profile/my_profile.dart';
 
 import 'attendance_status.dart';
 import 'live_tracking.dart';
@@ -231,27 +232,32 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
             ],
           ),
           SizedBox(width: 12.w),
-          Column(
-            children: [
-              CircleAvatar(
-                radius: 22.r,
-                backgroundColor: const Color(0xFFE2E8F0),
-                backgroundImage: const AssetImage('assets/icon/profile.png'),
-              ),
-              SizedBox(height: 3.h),
-              Text(
-                'Hi, ${_fullName.isEmpty ? 'there' : _fullName.split(' ').first}',
-                style: GoogleFonts.inter(
-                  fontSize: 10.sp,
-                  fontWeight: FontWeight.w600,
-                  color: _darkText,
+          GestureDetector(
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const MyProfile()),
+            ),
+            child: Column(
+              children: [
+                CircleAvatar(
+                  radius: 22.r,
+                  backgroundColor: const Color(0xFFE2E8F0),
+                  backgroundImage: const AssetImage('assets/icon/profile.png'),
                 ),
-              ),
-              Text(
-                _role,
-                style: GoogleFonts.inter(fontSize: 8.5.sp, color: _muted),
-              ),
-            ],
+                SizedBox(height: 3.h),
+                Text(
+                  'Hi, ${_fullName.isEmpty ? 'there' : _fullName.split(' ').first}',
+                  style: GoogleFonts.inter(
+                    fontSize: 10.sp,
+                    fontWeight: FontWeight.w600,
+                    color: _darkText,
+                  ),
+                ),
+                Text(
+                  _role,
+                  style: GoogleFonts.inter(fontSize: 8.5.sp, color: _muted),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -381,24 +387,22 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
                   return;
                 }
                 if (label == 'Live Tracking') {
+                  _openWithSlideTransition(const LiveTracking());
+                  return;
+                }
+                if (label == 'Attendance') {
+                  _openWithSlideTransition(const AttendanceStatus());
+                  return;
+                }
+                if (label == 'My Performance') {
                   Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) => const LiveTracking(),
+                      builder: (_) => const MyPerformance(),
                     ),
                   );
                   return;
                 }
                 _comingSoon(label);
-                switch (item.label) {
-                  case 'Live Tracking':
-                    _openWithSlideTransition(const LiveTracking());
-                    break;
-                  case 'Attendance':
-                    _openWithSlideTransition(const AttendanceStatus());
-                    break;
-                  default:
-                    _comingSoon(item.label.replaceAll('\n', ' '));
-                }
               },
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -634,7 +638,9 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
               ),
             );
           } else {
-            _comingSoon('Profile');
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const MyProfile()),
+            );
           }
         },
         items: const [

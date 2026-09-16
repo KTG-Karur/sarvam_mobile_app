@@ -137,23 +137,25 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
                 return false;
               }).toList();
 
-        setState(() {
-          _items = filtered;
-          _branches
-            ..clear()
-            ..addAll([
-              'All Branches',
-              ..._items
-                  .map((item) => item.branch)
-                  .where((b) => b.isNotEmpty && b != '—')
-                  .toSet(),
-            ]);
-          // Pre-select the user's own branch
-          final branchName = prefs.getString('branchName') ?? '';
-          if (branchName.isNotEmpty && _branches.contains(branchName)) {
-            _selectedBranch = branchName;
-          }
-        });
+        if (mounted) {
+          setState(() {
+            _items = filtered;
+            _branches
+              ..clear()
+              ..addAll([
+                'All Branches',
+                ..._items
+                    .map((item) => item.branch)
+                    .where((b) => b.isNotEmpty && b != '—')
+                    .toSet(),
+              ]);
+            // Pre-select the user's own branch
+            final branchName = prefs.getString('branchName') ?? '';
+            if (branchName.isNotEmpty && _branches.contains(branchName)) {
+              _selectedBranch = branchName;
+            }
+          });
+        }
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -431,7 +433,7 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
       },
     );
 
-    if (date == null) {
+    if (date == null || !mounted) {
       return;
     }
 

@@ -63,6 +63,11 @@ class Api {
   static String get enrollmentValidationUrl =>
       "$baseUrl/api/enrollment-validation";
   static String get kycUploadUrl => "$baseUrl/api/kyc/aadhaar/upload";
+  // The GCS bucket backing every KYC/residence/QR upload is private — the
+  // upload response's `fileUrl` is a bare object key, not a viewable link.
+  // Call this at display time to mint a short-lived (1hr) signed read URL.
+  static String signedUrl(String key) =>
+      "$baseUrl/api/storage/signed-url?key=${Uri.encodeQueryComponent(key)}";
   static String get highmarkCheckUrl => "$baseUrl/api/highmark/check";
   static String get highmarkLatestUrl => "$baseUrl/api/highmark/latest";
   static String get highmarkHistoryUrl => "$baseUrl/api/highmark/history";
