@@ -1,0 +1,357 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:get/get.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sarvam/constant/api.dart';
+import 'package:sarvam/services/api_client.dart';
+
+/// Thrown by [LoanApiService] methods on a non-success response; callers
+/// decide how to surface [message] (snackbar, inline field error...).
+class LoanApiException implements Exception {
+  LoanApiException(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+/// HTTP calls for the Renewal Loan Application feature (FDO) — mirrors
+/// `components/loan-module/ApplicationForm.tsx` on the web app.
+class LoanApiService {
+  LoanApiService(this._client);
+
+  final ApiClient _client;
+
+  Future<String> _authToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('accessToken') ?? '';
+  }
+
+  Map<String, String> _authHeaders(String token) => {
+    'Authorization': 'Bearer $token',
+    'Content-Type': 'application/json',
+  };
+
+  /// Unwraps `{success, data, message}`; throws [LoanApiException] with the
+  /// backend's message/error when `success` isn't true.
+  dynamic _unwrap(Response response) {
+    final body = response.body;
+    if (body is Map && body['success'] == true) {
+      return body['data'];
+    }
+    final message = (body is Map ? (body['message'] ?? body['error']) : null);
+    throw LoanApiException(
+      message?.toString() ??
+          'Request failed${response.statusCode != null ? ' (${response.statusCode})' : ''}',
+    );
+  }
+
+  Future<List<dynamic>> _getList(String url) async {
+    final token = await _authToken();
+    _client.timeout = const Duration(seconds: 20);
+    final response = await _client.get(url, headers: _authHeaders(token));
+    final data = _unwrap(response);
+    return data is List ? data : <dynamic>[];
+  }
+
+  // ---------------------------------------------------------------------
+  // Lookups (shared with the enrollment feature's endpoints)
+  // ---------------------------------------------------------------------
+
+  Future<List<dynamic>> getApprovedCenters() =>
+      _getList("${Api.centersUrl}?status=APPROVED");
+
+  Future<List<dynamic>> getLoanProductTypes() =>
+      _getList("${Api.loanProductTypesUrl}?includeInactive=false");
+
+  Future<List<dynamic>> getProducts(String branchId) =>
+      _getList("${Api.productsUrl}?branchId=$branchId");
+
+  Future<List<dynamic>> getLoanPurposeTypes() =>
+      _getList(Api.loanPurposeTypesUrl);
+
+  Future<List<dynamic>> getLoanPurposes(String purposeTypeId) => _getList(
+    "${Api.loanPurposesUrl}?purposeTypeId=$purposeTypeId&includeInactive=false",
+  );
+
+  // ---------------------------------------------------------------------
+  // Renewal-specific lookups
+  // ---------------------------------------------------------------------
+
+  /// `GET /api/loans/eligible-clients?centerId=&groupId=` — VERIFIED clients
+  /// in the center with at least one prior loan and no loan still awaiting
+  /// indexation (renewal eligibility). `groupId` narrows to one group within
+  /// the center, mirroring web's Center → Group → Member cascade.
+  Future<List<dynamic>> getEligibleClientsForRenewal(
+    String centerId, {
+    String? groupId,
+  }) => _getList(
+    "${Api.loanEligibleClientsUrl}?centerId=$centerId"
+    "${groupId != null && groupId.isNotEmpty ? '&groupId=$groupId' : ''}",
+  );
+
+  /// `GET /api/clients/{clientId}/renewal-prefill` — the read-only member
+  /// snapshot used to prefill the Member Enrollment form in Renewal Loan
+  /// mode. `clientId` here is the internal `Client.id`.
+  Future<Map<String, dynamic>> getRenewalPrefill(String clientId) =>
+      _getMap(Api.clientRenewalPrefillUrl(clientId));
+
+  /// `POST /api/loans/renewal-application` — submits a renewal loan built
+  /// from the Member Enrollment form's Renewal Loan mode. Distinct from
+  /// [createLoan] (`POST /api/loans`), which is the older standalone
+  /// Renewal Loan wizard's endpoint.
+  Future<Map<String, dynamic>> submitRenewalApplication(
+    Map<String, dynamic> payload,
+  ) async {
+    final token = await _authToken();
+    _client.timeout = const Duration(seconds: 45);
+    final response = await _client.post(
+      Api.loanRenewalApplicationUrl,
+      payload,
+      headers: _authHeaders(token),
+    );
+    final data = _unwrap(response);
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+  }
+
+  /// `GET /api/loans?centerId=&includeInactive=false` filtered client-side
+  /// to loans still pending indexation — mirrors the web app's
+  /// `fetchUnindexedLoans`.
+  Future<List<dynamic>> getUnindexedLoans(String centerId) async {
+    final token = await _authToken();
+    _client.timeout = const Duration(seconds: 20);
+    final response = await _client.get(
+      "${Api.loansUrl}?centerId=$centerId&includeInactive=false",
+      headers: _authHeaders(token),
+    );
+    final data = _unwrap(response);
+    final loans = data is Map ? data['loans'] : null;
+    if (loans is! List) return <dynamic>[];
+    return loans.where((loan) {
+      if (loan is! Map) return false;
+      final status = loan['disbursementStatus'];
+      final indexId = loan['indexId'];
+      return (status == 'PENDING_LEVEL1' || status == 'APPROVED_LEVEL1') &&
+          (indexId == null || indexId == '');
+    }).toList();
+  }
+
+  /// `GET /api/clients/{clientId}/ongoing-loans` — active loans the selected
+  /// client already has, surfaced as a warning before a renewal is created.
+  Future<List<dynamic>> getOngoingLoans(String clientId) =>
+      _getList("${Api.clientsUrl}/$clientId/ongoing-loans");
+
+  /// `GET /api/co-applicants?clientId=&eligible=true` — this client's
+  /// co-applicants that have passed full approval and are selectable.
+  Future<List<dynamic>> getEligibleCoApplicants(String clientId) =>
+      _getList("${Api.coApplicantsUrl}?clientId=$clientId&eligible=true");
+
+  // ---------------------------------------------------------------------
+  // Create / delete
+  // ---------------------------------------------------------------------
+
+  /// `POST /api/loans` — creates the renewal loan application.
+  Future<Map<String, dynamic>> createLoan(
+    Map<String, dynamic> payload,
+  ) async {
+    final token = await _authToken();
+    _client.timeout = const Duration(seconds: 30);
+    final response = await _client.post(
+      Api.loansUrl,
+      payload,
+      headers: _authHeaders(token),
+    );
+    final data = _unwrap(response);
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+  }
+
+  /// `DELETE /api/loans?id=` — soft delete an unindexed loan. Backend
+  /// restricts FDOs to loans they created themselves.
+  Future<void> deleteLoan(String id) async {
+    final token = await _authToken();
+    _client.timeout = const Duration(seconds: 20);
+    final response = await _client.delete(
+      "${Api.loansUrl}?id=$id",
+      headers: _authHeaders(token),
+    );
+    _unwrap(response);
+  }
+
+  // ---------------------------------------------------------------------
+  // Loan Indexation (BM Loan Index Approval) — mirrors
+  // `components/loan-module/LoanIndexationClient.tsx` on the web app.
+  // ---------------------------------------------------------------------
+
+  Future<Map<String, dynamic>> _getMap(String url) async {
+    final token = await _authToken();
+    _client.timeout = const Duration(seconds: 20);
+    final response = await _client.get(url, headers: _authHeaders(token));
+    final data = _unwrap(response);
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+  }
+
+  /// `GET /api/loan-indexes/unindexed-loans?centerId=` — verified loans in
+  /// the center that haven't been added to a loan index yet.
+  Future<List<dynamic>> getUnindexedLoansForIndexation(String centerId) =>
+      _getList("${Api.loanIndexesUnindexedLoansUrl}?centerId=$centerId");
+
+  /// `GET /api/loan-indexes/next-id?branchId=&centerId=` — preview of the
+  /// index number the next created index for this branch/center will get.
+  Future<Map<String, dynamic>> getNextIndexNo(
+    String branchId,
+    String centerId,
+  ) => _getMap(
+    "${Api.loanIndexesNextIdUrl}?branchId=$branchId&centerId=$centerId",
+  );
+
+  /// `GET /api/loan-indexes?fromDate=&toDate=&centerId=` — created loan
+  /// index batches, auto-scoped server-side to the caller's branch.
+  Future<List<dynamic>> getLoanIndexes({
+    String? fromDate,
+    String? toDate,
+    String? centerId,
+  }) {
+    final params = <String, String>{
+      if (fromDate != null && fromDate.isNotEmpty) 'fromDate': fromDate,
+      if (toDate != null && toDate.isNotEmpty) 'toDate': toDate,
+      if (centerId != null && centerId.isNotEmpty) 'centerId': centerId,
+    };
+    final query = params.entries.map((e) => '${e.key}=${e.value}').join('&');
+    return _getList(
+      "${Api.loanIndexesUrl}${query.isNotEmpty ? '?$query' : ''}",
+    );
+  }
+
+  /// `POST /api/loan-indexes` — creates a loan index batch from the
+  /// selected loans for a center.
+  Future<Map<String, dynamic>> createLoanIndex(
+    Map<String, dynamic> payload,
+  ) async {
+    final token = await _authToken();
+    _client.timeout = const Duration(seconds: 30);
+    final response = await _client.post(
+      Api.loanIndexesUrl,
+      payload,
+      headers: _authHeaders(token),
+    );
+    final data = _unwrap(response);
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+  }
+
+  /// `POST /api/loan-indexes/{indexId}/approve` — unified "Approve & Submit
+  /// for Disbursement": approved loans go straight to PENDING_LEVEL2 (ready
+  /// for AM review), rejected loans are marked REJECTED.
+  Future<Map<String, dynamic>> approveLoanIndex(
+    String indexId,
+    Map<String, dynamic> payload,
+  ) async {
+    final token = await _authToken();
+    _client.timeout = const Duration(seconds: 30);
+    final response = await _client.post(
+      "${Api.loanIndexesUrl}/$indexId/approve",
+      payload,
+      headers: _authHeaders(token),
+    );
+    final data = _unwrap(response);
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+  }
+
+  /// `DELETE /api/loan-indexes/{indexId}` — releases the index's loans
+  /// (clears `indexId`/`indexedAmount`, leaving `disbursementStatus`
+  /// untouched) and soft-deletes the index. This is the recovery path for
+  /// an index whose "approve & forward to AM" call failed after creation —
+  /// mirrors the web app's "Delete Index" action in
+  /// `LoanIndexationClient.tsx`, which the mobile screen previously lacked,
+  /// leaving BMs with no way to un-stick a batch stuck at "Pending".
+  Future<void> deleteLoanIndex(String indexId) async {
+    final token = await _authToken();
+    _client.timeout = const Duration(seconds: 20);
+    final response = await _client.delete(
+      "${Api.loanIndexesUrl}/$indexId",
+      headers: _authHeaders(token),
+    );
+    _unwrap(response);
+  }
+
+  /// `GET /api/loans/{loanId}/passbook?firstDueDate=` — passbook details
+  /// and installment schedule preview.
+  Future<Map<String, dynamic>> getPassbookData(
+    String loanId, {
+    String? firstDueDate,
+  }) async {
+    final query = firstDueDate != null && firstDueDate.isNotEmpty
+        ? '?firstDueDate=$firstDueDate'
+        : '';
+    return _getMap("${Api.loansUrl}/$loanId/passbook$query");
+  }
+
+  Future<Map<String, dynamic>> _patchMap(
+    String url,
+    Map<String, dynamic> payload,
+  ) async {
+    final token = await _authToken();
+    _client.timeout = const Duration(seconds: 30);
+    final response = await _client.patch(
+      url,
+      payload,
+      headers: _authHeaders(token),
+    );
+    final data = _unwrap(response);
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+  }
+
+  /// `POST /api/generate-passbook` — renders the two-page Tamil passbook PDF
+  /// server-side (Puppeteer) and returns it as raw bytes, not JSON, so this
+  /// bypasses `_unwrap`/GetConnect and uses `package:http` directly — mirrors
+  /// `LoanPassbookDialog.tsx`'s `handleDownloadPDF` on the web app exactly,
+  /// including the `loanAmount`-as-string and installment-fields-as-number
+  /// conversions the backend's `PassbookSchema` requires.
+  Future<Uint8List> generatePassbookPdf({
+    required Map<String, dynamic> memberDetails,
+    required List<Map<String, dynamic>> installments,
+  }) async {
+    final token = await _authToken();
+    final response = await http
+        .post(
+          Uri.parse(Api.generatePassbookUrl),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode({
+            'memberDetails': memberDetails,
+            'installments': installments,
+          }),
+        )
+        .timeout(const Duration(seconds: 60));
+
+    if (response.statusCode == 200) {
+      return response.bodyBytes;
+    }
+
+    String message = 'Failed to generate passbook PDF';
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map) {
+        message = (decoded['message'] ?? decoded['error'] ?? message).toString();
+      }
+    } catch (_) {
+      // Non-JSON error body — fall back to the generic message.
+    }
+    throw LoanApiException(message);
+  }
+
+  /// `PATCH /api/loans/{loanId}/update-product` — the BM/pre-index path
+  /// (mirrors `LoanProductEditModal`'s `role="BM"` case on the web app).
+  /// Only valid while the loan hasn't been added to a loan index yet
+  /// (`indexId == null`) — i.e. any loan still on the unindexed-loans list,
+  /// exactly what Loan Index Approval shows.
+  Future<Map<String, dynamic>> updateLoanProduct(
+    String loanId,
+    String loanProductId,
+  ) => _patchMap("${Api.loansUrl}/$loanId/update-product", {
+    'loanProductId': loanProductId,
+  });
+}
