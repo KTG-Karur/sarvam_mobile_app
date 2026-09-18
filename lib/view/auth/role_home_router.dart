@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/constant/roles.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
+import 'package:sarvam/services/tracking_service.dart';
 import 'package:sarvam/view/FDO/home/home.dart';
 import 'package:sarvam/view/BM/BM_home.dart';
 import 'package:sarvam/view/AM/AM_home.dart';
@@ -315,6 +316,7 @@ Future<void> reconcilePunchPrefs(
     await prefs.remove(kPunchOutDateKey);
     await prefs.remove(kPunchOutTimeKey);
     await prefs.remove(kPunchStatusKey);
+    await TrackingService.stop();
     return;
   }
 
@@ -337,6 +339,16 @@ Future<void> reconcilePunchPrefs(
     await prefs.remove(kPunchOutDateKey);
     await prefs.remove(kPunchOutTimeKey);
   }
+
+  // Live Tracking mirrors the server's punched-in/out truth: running only
+  // for the window between a confirmed punch-in and punch-out, on every
+  // login/home-load/punch-out reconciliation — not just a fresh punch.
+  if (serverIn && !serverOut) {
+    await TrackingService.start();
+  } else {
+    await TrackingService.stop();
+  }
+
   if (info.status != null) {
     await prefs.setString(kPunchStatusKey, info.status!);
   } else {

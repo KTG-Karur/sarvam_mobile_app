@@ -58,6 +58,8 @@ dependencies:
   device_info_plus: ^12.4.0
   sms_autofill: ^2.4.1
   local_auth: ^3.0.1
+  flutter_background_service: ^5.1.0
+  battery_plus: ^7.1.1
 
 dev_dependencies:
   flutter_test:

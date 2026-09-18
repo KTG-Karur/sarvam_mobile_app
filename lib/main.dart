@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -5,6 +7,7 @@ import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:sarvam/view/auth/splash_screen.dart';
 import 'package:sarvam/services/face_recognition_engine.dart';
+import 'package:sarvam/services/tracking_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,7 +19,18 @@ void main() {
 
   // Warm up the on-device face model so the auth screens know up front whether
   // verification is available (fails closed when the asset is missing).
-  FaceRecognitionEngine.instance.initialize();
+  unawaited(FaceRecognitionEngine.instance.initialize().catchError(
+    (Object error, StackTrace stackTrace) {
+      debugPrint('Face recognition initialization failed: $error\\n$stackTrace');
+    },
+  ));
+
+  // Registers the Live Tracking background service definition. Does not
+  // start it or request any permission — reconcilePunchPrefs() decides that
+  // once it knows whether the user is actually punched in.
+  unawaited(TrackingService.init().catchError((Object error, StackTrace stackTrace) {
+    debugPrint('Live tracking initialization failed: $error\\n$stackTrace');
+  }));
 
   runApp(const MyApp());
 }

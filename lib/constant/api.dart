@@ -30,6 +30,10 @@ class Api {
       "$baseUrl/api/auth/face/re-register/status";
   static String get deviceAccessRequestUrl =>
       "$baseUrl/api/mobile/device-access/request";
+  // Live Tracking — one fire-and-forget GPS/battery ping per interval while
+  // punched in. See TrackingService.
+  static String get trackingPingUrl => "$baseUrl/api/hr/tracking/ping";
+  static String get myEmployeeProfileUrl => "$baseUrl/api/hr/employees/me";
   static String get demandCollectionUrl => "$baseUrl/api/collections/demand";
   static String get centersUrl => "$baseUrl/api/centers";
   static String get demandCentersUrl =>

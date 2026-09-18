@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sarvam/services/hr_api_service.dart';
 
 import 'route_details.dart';
 
@@ -33,67 +35,11 @@ class _LiveTrackingState extends State<LiveTracking>
   late final Animation<double> _fade;
   late final Animation<Offset> _slide;
 
-  DateTime _month = DateTime(2026, 9);
+  DateTime _month = DateTime.now();
   String _rangeLabel = 'This Month';
-
-  final List<_DayLog> _logs = [
-    _DayLog(
-      day: 12,
-      month: 'SEP',
-      year: 2026,
-      isToday: true,
-      punchIn: '09:05 AM',
-      routeLabel: 'Route Started',
-      routeTime: '09:10 AM',
-      locationsVisited: 3,
-      distanceKm: 18.4,
-      status: _RouteStatus.inProgress,
-    ),
-    _DayLog(
-      day: 11,
-      month: 'SEP',
-      year: 2026,
-      punchIn: '09:02 AM',
-      routeLabel: 'Route Completed',
-      routeTime: '05:45 PM',
-      locationsVisited: 3,
-      distanceKm: 21.6,
-      status: _RouteStatus.completed,
-    ),
-    _DayLog(
-      day: 10,
-      month: 'SEP',
-      year: 2026,
-      punchIn: '09:08 AM',
-      routeLabel: 'Route Completed',
-      routeTime: '05:20 PM',
-      locationsVisited: 4,
-      distanceKm: 18.2,
-      status: _RouteStatus.completed,
-    ),
-    _DayLog(
-      day: 9,
-      month: 'SEP',
-      year: 2026,
-      punchIn: '09:10 AM',
-      routeLabel: 'Route Completed',
-      routeTime: '04:30 PM',
-      locationsVisited: 4,
-      distanceKm: 16.8,
-      status: _RouteStatus.completed,
-    ),
-    _DayLog(
-      day: 8,
-      month: 'SEP',
-      year: 2026,
-      punchIn: '09:12 AM',
-      routeLabel: 'Route Completed',
-      routeTime: '05:10 PM',
-      locationsVisited: 6,
-      distanceKm: 24.1,
-      status: _RouteStatus.completed,
-    ),
-  ];
+  List<_DayLog> _logs = const [];
+  var _isLoading = true;
+  String? _loadError;
 
   @override
   void initState() {
@@ -108,6 +54,54 @@ class _LiveTrackingState extends State<LiveTracking>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
     _ctrl.forward();
+    _loadTodayTracking();
+  }
+
+  Future<void> _loadTodayTracking() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final id = prefs.getString('userId') ?? '';
+      if (id.isEmpty) throw const HrApiException('Employee session is unavailable. Please sign in again.');
+      final now = DateTime.now();
+      final selectedDate = _month.year == now.year && _month.month == now.month
+          ? now
+          : DateTime(_month.year, _month.month, 1);
+      final detail = await HrApiService.trackingDetail(
+        employeeId: id,
+        date: selectedDate,
+      );
+      if (!mounted) return;
+      final route = detail['routeHistory'] is List ? detail['routeHistory'] as List : const [];
+      final punchIn = DateTime.tryParse(detail['punchIn']?.toString() ?? '');
+      final punchOut = DateTime.tryParse(detail['punchOut']?.toString() ?? '');
+      final currentStatus = detail['currentStatus']?.toString() ?? 'OFFLINE';
+      setState(() {
+        _logs = [
+          _DayLog(
+            day: selectedDate.day,
+            month: _monthAbbr(selectedDate.month).toUpperCase(),
+            year: selectedDate.year,
+            isToday: selectedDate.year == now.year &&
+                selectedDate.month == now.month,
+            punchIn: punchIn == null ? '--:--' : _time(punchIn),
+            routeLabel: punchOut != null ? 'Route Completed' : currentStatus.replaceAll('_', ' '),
+            routeTime: punchOut == null ? '--:--' : _time(punchOut),
+            locationsVisited: route.length,
+            distanceKm: (detail['travelledKm'] as num?)?.toDouble() ?? 0,
+            status: punchOut == null ? _RouteStatus.inProgress : _RouteStatus.completed,
+          ),
+        ];
+      });
+    } catch (error) {
+      if (mounted) setState(() => _loadError = error.toString());
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  String _time(DateTime value) {
+    final hour = value.hour % 12 == 0 ? 12 : value.hour % 12;
+    return '${hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')} ${value.hour >= 12 ? 'PM' : 'AM'}';
   }
 
   @override
@@ -134,7 +128,7 @@ class _LiveTrackingState extends State<LiveTracking>
   String get _monthYearLabel => '${_monthNames[_month.month - 1]} ${_month.year}';
 
   String get _monthRangeSub {
-    final now = DateTime(2026, 9, 12);
+    final now = DateTime.now();
     final isCurrentMonth = _month.year == now.year && _month.month == now.month;
     final lastDay = DateTime(_month.year, _month.month + 1, 0).day;
     final endDay = isCurrentMonth ? now.day : lastDay;
@@ -160,8 +154,11 @@ class _LiveTrackingState extends State<LiveTracking>
   void _changeMonth(int delta) {
     setState(() {
       _month = DateTime(_month.year, _month.month + delta);
+      _isLoading = true;
+      _loadError = null;
     });
     _ctrl.forward(from: 0);
+    _loadTodayTracking();
   }
 
   static const _stopNames = [
@@ -373,7 +370,13 @@ class _LiveTrackingState extends State<LiveTracking>
                         SizedBox(height: 12.h),
                         _buildMonthNav(),
                         SizedBox(height: 14.h),
-                        ..._logs.asMap().entries.map(
+                        if (_isLoading)
+                          const Padding(padding: EdgeInsets.all(28), child: Center(child: CircularProgressIndicator()))
+                        else if (_loadError != null)
+                          Padding(padding: const EdgeInsets.all(20), child: Center(child: Column(children: [Text(_loadError!, textAlign: TextAlign.center), TextButton(onPressed: _loadTodayTracking, child: const Text('Retry'))])))
+                        else if (_logs.isEmpty)
+                          const Padding(padding: EdgeInsets.all(28), child: Center(child: Text('No tracking data for today.')))
+                        else ..._logs.asMap().entries.map(
                           (e) => Padding(
                             padding: EdgeInsets.only(bottom: 12.h),
                             child: _StaggeredEntry(

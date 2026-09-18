@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
+import 'package:sarvam/services/hr_api_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Models
@@ -87,7 +88,8 @@ class LeaveRequestItem {
   String get daysText => '$leaveDays Day${leaveDays > 1 ? 's' : ''}';
 }
 
-/// Demo data until the leave API is wired.
+/// Fallback only while the authenticated request is loading. Never shown as
+/// real HR data after a request completes.
 final List<LeaveRequestItem> kDemoLeaveRequests = [
   LeaveRequestItem(
     id: '1',
@@ -161,13 +163,64 @@ class MyLeaveRequestsPage extends StatefulWidget {
 
 class _MyLeaveRequestsPageState extends State<MyLeaveRequestsPage> {
   String _filter = 'All'; // All | Pending | Approved | Rejected
+  var _isLoading = true;
+  String? _loadError;
+  List<LeaveRequestItem> _requests = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRequests();
+  }
+
+  Future<void> _loadRequests() async {
+    setState(() {
+      _isLoading = true;
+      _loadError = null;
+    });
+    try {
+      final rows = await HrApiService.myLeaveRequests();
+      if (!mounted) return;
+      setState(() => _requests = rows.map(_fromApi).toList());
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _loadError = error.toString());
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  LeaveRequestItem _fromApi(dynamic raw) {
+    final row = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+    final type = row['leaveType'] is Map ? Map<String, dynamic>.from(row['leaveType']) : <String, dynamic>{};
+    final approvedBy = row['approvedBy'] is Map ? Map<String, dynamic>.from(row['approvedBy']) : <String, dynamic>{};
+    DateTime parseDate(dynamic value) => DateTime.tryParse(value?.toString() ?? '') ?? DateTime.now();
+    final statusValue = row['status']?.toString().toUpperCase();
+    final status = statusValue == 'APPROVED'
+        ? LeaveStatus.approved
+        : statusValue == 'REJECTED' || statusValue == 'CANCELLED'
+            ? LeaveStatus.rejected
+            : LeaveStatus.pending;
+    final label = type['leaveType']?.toString() ?? 'Leave';
+    final code = row['leaveTypeCode']?.toString() ?? label;
+    final approverName = '${approvedBy['firstName'] ?? ''} ${approvedBy['lastName'] ?? ''}'.trim();
+    return LeaveRequestItem(
+      id: row['id']?.toString() ?? '', typeCode: code, typeLabel: label,
+      fromDate: parseDate(row['fromDate']), toDate: parseDate(row['toDate']),
+      durationLabel: 'Full Day', reason: row['reason']?.toString() ?? '',
+      appliedOn: parseDate(row['appliedAt']), status: status,
+      approverRole: approverName.isEmpty ? null : approverName,
+      decidedAt: row['approvedAt'] == null ? null : parseDate(row['approvedAt']),
+      decisionNote: row['approvalRemarks']?.toString(),
+    );
+  }
 
   List<LeaveRequestItem> get _filtered {
-    if (_filter == 'All') return kDemoLeaveRequests;
+    if (_filter == 'All') return _requests;
     final status = LeaveStatus.values.firstWhere(
       (s) => s.label == _filter,
     );
-    return kDemoLeaveRequests.where((e) => e.status == status).toList();
+    return _requests.where((e) => e.status == status).toList();
   }
 
   @override
@@ -228,7 +281,18 @@ class _MyLeaveRequestsPageState extends State<MyLeaveRequestsPage> {
           ),
           SizedBox(height: 12.h),
           Expanded(
-            child: items.isEmpty
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _loadError != null
+                    ? Center(child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(mainAxisSize: MainAxisSize.min, children: [
+                          const Icon(Icons.cloud_off_rounded, color: _muted, size: 44),
+                          const SizedBox(height: 12), Text(_loadError!, textAlign: TextAlign.center),
+                          const SizedBox(height: 12), OutlinedButton(onPressed: _loadRequests, child: const Text('Retry')),
+                        ]),
+                      ))
+                : items.isEmpty
                 ? Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,

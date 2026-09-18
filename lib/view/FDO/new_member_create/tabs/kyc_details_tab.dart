@@ -117,9 +117,9 @@ class KycDetailsTab extends StatelessWidget {
     subtitle: 'Upload required documents for client and co-applicant verification.',
     icon: Icons.badge_outlined,
     children: [
-      _uploadGroup('Client Documents', _clientDocLabels, owner: 'client'),
+      _uploadGroup('Client Documents', _clientDocLabels, owner: 'client', viewOnly: true),
       SizedBox(height: 16.h),
-      _uploadGroup('Co-Applicant Documents', _coApplicantDocLabels, owner: 'coApplicant'),
+      _uploadGroup('Co-Applicant Documents', _coApplicantDocLabels, owner: 'coApplicant', viewOnly: true),
       SizedBox(height: 16.h),
       _uploadGroup(
         'Residence Verification',
@@ -248,6 +248,7 @@ class KycDetailsTab extends StatelessWidget {
     Map<String, String> docs, {
     required String owner,
     String? subtitle,
+    bool viewOnly = false,
   }) => Container(
     width: double.infinity,
     decoration: BoxDecoration(
@@ -291,7 +292,7 @@ class KycDetailsTab extends StatelessWidget {
             spacing: 10.w,
             runSpacing: 10.h,
             children: docs.entries
-                .map((entry) => _docCard(entry.key, entry.value, owner: owner))
+                .map((entry) => _docCard(entry.key, entry.value, owner: owner, viewOnly: viewOnly))
                 .toList(),
           ),
         ),
@@ -484,7 +485,7 @@ class KycDetailsTab extends StatelessWidget {
   /// icon) with upload/view/delete actions, matching the web app's document
   /// card layout so an uploaded document can actually be seen/reviewed
   /// inline instead of only showing a checkmark.
-  Widget _docCard(String documentType, String label, {required String owner}) => Obx(() {
+  Widget _docCard(String documentType, String label, {required String owner, bool viewOnly = false}) => Obx(() {
     final state = controller.docState(documentType);
     final allowPdf = EnrollmentOptions.pdfEligibleDocumentTypes.contains(documentType);
     final isPdf = (state?.mimeType ?? '').toLowerCase().contains('pdf');
@@ -502,7 +503,9 @@ class KycDetailsTab extends StatelessWidget {
                   ? null
                   : uploaded
                       ? () => _previewDocument(ctx, state!, label)
-                      : () => _showUploadSourceSheet(ctx, documentType, label, owner: owner, allowPdf: allowPdf),
+                      : viewOnly
+                          ? null
+                          : () => _showUploadSourceSheet(ctx, documentType, label, owner: owner, allowPdf: allowPdf),
               child: Container(
                 width: 104.w,
                 height: 90.h,
@@ -535,32 +538,46 @@ class KycDetailsTab extends StatelessWidget {
             style: TextStyle(fontSize: 10.sp, fontWeight: FontWeight.w600, color: const Color(0xFF164A2E)),
           ),
           SizedBox(height: 4.h),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
+          if (viewOnly)
+            if (uploaded)
               Builder(
                 builder: (ctx) => _cardIconButton(
-                  icon: uploaded ? Icons.refresh_rounded : Icons.upload_rounded,
-                  onTap: () => _showUploadSourceSheet(ctx, documentType, label, owner: owner, allowPdf: allowPdf),
+                  icon: Icons.visibility_outlined,
+                  onTap: () => _previewDocument(ctx, state!, label),
                 ),
-              ),
-              if (uploaded) ...[
-                SizedBox(width: 4.w),
+              )
+            else
+              Text(
+                'Not uploaded',
+                style: TextStyle(fontSize: 9.sp, color: const Color(0xFF94A3B8)),
+              )
+          else
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
                 Builder(
                   builder: (ctx) => _cardIconButton(
-                    icon: Icons.visibility_outlined,
-                    onTap: () => _previewDocument(ctx, state!, label),
+                    icon: uploaded ? Icons.refresh_rounded : Icons.upload_rounded,
+                    onTap: () => _showUploadSourceSheet(ctx, documentType, label, owner: owner, allowPdf: allowPdf),
                   ),
                 ),
-                SizedBox(width: 4.w),
-                _cardIconButton(
-                  icon: Icons.delete_outline_rounded,
-                  color: const Color(0xFFB91C1C),
-                  onTap: () => controller.removeDocument(documentType),
-                ),
+                if (uploaded) ...[
+                  SizedBox(width: 4.w),
+                  Builder(
+                    builder: (ctx) => _cardIconButton(
+                      icon: Icons.visibility_outlined,
+                      onTap: () => _previewDocument(ctx, state!, label),
+                    ),
+                  ),
+                  SizedBox(width: 4.w),
+                  _cardIconButton(
+                    icon: Icons.delete_outline_rounded,
+                    color: const Color(0xFFB91C1C),
+                    onTap: () => controller.removeDocument(documentType),
+                  ),
+                ],
               ],
-            ],
-          ),
+            ),
         ],
       ),
     );
@@ -591,37 +608,51 @@ class KycDetailsTab extends StatelessWidget {
     showDialog<void>(
       context: context,
       builder: (ctx) => Dialog(
-        insetPadding: const EdgeInsets.all(16),
-        backgroundColor: Colors.transparent,
-        child: Stack(
-          alignment: Alignment.topRight,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: SizedBox(
-                width: 320,
-                height: 320,
-                child: InteractiveViewer(
-                  child: _SignedImage(
-                    api: controller.api,
-                    rawUrlOrKey: url,
-                    errorWidget: Container(
-                      color: Colors.white,
-                      padding: const EdgeInsets.all(24),
-                      child: const Text('Could not load this document.'),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 48, vertical: 24),
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                    ),
+                  ),
+                  IconButton(
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: const Icon(Icons.close, size: 20),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: SizedBox(
+                  width: 220,
+                  height: 220,
+                  child: InteractiveViewer(
+                    child: _SignedImage(
+                      api: controller.api,
+                      rawUrlOrKey: url,
+                      errorWidget: Container(
+                        color: Colors.white,
+                        padding: const EdgeInsets.all(24),
+                        child: const Text('Could not load this document.'),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-            IconButton(
-              onPressed: () => Navigator.pop(ctx),
-              icon: const CircleAvatar(
-                backgroundColor: Colors.black54,
-                child: Icon(Icons.close, color: Colors.white, size: 18),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

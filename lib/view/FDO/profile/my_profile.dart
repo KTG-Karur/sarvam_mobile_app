@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/controller/dashboard_controller.dart';
+import 'package:sarvam/services/hr_api_service.dart';
 import 'package:sarvam/view/auth/set_mpin_screen.dart';
 
 /// "My Profile" — account summary + settings entry points for the FDO.
@@ -33,6 +34,7 @@ class _MyProfileState extends State<MyProfile> {
   String _role = '';
   String _branchName = '';
   String _employeeId = '';
+  String _dateOfJoining = '';
 
   static const _roleLabels = {
     'FDO': 'Field Development Officer',
@@ -61,6 +63,43 @@ class _MyProfileState extends State<MyProfile> {
       _branchName = prefs.getString('branchName') ?? '';
       _employeeId = prefs.getString('employeeId') ?? '';
     });
+
+    try {
+      final profile = await HrApiService.myEmployeeProfile();
+      if (!mounted || profile.isEmpty) return;
+      final branch = profile['branch'];
+      setState(() {
+        _firstName = _profileText(profile['firstName'], _firstName);
+        _lastName = _profileText(profile['lastName'], _lastName);
+        _mobile = _profileText(profile['mobileNumber'], _mobile);
+        _email = _profileText(profile['email'], _email);
+        _role = _profileText(profile['role'], _role).trim().toUpperCase();
+        _employeeId = _profileText(profile['employeeId'], _employeeId);
+        _branchName = branch is Map
+            ? _profileText(branch['name'], _branchName)
+            : _branchName;
+        _dateOfJoining = _formatDate(profile['dateOfJoining']);
+      });
+    } catch (_) {
+      // Preserve cached login data if this optional refresh is unavailable.
+    }
+  }
+
+  String _profileText(dynamic value, String fallback) {
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty || text == 'null' ? fallback : text;
+  }
+
+  String _formatDate(dynamic value) {
+    final raw = value?.toString().trim() ?? '';
+    if (raw.isEmpty || raw == 'null') return '';
+    final date = DateTime.tryParse(raw);
+    if (date == null) return raw;
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${date.day.toString().padLeft(2, '0')} ${months[date.month - 1]} ${date.year}';
   }
 
   String get _fullName {
@@ -86,6 +125,7 @@ class _MyProfileState extends State<MyProfile> {
         _header(context),
         Expanded(
           child: SingleChildScrollView(
+            clipBehavior: Clip.none,
             padding: EdgeInsets.fromLTRB(16.w, 0, 16.w, 32.h),
             child: Transform.translate(
               offset: Offset(0, -24.h),
@@ -402,6 +442,7 @@ class _MyProfileState extends State<MyProfile> {
               'Employee ID': _employeeId.isEmpty ? '—' : _employeeId,
               'Role': _roleLabel,
               'Branch': _branchName.isEmpty ? '—' : _branchName,
+              'Date of Joining': _dateOfJoining.isEmpty ? '—' : _dateOfJoining,
             },
           ),
         ),
