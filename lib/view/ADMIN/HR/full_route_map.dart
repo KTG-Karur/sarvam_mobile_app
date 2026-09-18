@@ -1,11 +1,13 @@
 // ignore_for_file: deprecated_member_use
 
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:sarvam/services/hr_api_service.dart';
 
 import 'route_details.dart';
 
@@ -48,6 +50,7 @@ class _FullRouteMapState extends State<FullRouteMap>
 
   GoogleMapController? _mapController;
   MapType _mapType = MapType.normal;
+  List<LatLng> _roadVisitedPoints = const [];
 
   final Map<String, BitmapDescriptor> _bitmapCache = {};
   bool _bitmapsReady = false;
@@ -70,6 +73,24 @@ class _FullRouteMapState extends State<FullRouteMap>
       duration: const Duration(milliseconds: 1400),
     )..repeat();
     _prepareBitmaps();
+    unawaited(_loadRoadRoute());
+  }
+
+  Future<void> _loadRoadRoute() async {
+    final visited = orderedVisitedRouteStops(widget.stops)
+        .map((stop) => <String, double>{
+              'latitude': stop.position.latitude,
+              'longitude': stop.position.longitude,
+            })
+        .toList();
+    if (visited.length < 2) return;
+    final roadPoints = await HrApiService.roadRoute(visited);
+    if (!mounted || roadPoints.length < 2) return;
+    setState(() {
+      _roadVisitedPoints = roadPoints
+          .map((point) => LatLng(point['latitude']!, point['longitude']!))
+          .toList();
+    });
   }
 
   @override
@@ -247,37 +268,14 @@ class _FullRouteMapState extends State<FullRouteMap>
   }
 
   Set<Polyline> _buildPolylines() {
-    final visitedPoints = <LatLng>[];
-    final pendingPoints = <LatLng>[];
-    bool reachedPending = false;
-    for (final stop in widget.stops) {
-      if (stop.status == VisitStatus.pending) {
-        if (!reachedPending && visitedPoints.isNotEmpty) {
-          pendingPoints.add(visitedPoints.last);
-        }
-        reachedPending = true;
-        pendingPoints.add(stop.position);
-      } else {
-        visitedPoints.add(stop.position);
-      }
-    }
     return {
-      if (visitedPoints.length > 1)
+      if (_roadVisitedPoints.length > 1)
         Polyline(
           polylineId: const PolylineId('visited'),
-          points: visitedPoints,
+          points: _roadVisitedPoints,
           color: _greenAccent,
           width: 5,
-          geodesic: true,
-        ),
-      if (pendingPoints.length > 1)
-        Polyline(
-          polylineId: const PolylineId('pending'),
-          points: pendingPoints,
-          color: _amber,
-          width: 5,
-          geodesic: true,
-          patterns: [PatternItem.dash(20), PatternItem.gap(10)],
+          geodesic: false,
         ),
     };
   }

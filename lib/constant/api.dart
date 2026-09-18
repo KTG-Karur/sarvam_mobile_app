@@ -87,6 +87,7 @@ class Api {
 
   static String get geoDrivingDistanceUrl =>
       "$baseUrl/api/geo/driving-distance";
+  static String get geoRoadRouteUrl => "$baseUrl/api/geo/road-route";
 
   static const String pincodeLookupUrl = "https://api.postalpincode.in/pincode";
 

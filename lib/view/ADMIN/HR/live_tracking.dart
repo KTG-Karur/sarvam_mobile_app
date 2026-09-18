@@ -89,6 +89,7 @@ class _LiveTrackingState extends State<LiveTracking>
             locationsVisited: route.length,
             distanceKm: (detail['travelledKm'] as num?)?.toDouble() ?? 0,
             status: punchOut == null ? _RouteStatus.inProgress : _RouteStatus.completed,
+            routeHistory: route.whereType<Map>().map((point) => Map<String, dynamic>.from(point)).toList(),
           ),
         ];
       });
@@ -161,68 +162,54 @@ class _LiveTrackingState extends State<LiveTracking>
     _loadTodayTracking();
   }
 
-  static const _stopNames = [
-    'ABC Traders',
-    'Sri Ganesh Stores',
-    'Kumar Agencies',
-    'Muthu Enterprises',
-    'Velan Traders',
-    'Raja Textiles',
-    'Amman Store',
-  ];
-  static const _stopAddresses = [
-    '100 Feet Road, Coimbatore',
-    'Avinashi Road, Coimbatore',
-    'Peelamedu, Coimbatore',
-    'Singanallur, Coimbatore',
-    'Saravanampatti, Coimbatore',
-    'Ukkadam, Coimbatore',
-    'Gandhipuram, Coimbatore',
-  ];
-  static const _baseLat = 11.0018;
-  static const _baseLng = 76.9558;
-
-  String _visitTime(int stopIndex) {
-    final totalMinutes = 9 * 60 + 40 + stopIndex * 95;
-    final hour24 = (totalMinutes ~/ 60) % 24;
-    final minute = totalMinutes % 60;
-    final period = hour24 >= 12 ? 'PM' : 'AM';
-    final hour12 = hour24 % 12 == 0 ? 12 : hour24 % 12;
-    return '${hour12.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')} $period';
-  }
-
   List<RouteStop> _stopsForLog(_DayLog log) {
-    final inProgress = log.status == _RouteStatus.inProgress;
-    final pendingCount = inProgress ? 2 : 0;
-    final total = log.locationsVisited + pendingCount;
-    final stops = <RouteStop>[
-      RouteStop(
-        label: 'Start',
-        time: log.punchIn,
-        title: 'Punch-In',
-        address: 'Coimbatore (Office)',
-        status: VisitStatus.completed,
-        position: LatLng(_baseLat, _baseLng),
-      ),
-    ];
-    for (var i = 0; i < total; i++) {
-      final isPending = i >= log.locationsVisited;
-      stops.add(
-        RouteStop(
-          label: '${i + 1}',
-          time: isPending ? '--:--' : _visitTime(i),
-          title: _stopNames[i % _stopNames.length],
-          address: _stopAddresses[i % _stopAddresses.length],
-          status: isPending ? VisitStatus.pending : VisitStatus.visited,
-          position: LatLng(
-            _baseLat + (i + 1) * 0.012 * (i.isEven ? 1 : 0.6),
-            _baseLng + (i + 1) * 0.02,
-          ),
-        ),
+    final points = log.routeHistory
+        .map(_routePoint)
+        .whereType<_TrackingPoint>()
+        .toList()
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+    final seen = <String>{};
+    final unique = points.where((point) => seen.add(
+      '${point.latitude.toStringAsFixed(6)},${point.longitude.toStringAsFixed(6)}',
+    )).toList();
+
+    return unique.asMap().entries.map((entry) {
+      final index = entry.key;
+      final point = entry.value;
+      final isFirst = index == 0;
+      return RouteStop(
+        label: isFirst ? 'Start' : '$index',
+        time: _time(point.timestamp),
+        title: isFirst ? 'Punch-In' : _activityLabel(point.activityType),
+        address: '${point.latitude.toStringAsFixed(6)}, ${point.longitude.toStringAsFixed(6)}',
+        status: isFirst ? VisitStatus.completed : VisitStatus.visited,
+        position: LatLng(point.latitude, point.longitude),
+        timestamp: point.timestamp,
       );
-    }
-    return stops;
+    }).toList();
   }
+
+  _TrackingPoint? _routePoint(Map<String, dynamic> raw) {
+    final latitude = (raw['latitude'] as num?)?.toDouble();
+    final longitude = (raw['longitude'] as num?)?.toDouble();
+    final timestamp = DateTime.tryParse(raw['capturedAt']?.toString() ?? '');
+    if (latitude == null || longitude == null || timestamp == null ||
+        latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180 ||
+        (latitude == 0 && longitude == 0)) return null;
+    return _TrackingPoint(latitude, longitude, timestamp, raw['activityType']?.toString() ?? '');
+  }
+
+  String _activityLabel(String activityType) => switch (activityType) {
+    'PUNCH_IN' => 'Punch-In',
+    'PUNCH_OUT' => 'Punch-Out',
+    'CLIENT_VISIT' => 'Client Visit',
+    'COLLECTION' => 'Collection',
+    'CENTER_CREATED' => 'Center Created',
+    'MEMBER_ENROLLED' => 'Member Enrolled',
+    'IDLE_PING' => 'Location Update',
+    _ => 'Location Update',
+  };
 
   void _openRouteDetails(_DayLog log) {
     final inProgress = log.status == _RouteStatus.inProgress;
@@ -877,6 +864,7 @@ class _DayLog {
   final int locationsVisited;
   final double distanceKm;
   final _RouteStatus status;
+  final List<Map<String, dynamic>> routeHistory;
 
   _DayLog({
     required this.day,
@@ -889,7 +877,16 @@ class _DayLog {
     required this.locationsVisited,
     required this.distanceKm,
     required this.status,
+    required this.routeHistory,
   });
+}
+
+class _TrackingPoint {
+  const _TrackingPoint(this.latitude, this.longitude, this.timestamp, this.activityType);
+  final double latitude;
+  final double longitude;
+  final DateTime timestamp;
+  final String activityType;
 }
 
 /// Staggers each day-card's entrance — later cards start fading/sliding in

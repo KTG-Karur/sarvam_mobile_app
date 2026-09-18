@@ -1,9 +1,12 @@
 // ignore_for_file: deprecated_member_use
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:sarvam/services/hr_api_service.dart';
 
 import 'full_route_map.dart';
 
@@ -16,6 +19,7 @@ class RouteStop {
   final String address;
   final VisitStatus status;
   final LatLng position;
+  final DateTime? timestamp;
 
   const RouteStop({
     required this.label,
@@ -24,7 +28,43 @@ class RouteStop {
     required this.address,
     required this.status,
     required this.position,
+    this.timestamp,
   });
+}
+
+/// Sanitizes the tracking path before it reaches either map. The server sends
+/// timestamps, but sorting here as well prevents an out-of-order response from
+/// producing cross-map/spaghetti segments. Exact duplicate GPS readings and
+/// invalid coordinates are never rendered as route vertices.
+List<RouteStop> orderedVisitedRouteStops(List<RouteStop> stops) {
+  final indexed = stops
+      .asMap()
+      .entries
+      .where((entry) {
+        final point = entry.value.position;
+        return entry.value.status != VisitStatus.pending &&
+            point.latitude >= -90 && point.latitude <= 90 &&
+            point.longitude >= -180 && point.longitude <= 180 &&
+            !(point.latitude == 0 && point.longitude == 0);
+      })
+      .toList()
+    ..sort((a, b) {
+      final aTime = a.value.timestamp;
+      final bTime = b.value.timestamp;
+      if (aTime == null && bTime == null) return a.key.compareTo(b.key);
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+      final comparison = aTime.compareTo(bTime);
+      return comparison == 0 ? a.key.compareTo(b.key) : comparison;
+    });
+  final seen = <String>{};
+  return indexed
+      .map((entry) => entry.value)
+      .where((stop) => seen.add(
+            '${stop.position.latitude.toStringAsFixed(6)},'
+            '${stop.position.longitude.toStringAsFixed(6)}',
+          ))
+      .toList();
 }
 
 /// RouteDetails — shows a single day's field-visit route on a Google Map
@@ -72,6 +112,7 @@ class _RouteDetailsState extends State<RouteDetails>
 
   GoogleMapController? _mapController;
   MapType _mapType = MapType.normal;
+  List<LatLng> _roadVisitedPoints = const [];
 
   @override
   void initState() {
@@ -86,6 +127,24 @@ class _RouteDetailsState extends State<RouteDetails>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
     _ctrl.forward();
+    unawaited(_loadRoadRoute());
+  }
+
+  Future<void> _loadRoadRoute() async {
+    final visited = orderedVisitedRouteStops(widget.stops)
+        .map((stop) => <String, double>{
+              'latitude': stop.position.latitude,
+              'longitude': stop.position.longitude,
+            })
+        .toList();
+    if (visited.length < 2) return;
+    final roadPoints = await HrApiService.roadRoute(visited);
+    if (!mounted || roadPoints.length < 2) return;
+    setState(() {
+      _roadVisitedPoints = roadPoints
+          .map((point) => LatLng(point['latitude']!, point['longitude']!))
+          .toList();
+    });
   }
 
   @override
@@ -173,37 +232,14 @@ class _RouteDetailsState extends State<RouteDetails>
   }
 
   Set<Polyline> _buildPolylines() {
-    final visitedPoints = <LatLng>[];
-    final pendingPoints = <LatLng>[];
-    bool reachedPending = false;
-    for (final stop in widget.stops) {
-      if (stop.status == VisitStatus.pending) {
-        if (!reachedPending && visitedPoints.isNotEmpty) {
-          pendingPoints.add(visitedPoints.last);
-        }
-        reachedPending = true;
-        pendingPoints.add(stop.position);
-      } else {
-        visitedPoints.add(stop.position);
-      }
-    }
     return {
-      if (visitedPoints.length > 1)
+      if (_roadVisitedPoints.length > 1)
         Polyline(
           polylineId: const PolylineId('visited'),
-          points: visitedPoints,
+          points: _roadVisitedPoints,
           color: _greenAccent,
           width: 4,
-          geodesic: true,
-        ),
-      if (pendingPoints.length > 1)
-        Polyline(
-          polylineId: const PolylineId('pending'),
-          points: pendingPoints,
-          color: _amber,
-          width: 4,
-          geodesic: true,
-          patterns: [PatternItem.dash(18), PatternItem.gap(10)],
+          geodesic: false,
         ),
     };
   }
