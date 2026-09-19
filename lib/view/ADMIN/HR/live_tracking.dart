@@ -84,7 +84,7 @@ class _LiveTrackingState extends State<LiveTracking>
             isToday: selectedDate.year == now.year &&
                 selectedDate.month == now.month,
             punchIn: punchIn == null ? '--:--' : _time(punchIn),
-            routeLabel: punchOut != null ? 'Route Completed' : currentStatus.replaceAll('_', ' '),
+            routeLabel: punchOut != null ? 'Punch-Out' : currentStatus.replaceAll('_', ' '),
             routeTime: punchOut == null ? '--:--' : _time(punchOut),
             locationsVisited: route.length,
             distanceKm: (detail['travelledKm'] as num?)?.toDouble() ?? 0,
@@ -232,13 +232,15 @@ class _LiveTrackingState extends State<LiveTracking>
 
   /// Fixes with a large error radius (indoors / between buildings, or a
   /// cell-tower location) land streets away from where the employee really
-  /// was. Keep the punches so a route always has both ends.
+  /// was.
   static const _maxRouteAccuracyMeters = 30.0;
 
   bool _isReliableRoutePoint(_TrackingPoint point) {
-    if (point.activityType == 'PUNCH_IN' || point.activityType == 'PUNCH_OUT') {
-      return true;
-    }
+    // Only background breadcrumbs are filtered; every discrete event (punch,
+    // visit, collection, centre created, enrolment) is a deliberate action
+    // that must still get its pin.
+    const breadcrumbs = {'EN_ROUTE', 'IDLE_PING'};
+    if (!breadcrumbs.contains(point.activityType)) return true;
     final accuracy = point.accuracyMeters;
     return accuracy == null || accuracy <= _maxRouteAccuracyMeters;
   }

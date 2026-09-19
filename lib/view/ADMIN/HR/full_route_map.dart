@@ -190,6 +190,10 @@ class _FullRouteMapState extends State<FullRouteMap>
     _bitmapCache['punch_in'] = await _badgePin(label: 'IN', color: _greenAccent);
     _bitmapCache['punch_out'] = await _badgePin(label: 'OUT', color: _outRed);
     _bitmapCache['arrow'] = await _arrowIcon();
+    for (final stop in milestoneStops(widget.stops)) {
+      _bitmapCache['stop_${stop.label}'] =
+          await roundBadgePin(label: stop.label, color: milestonePinColor);
+    }
     if (mounted) setState(() => _bitmapsReady = true);
   }
 
@@ -309,6 +313,26 @@ class _FullRouteMapState extends State<FullRouteMap>
           anchor: const Offset(0.5, 0.5),
           zIndex: 3,
           infoWindow: InfoWindow(title: 'Punch-Out', snippet: punchOut.address),
+        ),
+      );
+    }
+
+    // Visits, collections, centre creation, enrolments — numbered like the
+    // Location Details list.
+    for (final stop in milestoneStops(widget.stops)) {
+      final icon = _bitmapCache['stop_${stop.label}'];
+      if (icon == null) continue;
+      markers.add(
+        Marker(
+          markerId: MarkerId('stop_${stop.label}'),
+          position: stop.position,
+          icon: icon,
+          anchor: const Offset(0.5, 0.5),
+          zIndex: 2.5,
+          infoWindow: InfoWindow(
+            title: stop.title,
+            snippet: '${stop.time} · ${stop.address}',
+          ),
         ),
       );
     }
@@ -623,6 +647,10 @@ class _FullRouteMapState extends State<FullRouteMap>
             _legendRow('IN', _greenAccent, 'Punch-In'),
             SizedBox(height: 6.h),
             _legendRow('OUT', _outRed, 'Punch-Out'),
+            if (milestoneStops(widget.stops).isNotEmpty) ...[
+              SizedBox(height: 6.h),
+              _legendRow('1', milestonePinColor, 'Visit / Centre'),
+            ],
             SizedBox(height: 6.h),
             Row(
               mainAxisSize: MainAxisSize.min,

@@ -1,6 +1,7 @@
 // ignore_for_file: deprecated_member_use
 
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -67,6 +68,78 @@ List<RouteStop> orderedVisitedRouteStops(List<RouteStop> stops) {
       .toList();
 }
 
+/// The stops worth a pin on the map: everything except the punch pair (which
+/// have their own IN/OUT pins) and the background "Location Update"
+/// breadcrumbs (which only draw the route line). Numbered 1.. in order so the
+/// pins match the numbers in the Location Details list.
+List<RouteStop> milestoneStops(List<RouteStop> stops) {
+  var number = 0;
+  return [
+    for (final s in stops)
+      if (s.title != 'Location Update' &&
+          s.title != 'Punch-In' &&
+          s.title != 'Punch-Out' &&
+          s.label != 'Start' &&
+          s.label != 'End')
+        RouteStop(
+          label: '${++number}',
+          time: s.time,
+          title: s.title,
+          address: s.address,
+          status: s.status,
+          position: s.position,
+          timestamp: s.timestamp,
+        ),
+  ];
+}
+
+/// Round map badge — white ring, soft shadow, bold label. Used for the
+/// IN / OUT pins and the numbered milestone pins.
+Future<BitmapDescriptor> roundBadgePin({
+  required String label,
+  required Color color,
+}) async {
+  const double size = 110;
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
+  const center = Offset(size / 2, size / 2);
+  const radius = size / 2 - 12;
+
+  canvas.drawCircle(
+    center.translate(0, 3),
+    radius + 6,
+    Paint()
+      ..color = Colors.black.withOpacity(0.28)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
+  );
+  canvas.drawCircle(center, radius + 6, Paint()..color = Colors.white);
+  canvas.drawCircle(center, radius, Paint()..color = color);
+
+  final textPainter = TextPainter(
+    text: TextSpan(
+      text: label,
+      style: const TextStyle(
+        fontSize: 34,
+        fontWeight: FontWeight.w800,
+        color: Colors.white,
+        fontFamily: 'Roboto',
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  textPainter.paint(
+    canvas,
+    Offset(center.dx - textPainter.width / 2, center.dy - textPainter.height / 2),
+  );
+
+  final image = await recorder.endRecording().toImage(size.toInt(), size.toInt());
+  final data = await image.toByteData(format: ui.ImageByteFormat.png);
+  return BitmapDescriptor.fromBytes(data!.buffer.asUint8List());
+}
+
+/// Orange used for milestone (visit / collection / centre) pins and legends.
+const Color milestonePinColor = Color(0xFFF97316);
+
 /// RouteDetails — shows a single day's field-visit route on a Google Map
 /// (start marker, numbered visited/pending stops, polyline path) plus a
 /// location-by-location breakdown. Reached by tapping "View Route" on a
@@ -105,6 +178,7 @@ class _RouteDetailsState extends State<RouteDetails>
   static const _amberLight = Color(0xFFFEF3C7);
   static const _borderColor = Color(0xFFE2E8F0);
   static const _slateGrey = Color(0xFF64748B);
+  static const _routeBlue = Color(0xFF1565FF);
 
   late final AnimationController _ctrl;
   late final Animation<double> _fade;
@@ -113,10 +187,20 @@ class _RouteDetailsState extends State<RouteDetails>
   GoogleMapController? _mapController;
   MapType _mapType = MapType.normal;
   List<LatLng> _roadVisitedPoints = const [];
+  final Map<String, BitmapDescriptor> _stopIcons = {};
+
+  Future<void> _prepareStopIcons() async {
+    for (final stop in milestoneStops(widget.stops)) {
+      _stopIcons[stop.label] =
+          await roundBadgePin(label: stop.label, color: milestonePinColor);
+    }
+    if (mounted) setState(() {});
+  }
 
   @override
   void initState() {
     super.initState();
+    unawaited(_prepareStopIcons());
     _ctrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 750),
@@ -240,6 +324,26 @@ class _RouteDetailsState extends State<RouteDetails>
         ),
       );
     }
+
+    // Visits, collections, centre creation, enrolments.
+    for (final stop in milestoneStops(widget.stops)) {
+      markers.add(
+        Marker(
+          markerId: MarkerId('stop_${stop.label}'),
+          position: stop.position,
+          icon: _stopIcons[stop.label] ??
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+          anchor: _stopIcons.containsKey(stop.label)
+              ? const Offset(0.5, 0.5)
+              : const Offset(0.5, 1.0),
+          zIndex: 2,
+          infoWindow: InfoWindow(
+            title: stop.title,
+            snippet: '${stop.time} · ${stop.address}',
+          ),
+        ),
+      );
+    }
     return markers;
   }
 
@@ -249,15 +353,32 @@ class _RouteDetailsState extends State<RouteDetails>
         : orderedVisitedRouteStops(widget.stops)
             .map((s) => s.position)
             .toList();
+    // Blue line over a white casing, matching the full-screen route map.
     return {
-      if (points.length > 1)
+      if (points.length > 1) ...[
+        Polyline(
+          polylineId: const PolylineId('visited_casing'),
+          points: points,
+          color: Colors.white,
+          width: 8,
+          geodesic: false,
+          startCap: Cap.roundCap,
+          endCap: Cap.roundCap,
+          jointType: JointType.round,
+          zIndex: 1,
+        ),
         Polyline(
           polylineId: const PolylineId('visited'),
           points: points,
-          color: _greenAccent,
-          width: 4,
+          color: _routeBlue,
+          width: 5,
           geodesic: false,
+          startCap: Cap.roundCap,
+          endCap: Cap.roundCap,
+          jointType: JointType.round,
+          zIndex: 2,
         ),
+      ],
     };
   }
 
@@ -698,6 +819,10 @@ class _RouteDetailsState extends State<RouteDetails>
           _legendRow(_greenAccent, 'Punch-In'),
           SizedBox(height: 4.h),
           _legendRow(const Color(0xFFEF4444), 'Punch-Out'),
+          if (milestoneStops(widget.stops).isNotEmpty) ...[
+            SizedBox(height: 4.h),
+            _legendRow(milestonePinColor, 'Visit / Centre'),
+          ],
           SizedBox(height: 4.h),
           Row(
             mainAxisSize: MainAxisSize.min,
@@ -706,7 +831,7 @@ class _RouteDetailsState extends State<RouteDetails>
                 width: 12.w,
                 height: 3.h,
                 decoration: BoxDecoration(
-                  color: _greenAccent,
+                  color: _routeBlue,
                   borderRadius: BorderRadius.circular(2.r),
                 ),
               ),
@@ -741,7 +866,32 @@ class _RouteDetailsState extends State<RouteDetails>
   }
 
   // ── Location Details list ───────────────────────────────────────────────
+  /// Background "Location Update" breadcrumbs only exist to draw the route
+  /// line; the list shows the meaningful stops (punch-in/out, visits,
+  /// collections...), renumbered so the sequence has no gaps.
+  List<RouteStop> get _detailStops {
+    final milestones = widget.stops
+        .where((s) => s.title != 'Location Update')
+        .toList();
+    var number = 0;
+    return milestones.map((s) {
+      if (s.label == 'Start' || s.label == 'End') return s;
+      number++;
+      return RouteStop(
+        label: '$number',
+        time: s.time,
+        title: s.title,
+        address: s.address,
+        status: s.status,
+        position: s.position,
+        timestamp: s.timestamp,
+      );
+    }).toList();
+  }
+
   Widget _buildLocationDetails() {
+    final details = _detailStops;
+    final completed = details.where((s) => s.status != VisitStatus.pending).length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -757,7 +907,7 @@ class _RouteDetailsState extends State<RouteDetails>
             ),
             const Spacer(),
             Text(
-              '$_visitedCount of ${widget.stops.length} completed',
+              '$completed of ${details.length} completed',
               style: GoogleFonts.inter(
                 fontSize: 11.5.sp,
                 fontWeight: FontWeight.w700,
@@ -767,10 +917,10 @@ class _RouteDetailsState extends State<RouteDetails>
           ],
         ),
         SizedBox(height: 10.h),
-        ...widget.stops.asMap().entries.map((e) {
+        ...details.asMap().entries.map((e) {
           final index = e.key;
           final stop = e.value;
-          final isLast = index == widget.stops.length - 1;
+          final isLast = index == details.length - 1;
           return _StaggeredEntry(
             index: index,
             controller: _ctrl,

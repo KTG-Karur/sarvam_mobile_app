@@ -89,6 +89,18 @@ class Api {
       "$baseUrl/api/geo/driving-distance";
   static String get geoRoadRouteUrl => "$baseUrl/api/geo/road-route";
 
+  // Employee ID card
+  static String get employeeDocumentsUrl => "$baseUrl/api/hr/employee-documents";
+  // Same-origin, auth-checked byte stream for a private storage object key.
+  static String storageProxyUrl(String key) =>
+      "$baseUrl/api/storage/proxy?key=${Uri.encodeQueryComponent(key)}";
+  // Public white-label images (logo-icon, authorised-signatory, ...).
+  static String brandingAssetUrl(String kind) =>
+      "$baseUrl/api/branding/asset/$kind";
+  // Public page the ID card's QR code points to.
+  static String employeeVerifyUrl(String employeeId) =>
+      "$baseUrl/verify-employee/${Uri.encodeComponent(employeeId)}";
+
   static const String pincodeLookupUrl = "https://api.postalpincode.in/pincode";
 
   static String get generatePassbookUrl => "$baseUrl/api/generate-passbook";

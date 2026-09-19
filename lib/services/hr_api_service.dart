@@ -23,6 +23,23 @@ class HrApiService {
         : <String, dynamic>{};
   }
 
+  /// GET /api/hr/employees/me/id-card — every value the signed-in employee's
+  /// ID card prints (profile merged with the onboarding record, plus the
+  /// photo's storage key), unaffected by field-visibility settings.
+  static Future<Map<String, dynamic>> myIdCard() async {
+    final payload = await _get('/api/hr/employees/me/id-card');
+    return payload is Map
+        ? Map<String, dynamic>.from(payload)
+        : <String, dynamic>{};
+  }
+
+  /// GET /api/hr/employee-documents?employeeId= — an employee's document
+  /// catalog (the caller's own is always allowed). The ID card reads the
+  /// KYC / "Photo" entry from it.
+  static Future<List<dynamic>> employeeDocuments(String employeeId) => _getList(
+        '/api/hr/employee-documents?employeeId=${Uri.encodeQueryComponent(employeeId)}',
+      );
+
   /// Returns road-following map geometry for chronological tracking points.
   /// If road routing is unavailable, the API returns the original
   /// chronological GPS points. Render that fallback so a real tracked route

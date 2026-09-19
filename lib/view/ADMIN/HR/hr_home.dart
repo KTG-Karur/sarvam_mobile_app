@@ -10,6 +10,7 @@ import 'package:sarvam/view/FDO/performance/my_performance.dart';
 import 'package:sarvam/view/FDO/profile/my_profile.dart';
 
 import 'attendance_status.dart';
+import 'employee_id_card.dart';
 import 'live_tracking.dart';
 
 /// HrHome — the HR module's landing screen (reached from the Field Officer
@@ -637,6 +638,10 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
                 builder: (_) => const MyLeaveRequestsPage(),
               ),
             );
+          } else if (index == 2) {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const EmployeeIdCardPage()),
+            );
           } else {
             Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const MyProfile()),
@@ -651,6 +656,10 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
           BottomNavigationBarItem(
             icon: Icon(Icons.calendar_today_rounded),
             label: 'Leave',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.badge_rounded),
+            label: 'ID Card',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.person_rounded),
