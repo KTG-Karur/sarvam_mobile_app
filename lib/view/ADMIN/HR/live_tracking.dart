@@ -184,6 +184,7 @@ class _LiveTrackingState extends State<LiveTracking>
     final points = log.routeHistory
         .map(_routePoint)
         .whereType<_TrackingPoint>()
+        .where(_isReliableRoutePoint)
         .toList()
       ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
 
@@ -220,7 +221,26 @@ class _LiveTrackingState extends State<LiveTracking>
         (latitude == 0 && longitude == 0)) {
       return null;
     }
-    return _TrackingPoint(latitude, longitude, timestamp, raw['activityType']?.toString() ?? '');
+    return _TrackingPoint(
+      latitude,
+      longitude,
+      timestamp,
+      raw['activityType']?.toString() ?? '',
+      (raw['accuracyMeters'] as num?)?.toDouble(),
+    );
+  }
+
+  /// Fixes with a large error radius (indoors / between buildings, or a
+  /// cell-tower location) land streets away from where the employee really
+  /// was. Keep the punches so a route always has both ends.
+  static const _maxRouteAccuracyMeters = 30.0;
+
+  bool _isReliableRoutePoint(_TrackingPoint point) {
+    if (point.activityType == 'PUNCH_IN' || point.activityType == 'PUNCH_OUT') {
+      return true;
+    }
+    final accuracy = point.accuracyMeters;
+    return accuracy == null || accuracy <= _maxRouteAccuracyMeters;
   }
 
   String _activityLabel(String activityType) => switch (activityType) {
@@ -901,11 +921,20 @@ class _DayLog {
 }
 
 class _TrackingPoint {
-  const _TrackingPoint(this.latitude, this.longitude, this.timestamp, this.activityType);
+  const _TrackingPoint(
+    this.latitude,
+    this.longitude,
+    this.timestamp,
+    this.activityType, [
+    this.accuracyMeters,
+  ]);
   final double latitude;
   final double longitude;
   final DateTime timestamp;
   final String activityType;
+
+  /// Reported GPS error radius; null for older rows that never stored it.
+  final double? accuracyMeters;
 }
 
 /// Staggers each day-card's entrance — later cards start fading/sliding in

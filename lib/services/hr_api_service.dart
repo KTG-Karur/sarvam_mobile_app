@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -48,6 +49,150 @@ class HrApiService {
       }
       return route;
     }
+    final backend = await _backendRoadRoute(points);
+    final route =
+        backend.length >= 2 ? backend : await _osrmRoadRoute(points);
+    return _cleanRoute(route);
+  }
+
+  static double _meters(Map<String, double> a, Map<String, double> b) {
+    final dLat = (b['latitude']! - a['latitude']!) * 110540;
+    final dLng = (b['longitude']! - a['longitude']!) *
+        111320 *
+        math.cos(a['latitude']! * math.pi / 180);
+    return math.sqrt(dLat * dLat + dLng * dLng);
+  }
+
+  /// A punch or GPS fix taken inside a building snaps to the nearest side
+  /// alley, so the router draws a dead-end stub off the real road. Remove
+  /// (1) out-and-back spurs and small loops the route makes to reach such a
+  /// point, and (2) short dead-end tails/heads that branch off the path.
+  static List<Map<String, double>> _cleanRoute(
+    List<Map<String, double>> route,
+  ) {
+    if (route.length < 3) return route;
+
+    bool isSpur(List<Map<String, double>> path, int from, Map<String, double> back) {
+      var length = 0.0;
+      var area = 0.0;
+      final loop = [...path.sublist(from), back];
+      for (var i = 1; i < loop.length; i++) {
+        length += _meters(loop[i - 1], loop[i]);
+        // Shoelace area in local metres (retraced spurs enclose ~nothing).
+        final ax = (loop[i - 1]['longitude']! - loop[0]['longitude']!) * 111320;
+        final ay = (loop[i - 1]['latitude']! - loop[0]['latitude']!) * 110540;
+        final bx = (loop[i]['longitude']! - loop[0]['longitude']!) * 111320;
+        final by = (loop[i]['latitude']! - loop[0]['latitude']!) * 110540;
+        area += ax * by - bx * ay;
+      }
+      return length <= 250 && (area / 2).abs() <= 300;
+    }
+
+    final out = <Map<String, double>>[];
+    for (final p in route) {
+      var cut = -1;
+      for (var i = math.max(0, out.length - 80); i < out.length - 1; i++) {
+        if (_meters(out[i], p) < 3) {
+          cut = i;
+          break;
+        }
+      }
+      if (cut >= 0 && isSpur(out, cut, p)) {
+        out.removeRange(cut + 1, out.length);
+        continue;
+      }
+      out.add(p);
+    }
+
+    List<Map<String, double>> trimEnd(List<Map<String, double>> r) {
+      var length = 0.0;
+      for (var k = r.length - 1; k > 0 && length <= 60; k--) {
+        length += _meters(r[k], r[k - 1]);
+        for (var j = 0; j < k - 1; j++) {
+          if (_meters(r[j], r[k - 1]) < 3) return r.sublist(0, k);
+        }
+      }
+      return r;
+    }
+
+    final trimmedEnd = trimEnd(out);
+    final trimmed = trimEnd(trimmedEnd.reversed.toList()).reversed.toList();
+    return trimmed.length >= 2 ? trimmed : route;
+  }
+
+  /// Road geometry straight from the public OSRM server — used when the
+  /// Sarvam API can't supply it (endpoint not deployed, offline, or it only
+  /// had straight-line data). `match` is built for noisy GPS traces and snaps
+  /// them onto the road they were actually driven on; plain `route` is the
+  /// fallback if matching finds nothing.
+  static Future<List<Map<String, double>>> _osrmRoadRoute(
+    List<Map<String, double>> points,
+  ) async {
+    final coordinates = points
+        .map((p) => '${p['longitude']},${p['latitude']}')
+        .join(';');
+    const base = 'https://router.project-osrm.org';
+
+    List<Map<String, double>> fromGeometry(dynamic geometry) {
+      final coords = geometry is Map ? geometry['coordinates'] : null;
+      if (coords is! List) return const [];
+      return coords
+          .whereType<List>()
+          .where((c) => c.length >= 2)
+          .map((c) => <String, double>{
+                'latitude': (c[1] as num).toDouble(),
+                'longitude': (c[0] as num).toDouble(),
+              })
+          .toList();
+    }
+
+    Future<dynamic> fetch(String url) async {
+      final response =
+          await http.get(Uri.parse(url)).timeout(const Duration(seconds: 20));
+      if (response.statusCode != 200) return null;
+      final body = jsonDecode(response.body);
+      return body is Map && body['code'] == 'Ok' ? body : null;
+    }
+
+    try {
+      // Tight radius: a fix further than this from any road is dropped rather
+      // than snapped to a side alley that forces a detour.
+      final radiuses = List.filled(points.length, '20').join(';');
+      final matched = await fetch(
+        '$base/match/v1/driving/$coordinates'
+        '?geometries=geojson&overview=full&tidy=true&radiuses=$radiuses',
+      );
+      final matchings = matched?['matchings'];
+      if (matchings is List && matchings.isNotEmpty) {
+        final route = <Map<String, double>>[
+          for (final m in matchings.whereType<Map>()) ...fromGeometry(m['geometry']),
+        ];
+        if (route.length >= 2) {
+          if (kDebugMode) debugPrint('Route map: ${route.length} points (osrm match)');
+          return route;
+        }
+      }
+      final routed = await fetch(
+        '$base/route/v1/driving/$coordinates'
+        '?geometries=geojson&overview=full&continue_straight=true',
+      );
+      final routes = routed?['routes'];
+      if (routes is List && routes.isNotEmpty) {
+        final route = fromGeometry((routes.first as Map)['geometry']);
+        if (route.length >= 2) {
+          if (kDebugMode) debugPrint('Route map: ${route.length} points (osrm route)');
+          return route;
+        }
+      }
+    } catch (error) {
+      if (kDebugMode) debugPrint('Route map: OSRM error: $error');
+    }
+    return const [];
+  }
+
+  static Future<List<Map<String, double>>> _backendRoadRoute(
+    List<Map<String, double>> points,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('accessToken') ?? '';
     if (token.isEmpty) return const [];
@@ -80,6 +225,9 @@ class HrApiService {
           ? decoded['data'] as Map
           : decoded;
       final routePoints = data is Map ? data['points'] : null;
+      // The server echoes the raw GPS points when it couldn't reach a router;
+      // treat that as "no road data" so the OSRM fallback gets a chance.
+      if (data is Map && data['source'] == 'straight-line') return const [];
       if (routePoints is! List) {
         if (kDebugMode) {
           debugPrint('Route map: route request failed (${response.statusCode})');

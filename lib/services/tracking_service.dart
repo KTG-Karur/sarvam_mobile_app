@@ -41,7 +41,11 @@ class TrackingService {
   /// This prevents a stationary employee's current GPS coordinate from being
   /// repeatedly added to the route. The initial punch-in location is still
   /// always recorded.
-  static const int _minimumMovementMeters = 50;
+  static const int _minimumMovementMeters = 30;
+
+  /// Route points from a fix with a worse reported accuracy than this are
+  /// dropped (the punch-in point is exempt so a route always has a start).
+  static const int _maxAccuracyMeters = 25;
 
   static bool _configured = false;
   static bool _debugRestartDone = false;
@@ -236,8 +240,10 @@ class TrackingService {
     Position? lastUploadedPosition;
     StreamSubscription<List<ConnectivityResult>>? connectivitySubscription;
     StreamSubscription<Position>? positionSubscription;
+    Timer? retryTimer;
 
     service.on('stopService').listen((event) {
+      retryTimer?.cancel();
       connectivitySubscription?.cancel();
       positionSubscription?.cancel();
       service.stopSelf();
@@ -258,6 +264,20 @@ class TrackingService {
         // this preserves the real movement order after Wi-Fi/mobile switches.
         await _syncOfflineQueue(prefs, token);
 
+        if (!isInitialPoint) {
+          // Between buildings or indoors the receiver reports fixes tens of
+          // metres off. Uploading them draws the route down streets the
+          // employee never walked, so drop them and wait for a better fix.
+          if (position.accuracy > _maxAccuracyMeters) {
+            _log(
+              'point skipped (poor GPS accuracy '
+              '${position.accuracy.toStringAsFixed(0)}m > '
+              '${_maxAccuracyMeters}m)',
+            );
+            return;
+          }
+        }
+
         if (!isInitialPoint && lastUploadedPosition != null) {
           final movedMeters = Geolocator.distanceBetween(
             lastUploadedPosition!.latitude,
@@ -265,10 +285,14 @@ class TrackingService {
             position.latitude,
             position.longitude,
           );
-          if (movedMeters < _minimumMovementMeters) {
+          // Movement smaller than the fix's own error is jitter, not travel.
+          final requiredMeters = position.accuracy > _minimumMovementMeters
+              ? position.accuracy
+              : _minimumMovementMeters.toDouble();
+          if (movedMeters < requiredMeters) {
             _log(
               'point skipped (${movedMeters.toStringAsFixed(0)}m < '
-              '${_minimumMovementMeters.toStringAsFixed(0)}m)',
+              '${requiredMeters.toStringAsFixed(0)}m)',
             );
             return;
           }
@@ -341,7 +365,7 @@ class TrackingService {
     }
 
     // Record the punch-in position once. Subsequent points come from the
-    // platform GPS stream only after at least 50m of movement.
+    // platform GPS stream only after at least 30m of movement.
     try {
       final initialPosition = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
@@ -371,18 +395,32 @@ class TrackingService {
       onError: (Object error) => _log('GPS stream error: $error'),
     );
     // A Wi-Fi ↔ mobile-data change triggers an immediate ordered queue sync;
-    // tracking itself never stops while the device is offline.
+    // tracking itself never stops while the device is offline. The network is
+    // often not usable yet at the moment Android reports the switch, so the
+    // same sync also retries on a timer until the queue drains.
+    var syncing = false;
+    Future<void> syncQueue() async {
+      if (syncing) return;
+      syncing = true;
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('accessToken') ?? '';
+        if (token.isNotEmpty) await _syncOfflineQueue(prefs, token);
+      } finally {
+        syncing = false;
+      }
+    }
+
     connectivitySubscription = Connectivity().onConnectivityChanged.listen((
       results,
     ) {
       if (results.any((result) => result != ConnectivityResult.none)) {
-        final sync = () async {
-          final prefs = await SharedPreferences.getInstance();
-          final token = prefs.getString('accessToken') ?? '';
-          if (token.isNotEmpty) await _syncOfflineQueue(prefs, token);
-        }();
-        unawaited(sync);
+        unawaited(syncQueue());
       }
     });
+    retryTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => unawaited(syncQueue()),
+    );
   }
 }

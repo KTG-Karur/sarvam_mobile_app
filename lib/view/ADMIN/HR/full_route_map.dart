@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:sarvam/services/hr_api_service.dart';
@@ -42,6 +43,8 @@ class _FullRouteMapState extends State<FullRouteMap>
   static const _greenAccent = Color(0xFF0D6842);
   static const _amber = Color(0xFFF59E0B);
   static const _slateGrey = Color(0xFF64748B);
+  static const _outRed = Color(0xFFE5202E);
+  static const _routeBlue = Color(0xFF1565FF);
 
   late final AnimationController _entranceCtrl;
   late final Animation<double> _fade;
@@ -49,11 +52,21 @@ class _FullRouteMapState extends State<FullRouteMap>
   GoogleMapController? _mapController;
   MapType _mapType = MapType.normal;
   List<LatLng> _roadVisitedPoints = const [];
+  bool _roadSnapped = false;
+
+  /// Once the route is snapped to roads, pin IN/OUT on the line itself: the
+  /// raw punch fix is often a few metres inside a building.
+  LatLng _pinPosition(LatLng raw, {required bool isEnd}) {
+    if (!_roadSnapped || _roadVisitedPoints.isEmpty) return raw;
+    return isEnd ? _roadVisitedPoints.last : _roadVisitedPoints.first;
+  }
 
   final Map<String, BitmapDescriptor> _bitmapCache = {};
   bool _bitmapsReady = false;
 
-  Offset? _startLabelOffset;
+  List<LatLng>? _arrowSource;
+  Set<Marker> _arrowCache = const {};
+
   Offset? _endLabelOffset;
 
   @override
@@ -85,6 +98,7 @@ class _FullRouteMapState extends State<FullRouteMap>
       final roadPoints = await HrApiService.roadRoute(visited);
       if (!mounted || roadPoints.length < 2) return;
       setState(() {
+        _roadSnapped = true;
         _roadVisitedPoints = roadPoints
             .map((point) => LatLng(point['latitude']!, point['longitude']!))
             .toList();
@@ -105,34 +119,27 @@ class _FullRouteMapState extends State<FullRouteMap>
       widget.stops.where((s) => s.status != VisitStatus.pending).length;
 
   // ── Custom marker bitmap generation ────────────────────────────────────
-  Future<BitmapDescriptor> _numberedPin({
+  /// Round badge (white ring, soft shadow, bold label) — the IN / OUT pin.
+  Future<BitmapDescriptor> _badgePin({
     required String label,
     required Color color,
-    bool isEnd = false,
   }) async {
-    const double w = 110;
-    const double h = 140;
+    const double size = 110;
     final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, w, h));
+    final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
+    const center = Offset(size / 2, size / 2);
+    const radius = size / 2 - 12;
 
-    final center = const Offset(w / 2, w / 2 - 4);
-    final radius = w / 2 - 10;
-
-    // pin tail
-    final tailPaint = Paint()..color = color;
-    final tail = Path()
-      ..moveTo(center.dx - 16, center.dy + radius - 8)
-      ..lineTo(center.dx + 16, center.dy + radius - 8)
-      ..lineTo(center.dx, center.dy + radius + 26)
-      ..close();
-    canvas.drawPath(tail, tailPaint);
-
-    // white halo ring
-    canvas.drawCircle(center, radius + 5, Paint()..color = Colors.white);
-    // colored circle
+    canvas.drawCircle(
+      center.translate(0, 3),
+      radius + 6,
+      Paint()
+        ..color = Colors.black.withOpacity(0.28)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
+    );
+    canvas.drawCircle(center, radius + 6, Paint()..color = Colors.white);
     canvas.drawCircle(center, radius, Paint()..color = color);
 
-    // number text
     final textPainter = TextPainter(
       text: TextSpan(
         text: label,
@@ -150,44 +157,104 @@ class _FullRouteMapState extends State<FullRouteMap>
       Offset(center.dx - textPainter.width / 2, center.dy - textPainter.height / 2),
     );
 
-    if (isEnd) {
-      // small flag glyph above the pin
-      final poleTop = Offset(center.dx + radius - 6, center.dy - radius - 30);
-      final poleBottom = Offset(center.dx + radius - 6, center.dy - radius + 6);
-      canvas.drawLine(
-        poleTop,
-        poleBottom,
-        Paint()
-          ..color = _darkText
-          ..strokeWidth = 3,
-      );
-      final flagPath = Path()
-        ..moveTo(poleTop.dx, poleTop.dy)
-        ..lineTo(poleTop.dx + 22, poleTop.dy + 6)
-        ..lineTo(poleTop.dx, poleTop.dy + 12)
-        ..close();
-      canvas.drawPath(flagPath, Paint()..color = _darkText);
-    }
+    final image = await recorder.endRecording().toImage(size.toInt(), size.toInt());
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    return BitmapDescriptor.fromBytes(data!.buffer.asUint8List());
+  }
 
-    final picture = recorder.endRecording();
-    final image = await picture.toImage(w.toInt(), h.toInt());
+  /// White chevron pointing north; markers rotate it to the travel bearing.
+  Future<BitmapDescriptor> _arrowIcon() async {
+    const double size = 44;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
+    final chevron = Path()
+      ..moveTo(size * 0.2, size * 0.62)
+      ..lineTo(size * 0.5, size * 0.32)
+      ..lineTo(size * 0.8, size * 0.62);
+    canvas.drawPath(
+      chevron,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 7
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
+    final image = await recorder.endRecording().toImage(size.toInt(), size.toInt());
     final data = await image.toByteData(format: ui.ImageByteFormat.png);
     return BitmapDescriptor.fromBytes(data!.buffer.asUint8List());
   }
 
   Future<void> _prepareBitmaps() async {
     if (widget.stops.isEmpty) return;
-    _bitmapCache['punch_in'] = await _numberedPin(
-      label: 'IN',
-      color: _greenAccent,
-      isEnd: false,
-    );
-    _bitmapCache['punch_out'] = await _numberedPin(
-      label: 'OUT',
-      color: const Color(0xFFEF4444),
-      isEnd: true,
-    );
+    _bitmapCache['punch_in'] = await _badgePin(label: 'IN', color: _greenAccent);
+    _bitmapCache['punch_out'] = await _badgePin(label: 'OUT', color: _outRed);
+    _bitmapCache['arrow'] = await _arrowIcon();
     if (mounted) setState(() => _bitmapsReady = true);
+  }
+
+  /// Direction arrows spread along the path. Spacing scales with route length
+  /// so short routes still get a few arrows and long ones don't get crowded.
+  Set<Marker> _arrowMarkers(List<LatLng> points) {
+    if (!identical(points, _arrowSource)) {
+      _arrowSource = points;
+      _arrowCache = _computeArrowMarkers(points);
+    }
+    return _arrowCache;
+  }
+
+  Set<Marker> _computeArrowMarkers(List<LatLng> points) {
+    final icon = _bitmapCache['arrow'];
+    if (icon == null || points.length < 2) return const {};
+
+    var total = 0.0;
+    for (var i = 1; i < points.length; i++) {
+      total += Geolocator.distanceBetween(
+        points[i - 1].latitude,
+        points[i - 1].longitude,
+        points[i].latitude,
+        points[i].longitude,
+      );
+    }
+    final spacing = (total / 12).clamp(60.0, 400.0);
+
+    final markers = <Marker>{};
+    var sinceLast = spacing / 2;
+    for (var i = 1; i < points.length; i++) {
+      final a = points[i - 1];
+      final b = points[i];
+      final segment = Geolocator.distanceBetween(
+        a.latitude,
+        a.longitude,
+        b.latitude,
+        b.longitude,
+      );
+      if (segment < 1) continue;
+      sinceLast += segment;
+      if (sinceLast < spacing) continue;
+      sinceLast = 0;
+      markers.add(
+        Marker(
+          markerId: MarkerId('arrow_$i'),
+          position: LatLng(
+            (a.latitude + b.latitude) / 2,
+            (a.longitude + b.longitude) / 2,
+          ),
+          icon: icon,
+          rotation: Geolocator.bearingBetween(
+            a.latitude,
+            a.longitude,
+            b.latitude,
+            b.longitude,
+          ),
+          flat: true,
+          anchor: const Offset(0.5, 0.5),
+          zIndex: 1,
+          consumeTapEvents: false,
+        ),
+      );
+    }
+    return markers;
   }
 
   BitmapDescriptor _bitmapFor(RouteStop stop, bool isEnd) {
@@ -201,6 +268,7 @@ class _FullRouteMapState extends State<FullRouteMap>
   Set<Marker> _buildMarkers() {
     final markers = <Marker>{};
     if (widget.stops.isEmpty) return markers;
+    markers.addAll(_arrowMarkers(_roadVisitedPoints));
 
     // Auto-tracking locations supply the polyline only. Showing a pin for
     // every 50m breadcrumb makes the map unreadable, so retain pins solely
@@ -216,9 +284,10 @@ class _FullRouteMapState extends State<FullRouteMap>
     markers.add(
       Marker(
         markerId: const MarkerId('punch_in'),
-        position: punchIn.position,
+        position: _pinPosition(punchIn.position, isEnd: false),
         icon: _bitmapFor(punchIn, false),
-        anchor: const Offset(0.5, 0.82),
+        anchor: const Offset(0.5, 0.5),
+        zIndex: 2,
         infoWindow: InfoWindow(title: 'Punch-In', snippet: punchIn.address),
       ),
     );
@@ -235,9 +304,10 @@ class _FullRouteMapState extends State<FullRouteMap>
       markers.add(
         Marker(
           markerId: const MarkerId('punch_out'),
-          position: punchOut.position,
+          position: _pinPosition(punchOut.position, isEnd: true),
           icon: _bitmapFor(punchOut, true),
-          anchor: const Offset(0.5, 0.82),
+          anchor: const Offset(0.5, 0.5),
+          zIndex: 3,
           infoWindow: InfoWindow(title: 'Punch-Out', snippet: punchOut.address),
         ),
       );
@@ -249,15 +319,33 @@ class _FullRouteMapState extends State<FullRouteMap>
     final points = _roadVisitedPoints.isNotEmpty
         ? _roadVisitedPoints
         : orderedVisitedRouteStops(widget.stops).map((s) => s.position).toList();
+    // A wider white casing under the blue line keeps the route legible on
+    // both the map and satellite layers.
     return {
-      if (points.length > 1)
+      if (points.length > 1) ...[
+        Polyline(
+          polylineId: const PolylineId('visited_casing'),
+          points: points,
+          color: Colors.white,
+          width: 10,
+          geodesic: false,
+          startCap: Cap.roundCap,
+          endCap: Cap.roundCap,
+          jointType: JointType.round,
+          zIndex: 1,
+        ),
         Polyline(
           polylineId: const PolylineId('visited'),
           points: points,
-          color: _greenAccent,
-          width: 5,
+          color: _routeBlue,
+          width: 7,
           geodesic: false,
+          startCap: Cap.roundCap,
+          endCap: Cap.roundCap,
+          jointType: JointType.round,
+          zIndex: 2,
         ),
+      ],
     };
   }
 
@@ -296,15 +384,11 @@ class _FullRouteMapState extends State<FullRouteMap>
       return Offset(sc.x / dpr, sc.y / dpr);
     }
 
-    final start = await toOffset(widget.stops.first.position);
     final end = !widget.inProgress && widget.stops.length > 1
-        ? await toOffset(widget.stops.last.position)
+        ? await toOffset(_pinPosition(widget.stops.last.position, isEnd: true))
         : null;
     if (!mounted) return;
-    setState(() {
-      _startLabelOffset = start;
-      _endLabelOffset = end;
-    });
+    setState(() => _endLabelOffset = end);
   }
 
   void _toggleMapType(MapType type) {
@@ -347,13 +431,6 @@ class _FullRouteMapState extends State<FullRouteMap>
                             )
                           : const Center(child: CircularProgressIndicator()),
                     ),
-                    if (_startLabelOffset != null)
-                      _floatingLabel(
-                        _startLabelOffset!,
-                        'Start',
-                        _greenAccent,
-                        dx: 26,
-                      ),
                     if (_endLabelOffset != null)
                       _floatingLabel(
                         _endLabelOffset!,
@@ -543,14 +620,21 @@ class _FullRouteMapState extends State<FullRouteMap>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _legendRow(Icons.login_rounded, _greenAccent, 'Punch-In'),
+            _legendRow('IN', _greenAccent, 'Punch-In'),
             SizedBox(height: 6.h),
-            _legendRow(Icons.logout_rounded, const Color(0xFFEF4444), 'Punch-Out'),
+            _legendRow('OUT', _outRed, 'Punch-Out'),
             SizedBox(height: 6.h),
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Container(width: 16.w, height: 3.h, color: _greenAccent),
+                Container(
+                  width: 24.w,
+                  height: 4.h,
+                  decoration: BoxDecoration(
+                    color: _routeBlue,
+                    borderRadius: BorderRadius.circular(4.r),
+                  ),
+                ),
                 SizedBox(width: 8.w),
                 Text(
                   'Route Path',
@@ -564,12 +648,25 @@ class _FullRouteMapState extends State<FullRouteMap>
     );
   }
 
-  Widget _legendRow(IconData icon, Color color, String label) {
+  Widget _legendRow(String badge, Color color, String label) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 15.sp, color: color),
-        SizedBox(width: 6.w),
+        Container(
+          width: 24.w,
+          height: 24.w,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          child: Text(
+            badge,
+            style: GoogleFonts.inter(
+              fontSize: 7.5.sp,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+            ),
+          ),
+        ),
+        SizedBox(width: 8.w),
         Text(label, style: GoogleFonts.inter(fontSize: 10.5.sp, color: _darkText)),
       ],
     );
@@ -663,7 +760,7 @@ class _FullRouteMapState extends State<FullRouteMap>
   Widget _floatingLabel(Offset anchor, String text, Color color, {double dx = 0}) {
     return Positioned(
       left: anchor.dx + dx,
-      top: anchor.dy - 34,
+      top: anchor.dy - 13.h,
       child: IgnorePointer(
         child: Container(
           padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
