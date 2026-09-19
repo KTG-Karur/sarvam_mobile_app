@@ -72,8 +72,8 @@ class _LiveTrackingState extends State<LiveTracking>
       );
       if (!mounted) return;
       final route = detail['routeHistory'] is List ? detail['routeHistory'] as List : const [];
-      final punchIn = DateTime.tryParse(detail['punchIn']?.toString() ?? '');
-      final punchOut = DateTime.tryParse(detail['punchOut']?.toString() ?? '');
+      final punchIn = _parseApiDateTime(detail['punchIn']);
+      final punchOut = _parseApiDateTime(detail['punchOut']);
       final currentStatus = detail['currentStatus']?.toString() ?? 'OFFLINE';
       setState(() {
         _logs = [
@@ -90,6 +90,8 @@ class _LiveTrackingState extends State<LiveTracking>
             distanceKm: (detail['travelledKm'] as num?)?.toDouble() ?? 0,
             status: punchOut == null ? _RouteStatus.inProgress : _RouteStatus.completed,
             routeHistory: route.whereType<Map>().map((point) => Map<String, dynamic>.from(point)).toList(),
+            punchInAt: punchIn,
+            punchOutAt: punchOut,
           ),
         ];
       });
@@ -103,6 +105,21 @@ class _LiveTrackingState extends State<LiveTracking>
   String _time(DateTime value) {
     final hour = value.hour % 12 == 0 ? 12 : value.hour % 12;
     return '${hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')} ${value.hour >= 12 ? 'PM' : 'AM'}';
+  }
+
+  /// Tracking fields are optional and occasionally arrive in a non-ISO
+  /// format. A malformed value must be treated as unavailable, never crash
+  /// the tracking screen.
+  DateTime? _parseApiDateTime(dynamic value) {
+    if (value is DateTime) return value;
+    if (value is! String) return null;
+    final raw = value.trim();
+    if (raw.isEmpty) return null;
+    try {
+      return DateTime.tryParse(raw);
+    } on FormatException {
+      return null;
+    }
   }
 
   @override
@@ -163,6 +180,7 @@ class _LiveTrackingState extends State<LiveTracking>
   }
 
   List<RouteStop> _stopsForLog(_DayLog log) {
+    final inProgress = log.status == _RouteStatus.inProgress;
     final points = log.routeHistory
         .map(_routePoint)
         .whereType<_TrackingPoint>()
@@ -178,10 +196,13 @@ class _LiveTrackingState extends State<LiveTracking>
       final index = entry.key;
       final point = entry.value;
       final isFirst = index == 0;
+      final isLast = !inProgress && unique.length > 1 && index == unique.length - 1;
       return RouteStop(
-        label: isFirst ? 'Start' : '$index',
+        label: isFirst ? 'Start' : (isLast ? 'End' : '$index'),
         time: _time(point.timestamp),
-        title: isFirst ? 'Punch-In' : _activityLabel(point.activityType),
+        title: isFirst
+            ? 'Punch-In'
+            : (isLast ? 'Punch-Out' : _activityLabel(point.activityType)),
         address: '${point.latitude.toStringAsFixed(6)}, ${point.longitude.toStringAsFixed(6)}',
         status: isFirst ? VisitStatus.completed : VisitStatus.visited,
         position: LatLng(point.latitude, point.longitude),
@@ -193,10 +214,12 @@ class _LiveTrackingState extends State<LiveTracking>
   _TrackingPoint? _routePoint(Map<String, dynamic> raw) {
     final latitude = (raw['latitude'] as num?)?.toDouble();
     final longitude = (raw['longitude'] as num?)?.toDouble();
-    final timestamp = DateTime.tryParse(raw['capturedAt']?.toString() ?? '');
+    final timestamp = _parseApiDateTime(raw['capturedAt']);
     if (latitude == null || longitude == null || timestamp == null ||
         latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180 ||
-        (latitude == 0 && longitude == 0)) return null;
+        (latitude == 0 && longitude == 0)) {
+      return null;
+    }
     return _TrackingPoint(latitude, longitude, timestamp, raw['activityType']?.toString() ?? '');
   }
 
@@ -222,7 +245,7 @@ class _LiveTrackingState extends State<LiveTracking>
           inProgress: inProgress,
           punchInTime: log.punchIn,
           distanceKm: log.distanceKm,
-          totalDuration: inProgress ? '5h 28m' : _durationBetween(log),
+          totalDuration: inProgress ? 'In progress' : _durationBetween(log),
           stops: _stopsForLog(log),
         ),
         transitionsBuilder: (_, animation, __, child) {
@@ -260,19 +283,11 @@ class _LiveTrackingState extends State<LiveTracking>
   }
 
   String _durationBetween(_DayLog log) {
-    TimeOfDay parse(String t) {
-      final parts = t.split(RegExp(r'[: ]'));
-      var hour = int.parse(parts[0]) % 12;
-      final minute = int.parse(parts[1]);
-      if (parts[2] == 'PM') hour += 12;
-      return TimeOfDay(hour: hour, minute: minute);
-    }
-
-    final start = parse(log.punchIn);
-    final end = parse(log.routeTime);
-    var minutes = (end.hour * 60 + end.minute) - (start.hour * 60 + start.minute);
-    if (minutes < 0) minutes += 24 * 60;
-    return '${minutes ~/ 60}h ${minutes % 60}m';
+    final start = log.punchInAt;
+    final end = log.punchOutAt;
+    if (start == null || end == null || end.isBefore(start)) return '--';
+    final duration = end.difference(start);
+    return '${duration.inHours}h ${duration.inMinutes.remainder(60)}m';
   }
 
   void _comingSoon(String label) {
@@ -865,6 +880,8 @@ class _DayLog {
   final double distanceKm;
   final _RouteStatus status;
   final List<Map<String, dynamic>> routeHistory;
+  final DateTime? punchInAt;
+  final DateTime? punchOutAt;
 
   _DayLog({
     required this.day,
@@ -878,6 +895,8 @@ class _DayLog {
     required this.distanceKm,
     required this.status,
     required this.routeHistory,
+    this.punchInAt,
+    this.punchOutAt,
   });
 }
 

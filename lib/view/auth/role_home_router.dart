@@ -139,6 +139,15 @@ Future<String> recordLocalPunch(
     await prefs.remove(kPunchOutDateKey);
     await prefs.remove(kPunchOutTimeKey);
   }
+
+  // Start from the confirmed punch action as well as later reconciliation.
+  // Without this, tracking only starts after a future home/login refresh and
+  // the first GPS breadcrumbs (and their debug prints) can be missed.
+  if (isPunchOut) {
+    await TrackingService.stop();
+  } else {
+    await TrackingService.start();
+  }
   return nowTimeStr;
 }
 

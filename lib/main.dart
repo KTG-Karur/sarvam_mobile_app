@@ -29,7 +29,7 @@ void main() {
   // start it or request any permission — reconcilePunchPrefs() decides that
   // once it knows whether the user is actually punched in.
   unawaited(TrackingService.init().catchError((Object error, StackTrace stackTrace) {
-    debugPrint('Live tracking initialization failed: $error\\n$stackTrace');
+    debugPrint('Live tracking initialization failed: $error\n$stackTrace');
   }));
 
   runApp(const MyApp());

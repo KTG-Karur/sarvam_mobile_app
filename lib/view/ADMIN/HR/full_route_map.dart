@@ -12,8 +12,8 @@ import 'package:sarvam/services/hr_api_service.dart';
 import 'route_details.dart';
 
 /// FullRouteMap — a full-screen, edge-to-edge map view of a day's route with
-/// numbered start/visited/pending/end markers, a route polyline, a legend,
-/// a Map/Satellite segmented toggle, and a pulsing "current location" marker.
+/// punch-in/punch-out markers and a route polyline. Auto-tracking points are
+/// used exclusively to draw the route and never rendered as map markers.
 /// Reached from RouteDetails' "View Full Route on Map" button.
 class FullRouteMap extends StatefulWidget {
   const FullRouteMap({
@@ -42,11 +42,9 @@ class _FullRouteMapState extends State<FullRouteMap>
   static const _greenAccent = Color(0xFF0D6842);
   static const _amber = Color(0xFFF59E0B);
   static const _slateGrey = Color(0xFF64748B);
-  static const _blue = Color(0xFF2563EB);
 
   late final AnimationController _entranceCtrl;
   late final Animation<double> _fade;
-  late final AnimationController _pulseCtrl;
 
   GoogleMapController? _mapController;
   MapType _mapType = MapType.normal;
@@ -55,7 +53,6 @@ class _FullRouteMapState extends State<FullRouteMap>
   final Map<String, BitmapDescriptor> _bitmapCache = {};
   bool _bitmapsReady = false;
 
-  Offset? _currentMarkerOffset;
   Offset? _startLabelOffset;
   Offset? _endLabelOffset;
 
@@ -68,10 +65,10 @@ class _FullRouteMapState extends State<FullRouteMap>
     );
     _fade = CurvedAnimation(parent: _entranceCtrl, curve: Curves.easeOut);
     _entranceCtrl.forward();
-    _pulseCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1400),
-    )..repeat();
+    // Auto-tracking coordinates immediately form the visible route line
+    _roadVisitedPoints = orderedVisitedRouteStops(widget.stops)
+        .map((s) => s.position)
+        .toList();
     _prepareBitmaps();
     unawaited(_loadRoadRoute());
   }
@@ -84,33 +81,28 @@ class _FullRouteMapState extends State<FullRouteMap>
             })
         .toList();
     if (visited.length < 2) return;
-    final roadPoints = await HrApiService.roadRoute(visited);
-    if (!mounted || roadPoints.length < 2) return;
-    setState(() {
-      _roadVisitedPoints = roadPoints
-          .map((point) => LatLng(point['latitude']!, point['longitude']!))
-          .toList();
-    });
+    try {
+      final roadPoints = await HrApiService.roadRoute(visited);
+      if (!mounted || roadPoints.length < 2) return;
+      setState(() {
+        _roadVisitedPoints = roadPoints
+            .map((point) => LatLng(point['latitude']!, point['longitude']!))
+            .toList();
+      });
+    } catch (_) {
+      // Keep direct auto-tracking GPS points fallback already in place
+    }
   }
 
   @override
   void dispose() {
     _entranceCtrl.dispose();
-    _pulseCtrl.dispose();
     _mapController?.dispose();
     super.dispose();
   }
 
   int get _visitedCount =>
       widget.stops.where((s) => s.status != VisitStatus.pending).length;
-
-  RouteStop? get _currentStop {
-    if (!widget.inProgress || widget.stops.isEmpty) return null;
-    return widget.stops.lastWhere(
-      (s) => s.status != VisitStatus.pending,
-      orElse: () => widget.stops.first,
-    );
-  }
 
   // ── Custom marker bitmap generation ────────────────────────────────────
   Future<BitmapDescriptor> _numberedPin({
@@ -183,84 +175,70 @@ class _FullRouteMapState extends State<FullRouteMap>
     return BitmapDescriptor.fromBytes(data!.buffer.asUint8List());
   }
 
-  Future<BitmapDescriptor> _currentLocationPin() async {
-    const double size = 90;
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
-    final center = const Offset(size / 2, size / 2);
-    canvas.drawCircle(center, size / 2 - 6, Paint()..color = _blue.withOpacity(0.18));
-    canvas.drawCircle(center, size / 2 - 22, Paint()..color = Colors.white);
-    canvas.drawCircle(center, size / 2 - 28, Paint()..color = _blue);
-    final picture = recorder.endRecording();
-    final image = await picture.toImage(size.toInt(), size.toInt());
-    final data = await image.toByteData(format: ui.ImageByteFormat.png);
-    return BitmapDescriptor.fromBytes(data!.buffer.asUint8List());
-  }
-
   Future<void> _prepareBitmaps() async {
-    for (var i = 0; i < widget.stops.length; i++) {
-      final stop = widget.stops[i];
-      final isEnd = i == widget.stops.length - 1;
-      Color color;
-      switch (stop.status) {
-        case VisitStatus.completed:
-        case VisitStatus.visited:
-          color = isEnd ? _slateGrey : _greenAccent;
-          break;
-        case VisitStatus.pending:
-          color = isEnd ? _slateGrey : _amber;
-          break;
-      }
-      final key = '${stop.label}_${isEnd}_${color.value}';
-      _bitmapCache[key] = await _numberedPin(
-        label: stop.label == 'Start' ? '1' : stop.label,
-        color: color,
-        isEnd: isEnd,
-      );
-    }
-    _bitmapCache['current'] = await _currentLocationPin();
+    if (widget.stops.isEmpty) return;
+    _bitmapCache['punch_in'] = await _numberedPin(
+      label: 'IN',
+      color: _greenAccent,
+      isEnd: false,
+    );
+    _bitmapCache['punch_out'] = await _numberedPin(
+      label: 'OUT',
+      color: const Color(0xFFEF4444),
+      isEnd: true,
+    );
     if (mounted) setState(() => _bitmapsReady = true);
   }
 
   BitmapDescriptor _bitmapFor(RouteStop stop, bool isEnd) {
-    Color color;
-    switch (stop.status) {
-      case VisitStatus.completed:
-      case VisitStatus.visited:
-        color = isEnd ? _slateGrey : _greenAccent;
-        break;
-      case VisitStatus.pending:
-        color = isEnd ? _slateGrey : _amber;
-        break;
-    }
-    final key = '${stop.label}_${isEnd}_${color.value}';
-    return _bitmapCache[key] ?? BitmapDescriptor.defaultMarker;
+    final key = isEnd ? 'punch_out' : 'punch_in';
+    return _bitmapCache[key] ??
+        BitmapDescriptor.defaultMarkerWithHue(
+          isEnd ? BitmapDescriptor.hueRed : BitmapDescriptor.hueGreen,
+        );
   }
 
   Set<Marker> _buildMarkers() {
     final markers = <Marker>{};
-    for (var i = 0; i < widget.stops.length; i++) {
-      final stop = widget.stops[i];
-      final isEnd = i == widget.stops.length - 1;
-      markers.add(
-        Marker(
-          markerId: MarkerId('stop_$i'),
-          position: stop.position,
-          icon: _bitmapFor(stop, isEnd),
-          anchor: const Offset(0.5, 0.82),
-          infoWindow: InfoWindow(title: stop.title, snippet: stop.address),
-        ),
+    if (widget.stops.isEmpty) return markers;
+
+    // Auto-tracking locations supply the polyline only. Showing a pin for
+    // every 50m breadcrumb makes the map unreadable, so retain pins solely
+    // for punch-in and (once completed) punch-out.
+    RouteStop? punchIn;
+    try {
+      punchIn = widget.stops.firstWhere(
+        (s) => s.title.toLowerCase().contains('punch-in') || s.label == 'Start',
       );
+    } catch (_) {
+      punchIn = widget.stops.first;
     }
-    final current = _currentStop;
-    if (current != null) {
+    markers.add(
+      Marker(
+        markerId: const MarkerId('punch_in'),
+        position: punchIn.position,
+        icon: _bitmapFor(punchIn, false),
+        anchor: const Offset(0.5, 0.82),
+        infoWindow: InfoWindow(title: 'Punch-In', snippet: punchIn.address),
+      ),
+    );
+
+    if (!widget.inProgress && widget.stops.length > 1) {
+      RouteStop? punchOut;
+      try {
+        punchOut = widget.stops.lastWhere(
+          (s) => s.title.toLowerCase().contains('punch-out') || s.label == 'End',
+        );
+      } catch (_) {
+        punchOut = widget.stops.last;
+      }
       markers.add(
         Marker(
-          markerId: const MarkerId('current'),
-          position: current.position,
-          icon: _bitmapCache['current'] ?? BitmapDescriptor.defaultMarker,
-          zIndex: 3,
-          anchor: const Offset(0.5, 0.5),
+          markerId: const MarkerId('punch_out'),
+          position: punchOut.position,
+          icon: _bitmapFor(punchOut, true),
+          anchor: const Offset(0.5, 0.82),
+          infoWindow: InfoWindow(title: 'Punch-Out', snippet: punchOut.address),
         ),
       );
     }
@@ -268,11 +246,14 @@ class _FullRouteMapState extends State<FullRouteMap>
   }
 
   Set<Polyline> _buildPolylines() {
+    final points = _roadVisitedPoints.isNotEmpty
+        ? _roadVisitedPoints
+        : orderedVisitedRouteStops(widget.stops).map((s) => s.position).toList();
     return {
-      if (_roadVisitedPoints.length > 1)
+      if (points.length > 1)
         Polyline(
           polylineId: const PolylineId('visited'),
-          points: _roadVisitedPoints,
+          points: points,
           color: _greenAccent,
           width: 5,
           geodesic: false,
@@ -316,15 +297,13 @@ class _FullRouteMapState extends State<FullRouteMap>
     }
 
     final start = await toOffset(widget.stops.first.position);
-    final end = await toOffset(widget.stops.last.position);
-    Offset? current;
-    final cur = _currentStop;
-    if (cur != null) current = await toOffset(cur.position);
+    final end = !widget.inProgress && widget.stops.length > 1
+        ? await toOffset(widget.stops.last.position)
+        : null;
     if (!mounted) return;
     setState(() {
       _startLabelOffset = start;
       _endLabelOffset = end;
-      _currentMarkerOffset = current;
     });
   }
 
@@ -382,8 +361,6 @@ class _FullRouteMapState extends State<FullRouteMap>
                         _slateGrey,
                         dx: 26,
                       ),
-                    if (_currentMarkerOffset != null)
-                      _pulsingRing(_currentMarkerOffset!),
                     Positioned(top: 12.h, left: 12.w, child: _buildLegend()),
                     Positioned(
                       top: 12.h,
@@ -566,11 +543,9 @@ class _FullRouteMapState extends State<FullRouteMap>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _legendRow(Icons.location_on_rounded, _greenAccent, 'Visited Location'),
+            _legendRow(Icons.login_rounded, _greenAccent, 'Punch-In'),
             SizedBox(height: 6.h),
-            _legendRow(Icons.location_on_rounded, _amber, 'Pending Location'),
-            SizedBox(height: 6.h),
-            _legendRow(Icons.my_location_rounded, _blue, 'Current Location'),
+            _legendRow(Icons.logout_rounded, const Color(0xFFEF4444), 'Punch-Out'),
             SizedBox(height: 6.h),
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -717,32 +692,4 @@ class _FullRouteMapState extends State<FullRouteMap>
     );
   }
 
-  Widget _pulsingRing(Offset center) {
-    return Positioned(
-      left: center.dx - 28,
-      top: center.dy - 28,
-      child: IgnorePointer(
-        child: AnimatedBuilder(
-          animation: _pulseCtrl,
-          builder: (context, child) {
-            final t = _pulseCtrl.value;
-            return Opacity(
-              opacity: (1 - t).clamp(0.0, 1.0),
-              child: Transform.scale(
-                scale: 0.4 + t * 1.3,
-                child: Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _blue.withOpacity(0.35),
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
 }

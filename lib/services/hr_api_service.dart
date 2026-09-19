@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/constant/api.dart';
@@ -22,8 +23,9 @@ class HrApiService {
   }
 
   /// Returns road-following map geometry for chronological tracking points.
-  /// An empty result means a road geometry was unavailable. Callers must keep
-  /// the GPS markers but never invent a straight connector between points.
+  /// If road routing is unavailable, the API returns the original
+  /// chronological GPS points. Render that fallback so a real tracked route
+  /// stays visible rather than disappearing.
   static Future<List<Map<String, double>>> roadRoute(
     List<Map<String, double>> points,
   ) async {
@@ -61,17 +63,30 @@ class HrApiService {
             body: jsonEncode({'points': points}),
           )
           .timeout(const Duration(seconds: 20));
-      final decoded = response.body.isEmpty ? null : jsonDecode(response.body);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        if (kDebugMode) {
+          debugPrint('Route map: route request failed (${response.statusCode})');
+        }
+        return const [];
+      }
+      final decoded = _tryDecodeJson(response);
+      if (decoded == null) {
+        if (kDebugMode) {
+          debugPrint('Route map: server returned HTML/non-JSON data');
+        }
+        return const [];
+      }
       final data = decoded is Map && decoded['data'] is Map
           ? decoded['data'] as Map
           : decoded;
       final routePoints = data is Map ? data['points'] : null;
-      if (response.statusCode < 200 || response.statusCode >= 300 ||
-          routePoints is! List) {
+      if (routePoints is! List) {
+        if (kDebugMode) {
+          debugPrint('Route map: route request failed (${response.statusCode})');
+        }
         return const [];
       }
-      if (data['source']?.toString() != 'osrm') return const [];
-      return routePoints
+      final parsedPoints = routePoints
           .whereType<Map>()
           .map((point) {
             final latitude = (point['latitude'] as num?)?.toDouble();
@@ -82,7 +97,18 @@ class HrApiService {
           })
           .whereType<Map<String, double>>()
           .toList();
-    } catch (_) {
+      if (kDebugMode) {
+        debugPrint(
+          'Route map: ${parsedPoints.length} points loaded '
+          '(${data is Map ? data['source'] ?? 'unknown' : 'unknown'} route)',
+        );
+      }
+      return parsedPoints;
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('Route map: route request error: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
       return const [];
     }
   }
@@ -91,8 +117,18 @@ class HrApiService {
     required String employeeId,
     required DateTime date,
   }) async {
-    final dateKey = date.toIso8601String().substring(0, 10);
-    final payload = await _get('/api/hr/tracking/employee/$employeeId/detail?date=$dateKey');
+    // Send a date-only value in a URL-safe query string.  Using Uri here also
+    // prevents an employee id containing reserved characters from changing the
+    // route or query that reaches the server.
+    final dateKey =
+        '${date.year.toString().padLeft(4, '0')}-'
+        '${date.month.toString().padLeft(2, '0')}-'
+        '${date.day.toString().padLeft(2, '0')}';
+    final employeeKey = Uri.encodeComponent(employeeId);
+    final query = Uri(queryParameters: {'date': dateKey}).query;
+    final payload = await _get(
+      '/api/hr/tracking/employee/$employeeKey/detail?$query',
+    );
     return payload is Map<String, dynamic> ? payload : <String, dynamic>{};
   }
 
@@ -112,12 +148,44 @@ class HrApiService {
           headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
         )
         .timeout(const Duration(seconds: 20));
-    final decoded = response.body.isEmpty ? null : jsonDecode(response.body);
+    final decoded = _tryDecodeJson(response);
+    if (decoded == null) {
+      final contentType = response.headers['content-type'] ?? 'unknown type';
+      if (kDebugMode) {
+        debugPrint(
+          'HR API: non-JSON response for $path '
+          '(${response.statusCode}, $contentType)',
+        );
+      }
+      throw const HrApiException(
+        'The server returned a web page instead of HR API data. '
+        'Please check the API deployment and sign in again.',
+      );
+    }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final message = decoded is Map ? (decoded['message'] ?? decoded['error'])?.toString() : null;
       throw HrApiException(message ?? 'Unable to load HR data (${response.statusCode}).');
     }
     return decoded is Map && decoded.containsKey('data') ? decoded['data'] : decoded;
+  }
+
+  /// Returns null for an HTML/proxy error page rather than letting jsonDecode
+  /// throw a FormatException into the UI.
+  static dynamic _tryDecodeJson(http.Response response) {
+    final body = response.body.trim();
+    if (body.isEmpty) return null;
+    final contentType = response.headers['content-type']?.toLowerCase() ?? '';
+    if (body.startsWith('<!DOCTYPE') || body.startsWith('<html') ||
+        (!contentType.contains('json') &&
+            !body.startsWith('{') &&
+            !body.startsWith('['))) {
+      return null;
+    }
+    try {
+      return jsonDecode(body);
+    } on FormatException {
+      return null;
+    }
   }
 }
 

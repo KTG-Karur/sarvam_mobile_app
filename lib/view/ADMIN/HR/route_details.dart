@@ -127,6 +127,11 @@ class _RouteDetailsState extends State<RouteDetails>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
     _ctrl.forward();
+    // Auto-tracking points immediately form the visible route line so there
+    // is no delay while the road-snapping API responds.
+    _roadVisitedPoints = orderedVisitedRouteStops(widget.stops)
+        .map((s) => s.position)
+        .toList();
     unawaited(_loadRoadRoute());
   }
 
@@ -138,13 +143,17 @@ class _RouteDetailsState extends State<RouteDetails>
             })
         .toList();
     if (visited.length < 2) return;
-    final roadPoints = await HrApiService.roadRoute(visited);
-    if (!mounted || roadPoints.length < 2) return;
-    setState(() {
-      _roadVisitedPoints = roadPoints
-          .map((point) => LatLng(point['latitude']!, point['longitude']!))
-          .toList();
-    });
+    try {
+      final roadPoints = await HrApiService.roadRoute(visited);
+      if (!mounted || roadPoints.length < 2) return;
+      setState(() {
+        _roadVisitedPoints = roadPoints
+            .map((point) => LatLng(point['latitude']!, point['longitude']!))
+            .toList();
+      });
+    } catch (_) {
+      // Keep direct auto-tracking GPS points fallback already in place
+    }
   }
 
   @override
@@ -183,48 +192,51 @@ class _RouteDetailsState extends State<RouteDetails>
     );
   }
 
-  BitmapDescriptor _iconFor(VisitStatus status, {bool isCurrent = false}) {
-    if (isCurrent) {
-      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
+  BitmapDescriptor _iconFor(VisitStatus status, {bool isPunchOut = false}) {
+    if (isPunchOut) {
+      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
     }
-    switch (status) {
-      case VisitStatus.completed:
-      case VisitStatus.visited:
-        return BitmapDescriptor.defaultMarkerWithHue(
-          BitmapDescriptor.hueGreen,
-        );
-      case VisitStatus.pending:
-        return BitmapDescriptor.defaultMarkerWithHue(
-          BitmapDescriptor.hueOrange,
-        );
-    }
+    return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
   }
 
   Set<Marker> _buildMarkers() {
     final markers = <Marker>{};
-    for (var i = 0; i < widget.stops.length; i++) {
-      final stop = widget.stops[i];
-      markers.add(
-        Marker(
-          markerId: MarkerId('stop_$i'),
-          position: stop.position,
-          icon: _iconFor(stop.status),
-          infoWindow: InfoWindow(title: stop.title, snippet: stop.address),
-        ),
+    if (widget.stops.isEmpty) return markers;
+
+    // Auto-tracking points form the route line ONLY and are never rendered as pins.
+    // Only punch-in and punch-out are displayed with map icons.
+    RouteStop? punchIn;
+    try {
+      punchIn = widget.stops.firstWhere(
+        (s) => s.title.toLowerCase().contains('punch-in') || s.label == 'Start',
       );
+    } catch (_) {
+      punchIn = widget.stops.first;
     }
-    if (widget.inProgress && widget.stops.isNotEmpty) {
-      final lastVisited = widget.stops.lastWhere(
-        (s) => s.status != VisitStatus.pending,
-        orElse: () => widget.stops.first,
-      );
+    markers.add(
+      Marker(
+        markerId: const MarkerId('punch_in'),
+        position: punchIn.position,
+        icon: _iconFor(punchIn.status),
+        infoWindow: InfoWindow(title: 'Punch-In', snippet: punchIn.address),
+      ),
+    );
+
+    if (!widget.inProgress && widget.stops.length > 1) {
+      RouteStop? punchOut;
+      try {
+        punchOut = widget.stops.lastWhere(
+          (s) => s.title.toLowerCase().contains('punch-out') || s.label == 'End',
+        );
+      } catch (_) {
+        punchOut = widget.stops.last;
+      }
       markers.add(
         Marker(
-          markerId: const MarkerId('current'),
-          position: lastVisited.position,
-          icon: _iconFor(VisitStatus.visited, isCurrent: true),
-          infoWindow: const InfoWindow(title: 'Current Location'),
-          zIndex: 2,
+          markerId: const MarkerId('punch_out'),
+          position: punchOut.position,
+          icon: _iconFor(punchOut.status, isPunchOut: true),
+          infoWindow: InfoWindow(title: 'Punch-Out', snippet: punchOut.address),
         ),
       );
     }
@@ -232,11 +244,16 @@ class _RouteDetailsState extends State<RouteDetails>
   }
 
   Set<Polyline> _buildPolylines() {
+    final points = _roadVisitedPoints.isNotEmpty
+        ? _roadVisitedPoints
+        : orderedVisitedRouteStops(widget.stops)
+            .map((s) => s.position)
+            .toList();
     return {
-      if (_roadVisitedPoints.length > 1)
+      if (points.length > 1)
         Polyline(
           polylineId: const PolylineId('visited'),
-          points: _roadVisitedPoints,
+          points: points,
           color: _greenAccent,
           width: 4,
           geodesic: false,
@@ -678,11 +695,28 @@ class _RouteDetailsState extends State<RouteDetails>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _legendRow(_greenAccent, 'Visited'),
+          _legendRow(_greenAccent, 'Punch-In'),
           SizedBox(height: 4.h),
-          _legendRow(_amber, 'Pending'),
+          _legendRow(const Color(0xFFEF4444), 'Punch-Out'),
           SizedBox(height: 4.h),
-          _legendRow(const Color(0xFF2563EB), 'Current Location'),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 12.w,
+                height: 3.h,
+                decoration: BoxDecoration(
+                  color: _greenAccent,
+                  borderRadius: BorderRadius.circular(2.r),
+                ),
+              ),
+              SizedBox(width: 6.w),
+              Text(
+                'Route',
+                style: GoogleFonts.inter(fontSize: 10.5.sp, color: _darkText),
+              ),
+            ],
+          ),
         ],
       ),
     );

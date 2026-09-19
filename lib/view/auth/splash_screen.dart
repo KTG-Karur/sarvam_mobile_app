@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/view/auth/login_screen.dart';
 import 'package:sarvam/view/auth/mpin_login_screen.dart';
 import 'package:sarvam/services/secure_session_service.dart';
+import 'package:sarvam/services/app_permission_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -37,6 +38,8 @@ class _SplashScreenState extends State<SplashScreen>
 
     _controller.forward();
     Future.delayed(const Duration(milliseconds: 1800), () async {
+      if (!mounted) return;
+      await AppPermissionService.requestStartupPermissions();
       if (!mounted) return;
       final prefs = await SharedPreferences.getInstance();
       final String? token = await SecureSessionService.readAccessToken();
