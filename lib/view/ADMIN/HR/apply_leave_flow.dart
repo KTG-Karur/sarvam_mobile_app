@@ -1,8 +1,12 @@
+import 'dart:io' as io;
+import 'dart:typed_data';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:lottie/lottie.dart';
+import 'package:sarvam/controller/leave_controller.dart';
 import 'package:sarvam/view/ADMIN/HR/my_leave_pages.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -10,22 +14,24 @@ import 'package:sarvam/view/ADMIN/HR/my_leave_pages.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 
 class LeaveRequestDraft {
-  String? leaveTypeCode; // CL / SL / PL
+  String? leaveTypeCode;
   String? leaveTypeLabel;
   DateTime? fromDate;
   DateTime? toDate;
   String duration = 'Full Day'; // Full Day | First Half | Second Half
   String reason = '';
+  Uint8List? attachmentBytes;
   String? attachmentName;
 
-  static const balances = {'CL': 6, 'SL': 4, 'PL': 10};
+  double currentBalance = 0;
 
-  int get leaveDays {
+  double get leaveDays {
     if (fromDate == null || toDate == null) return 0;
     final days = toDate!.difference(fromDate!).inDays + 1;
-    if (duration != 'Full Day' && days == 1)
-      return 1; // half-day still counts 1 UI day
-    return days;
+    if (duration != 'Full Day') {
+      return days - 0.5;
+    }
+    return days.toDouble();
   }
 
   String get dateRangeText {
@@ -34,10 +40,8 @@ class LeaveRequestDraft {
     return '${fmt.format(fromDate!)} – ${fmt.format(toDate!)}';
   }
 
-  int get currentBalance => balances[leaveTypeCode] ?? 0;
-
-  int get remainingBalance {
-    final used = leaveDays;
+  double get remainingBalance {
+    final used = leaveDays.toDouble();
     return (currentBalance - used).clamp(0, 999);
   }
 }
@@ -63,13 +67,9 @@ class ApplyLeavePage extends StatefulWidget {
 }
 
 class _ApplyLeavePageState extends State<ApplyLeavePage> {
+  final LeaveController _controller = Get.put(LeaveController());
   final _draft = LeaveRequestDraft();
   final _reasonCtrl = TextEditingController();
-  static const _types = [
-    ('CL', 'Casual Leave'),
-    ('SL', 'Sick Leave'),
-    ('PL', 'Privilege Leave'),
-  ];
 
   @override
   void dispose() {
@@ -79,15 +79,43 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
 
   Future<void> _pickDate({required bool isFrom}) async {
     final now = DateTime.now();
-    final initial = isFrom
+    DateTime initial = isFrom
         ? (_draft.fromDate ?? now)
         : (_draft.toDate ?? _draft.fromDate ?? now);
     final first = isFrom ? now : (_draft.fromDate ?? now);
+
+    final List<DateTime> blockedDates = _controller.leaveApplications
+        .where((app) => app['status'] != 'CANCELLED')
+        .expand((app) {
+      final start = DateTime.tryParse(app['fromDate'])?.toLocal();
+      final end = DateTime.tryParse(app['toDate'])?.toLocal();
+      if (start == null || end == null) return <DateTime>[];
+      final days = <DateTime>[];
+      for (int i = 0; i <= end.difference(start).inDays; i++) {
+        days.add(DateTime(start.year, start.month, start.day + i));
+      }
+      return days;
+    }).toList();
+
+    // Ensure initialDate is not before firstDate
+    if (initial.isBefore(first)) {
+      initial = first;
+    }
+
+    // If initialDate is blocked, find the next available non-blocked date
+    while (blockedDates.any((bd) => bd.year == initial.year && bd.month == initial.month && bd.day == initial.day)) {
+      initial = initial.add(const Duration(days: 1));
+    }
+
     final picked = await showDatePicker(
       context: context,
-      initialDate: initial.isBefore(first) ? first : initial,
+      initialDate: initial,
       firstDate: first,
       lastDate: now.add(const Duration(days: 365)),
+      selectableDayPredicate: (day) {
+        final d = DateTime(day.year, day.month, day.day);
+        return !blockedDates.any((bd) => bd.year == d.year && bd.month == d.month && bd.day == d.day);
+      },
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -104,7 +132,7 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
     setState(() {
       if (isFrom) {
         _draft.fromDate = picked;
-        if (_draft.toDate != null && _draft.toDate!.isBefore(picked)) {
+        if (_draft.duration != 'Full Day' || (_draft.toDate != null && _draft.toDate!.isBefore(picked))) {
           _draft.toDate = picked;
         }
       } else {
@@ -195,19 +223,48 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
                     ),
                   ),
                   SizedBox(height: 10.h),
-                  Row(
-                    children: [
-                      _balanceChip('CL', 'Casual Leave', 6, _lightGreen),
-                      SizedBox(width: 8.w),
-                      _balanceChip('SL', 'Sick Leave', 4, _lightGreen),
-                      SizedBox(width: 8.w),
-                      _balanceChip('PL', 'Privilege Leave', 10, _cream),
-                    ],
-                  ),
+                  Obx(() {
+                    if (_controller.isLoading.value) {
+                      return const Center(
+                        child: CircularProgressIndicator(color: _green),
+                      );
+                    }
+                    if (_controller.leaveBalances.isEmpty) {
+                      return Text(
+                        'No leave balances available.',
+                        style: TextStyle(fontSize: 12.sp, color: _muted),
+                      );
+                    }
+                    return Row(
+                      children: _controller.leaveBalances.map((b) {
+                        final typeName = b['leaveType']?.toString() ?? 'Leave';
+                        final typeId = b['typeId']?.toString() ?? '';
+                        final balance = double.tryParse(b['remainingBalance']?.toString() ?? '0') ?? 0;
+                        final isLast = _controller.leaveBalances.indexOf(b) ==
+                            _controller.leaveBalances.length - 1;
+
+                        return Expanded(
+                          child: Padding(
+                            padding: EdgeInsets.only(right: isLast ? 0 : 8.w),
+                            child: _balanceChip(
+                              typeId,
+                              typeName,
+                              balance,
+                              typeName.toUpperCase().contains('PRIVILEGE') ? _cream : _lightGreen,
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    );
+                  }),
                   SizedBox(height: 20.h),
                   _label('Leave Type'),
                   SizedBox(height: 8.h),
                   _leaveTypeDropdown(),
+                  SizedBox(height: 16.h),
+                  _label('Duration'),
+                  SizedBox(height: 8.h),
+                  _durationSelector(),
                   SizedBox(height: 16.h),
                   Row(
                     children: [
@@ -233,7 +290,7 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
                             SizedBox(height: 8.h),
                             _dateField(
                               value: _draft.toDate,
-                              onTap: () => _openCalendarPicker(),
+                              onTap: _draft.duration == 'Full Day' ? () => _openCalendarPicker() : null,
                             ),
                           ],
                         ),
@@ -244,27 +301,23 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton.icon(
-                      onPressed: _openCalendarPicker,
+                      onPressed: _draft.duration == 'Full Day' ? _openCalendarPicker : null,
                       icon: Icon(
                         Icons.calendar_month_rounded,
                         size: 16.sp,
-                        color: _green,
+                        color: _draft.duration == 'Full Day' ? _green : _muted.withOpacity(0.5),
                       ),
                       label: Text(
                         'Open calendar',
                         style: TextStyle(
                           fontSize: 12.sp,
                           fontWeight: FontWeight.w600,
-                          color: _green,
+                          color: _draft.duration == 'Full Day' ? _green : _muted.withOpacity(0.5),
                         ),
                       ),
                     ),
                   ),
                   SizedBox(height: 8.h),
-                  _label('Duration'),
-                  SizedBox(height: 8.h),
-                  _durationSelector(),
-                  SizedBox(height: 16.h),
                   _label('Reason for Leave'),
                   SizedBox(height: 8.h),
                   TextField(
@@ -292,40 +345,10 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
                       ),
                     ),
                   ),
-                  SizedBox(height: 8.h),
+                  SizedBox(height: 16.h),
                   _label('Attachment (Optional)'),
                   SizedBox(height: 8.h),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      setState(() => _draft.attachmentName = null);
-                      _toast('Attachment picker — coming soon');
-                    },
-                    icon: Icon(
-                      Icons.attach_file_rounded,
-                      color: _green,
-                      size: 18.sp,
-                    ),
-                    label: Text(
-                      _draft.attachmentName ?? 'Add Attachment',
-                      style: TextStyle(
-                        color: _green,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13.sp,
-                      ),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFFCBD5E1)),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12.r),
-                      ),
-                      minimumSize: Size(double.infinity, 48.h),
-                    ),
-                  ),
-                  SizedBox(height: 6.h),
-                  Text(
-                    'Supported files: PDF, JPG, PNG (Max 5 MB)',
-                    style: TextStyle(fontSize: 11.sp, color: _muted),
-                  ),
+                  _attachmentSelector(),
                 ],
               ),
             ),
@@ -377,39 +400,35 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
     );
   }
 
-  Widget _balanceChip(String code, String name, int days, Color bg) {
-    return Expanded(
-      child: Container(
-        padding: EdgeInsets.symmetric(vertical: 12.h, horizontal: 8.w),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(12.r),
-        ),
-        child: Column(
-          children: [
-            Text(
-              code,
-              style: TextStyle(
-                fontSize: 13.sp,
-                fontWeight: FontWeight.w800,
-                color: _green,
-              ),
+  Widget _balanceChip(String code, String name, double days, Color bg) {
+    final displayDays = days % 1 == 0 ? days.toInt().toString() : days.toString();
+    return Container(
+      padding: EdgeInsets.symmetric(vertical: 12.h, horizontal: 8.w),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12.r),
+      ),
+      child: Column(
+        children: [
+          Text(
+            name.toUpperCase(),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 11.sp,
+              fontWeight: FontWeight.w800,
+              color: _green,
             ),
-            SizedBox(height: 2.h),
-            Text(
-              '$days Days',
-              style: TextStyle(
-                fontSize: 12.sp,
-                fontWeight: FontWeight.w700,
-                color: _navy,
-              ),
+          ),
+          SizedBox(height: 4.h),
+          Text(
+            '$displayDays Days',
+            style: TextStyle(
+              fontSize: 12.sp,
+              fontWeight: FontWeight.w700,
+              color: _navy,
             ),
-            Text(
-              name.split(' ').first,
-              style: TextStyle(fontSize: 9.5.sp, color: _muted),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -432,58 +451,83 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          isExpanded: true,
-          value: _draft.leaveTypeCode,
-          hint: Row(
-            children: [
-              Icon(
-                Icons.beach_access_rounded,
-                color: _yellow,
-                size: 18.sp,
-              ),
-              SizedBox(width: 8.w),
-              Text(
-                'Select Leave Type',
-                style: TextStyle(fontSize: 13.sp, color: _muted),
-              ),
-            ],
-          ),
-          icon: Icon(Icons.keyboard_arrow_down_rounded, color: _muted),
-          items: _types
-              .map(
-                (t) => DropdownMenuItem(
-                  value: t.$1,
-                  child: Text(
-                    '${t.$2} (${t.$1})',
-                    style: TextStyle(fontSize: 13.5.sp, color: _navy),
-                  ),
+        child: Obx(() {
+          return DropdownButton<String>(
+            isExpanded: true,
+            value: _draft.leaveTypeCode,
+            hint: Row(
+              children: [
+                Icon(
+                  Icons.beach_access_rounded,
+                  color: _yellow,
+                  size: 18.sp,
                 ),
-              )
-              .toList(),
-          onChanged: (v) {
-            if (v == null) return;
-            setState(() {
-              _draft.leaveTypeCode = v;
-              _draft.leaveTypeLabel = _types.firstWhere((t) => t.$1 == v).$2;
-            });
-          },
-        ),
+                SizedBox(width: 8.w),
+                Text(
+                  'Select Leave Type',
+                  style: TextStyle(fontSize: 13.sp, color: _muted),
+                ),
+              ],
+            ),
+            icon: Icon(Icons.keyboard_arrow_down_rounded, color: _muted),
+            items: _controller.leaveTypes
+                .map(
+                  (t) {
+                    final id = t['id']?.toString() ?? '';
+                    final name = t['leaveType']?.toString() ?? '';
+                    return DropdownMenuItem(
+                      value: id,
+                      child: Text(
+                        name.toUpperCase(),
+                        style: TextStyle(fontSize: 13.5.sp, color: _navy),
+                      ),
+                    );
+                  },
+                )
+                .toList(),
+            onChanged: (v) {
+              if (v == null) return;
+              final selectedType = _controller.leaveTypes.firstWhere(
+                (t) => (t['id']?.toString() ?? '') == v,
+                orElse: () => null,
+              );
+              final name = selectedType != null
+                  ? (selectedType['leaveType']?.toString() ?? '')
+                  : v;
+              
+              // Find matching balance if any to set currentBalance
+              final matchingBalance = _controller.leaveBalances.firstWhere(
+                (b) => (b['id']?.toString() ?? '') == v,
+                orElse: () => null,
+              );
+              final balanceVal = matchingBalance != null
+                  ? (double.tryParse(matchingBalance['remainingBalance']?.toString() ?? '0') ?? 0)
+                  : 0.0;
+
+              setState(() {
+                _draft.leaveTypeCode = v;
+                _draft.leaveTypeLabel = name.toUpperCase();
+                _draft.currentBalance = balanceVal;
+              });
+            },
+          );
+        }),
       ),
     );
   }
 
-  Widget _dateField({required DateTime? value, required VoidCallback onTap}) {
+  Widget _dateField({required DateTime? value, required VoidCallback? onTap}) {
     final text = value == null
         ? 'Select'
         : DateFormat('dd MMM yyyy').format(value);
+    final isDisabled = onTap == null;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12.r),
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 14.h),
         decoration: BoxDecoration(
-          color: const Color(0xFFF8FAFC),
+          color: isDisabled ? const Color(0xFFF1F5F9) : const Color(0xFFF8FAFC),
           borderRadius: BorderRadius.circular(12.r),
           border: Border.all(color: const Color(0xFFE2E8F0)),
         ),
@@ -494,12 +538,12 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
                 text,
                 style: TextStyle(
                   fontSize: 13.sp,
-                  color: value == null ? _muted : _navy,
+                  color: isDisabled ? _muted.withOpacity(0.5) : (value == null ? _muted : _navy),
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ),
-            Icon(Icons.calendar_today_rounded, size: 16.sp, color: _green),
+            Icon(Icons.calendar_today_rounded, size: 16.sp, color: isDisabled ? _muted.withOpacity(0.3) : _green),
           ],
         ),
       ),
@@ -515,7 +559,12 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
           child: Padding(
             padding: EdgeInsets.only(right: opt == options.last ? 0 : 8.w),
             child: GestureDetector(
-              onTap: () => setState(() => _draft.duration = opt),
+              onTap: () => setState(() {
+                _draft.duration = opt;
+                if (opt != 'Full Day' && _draft.fromDate != null) {
+                  _draft.toDate = _draft.fromDate;
+                }
+              }),
               child: Container(
                 padding: EdgeInsets.symmetric(vertical: 12.h),
                 decoration: BoxDecoration(
@@ -541,6 +590,83 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
       }).toList(),
     );
   }
+
+  Widget _attachmentSelector() {
+    return InkWell(
+      onTap: _pickAttachment,
+      borderRadius: BorderRadius.circular(12.r),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(12.r),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              _draft.attachmentName != null ? Icons.description_rounded : Icons.file_upload_outlined,
+              color: _green,
+              size: 20.sp,
+            ),
+            SizedBox(width: 12.w),
+            Expanded(
+              child: Text(
+                _draft.attachmentName ?? 'Upload document (PDF, PNG, JPG)',
+                style: TextStyle(
+                  fontSize: 13.sp,
+                  color: _draft.attachmentName != null ? _navy : _muted,
+                  fontWeight: _draft.attachmentName != null ? FontWeight.w600 : FontWeight.w400,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (_draft.attachmentName != null)
+              GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _draft.attachmentName = null;
+                    _draft.attachmentBytes = null;
+                  });
+                },
+                child: Padding(
+                  padding: EdgeInsets.only(left: 8.w),
+                  child: Icon(Icons.cancel_rounded, color: Colors.red[400], size: 20.sp),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickAttachment() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
+        withData: true,
+      );
+
+      if (result != null) {
+        final pickedFile = result.files.single;
+        Uint8List? bytes = pickedFile.bytes;
+        if (bytes == null && pickedFile.path != null) {
+          bytes = await io.File(pickedFile.path!).readAsBytes();
+        }
+
+        if (bytes != null) {
+          setState(() {
+            _draft.attachmentBytes = bytes;
+            _draft.attachmentName = pickedFile.name;
+          });
+        }
+      }
+    } catch (e) {
+      _toast('Error picking file');
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -556,9 +682,11 @@ class SelectLeaveDatesPage extends StatefulWidget {
 }
 
 class _SelectLeaveDatesPageState extends State<SelectLeaveDatesPage> {
+  final LeaveController _controller = Get.find<LeaveController>();
   late DateTime _visibleMonth;
   DateTime? _start;
   DateTime? _end;
+  late List<DateTime> _blockedDates;
 
   @override
   void initState() {
@@ -569,6 +697,19 @@ class _SelectLeaveDatesPageState extends State<SelectLeaveDatesPage> {
       (_start ?? DateTime.now()).year,
       (_start ?? DateTime.now()).month,
     );
+
+    _blockedDates = _controller.leaveApplications
+        .where((app) => app['status'] != 'CANCELLED')
+        .expand((app) {
+      final start = DateTime.tryParse(app['fromDate'] ?? '')?.toLocal();
+      final end = DateTime.tryParse(app['toDate'] ?? '')?.toLocal();
+      if (start == null || end == null) return <DateTime>[];
+      final days = <DateTime>[];
+      for (int i = 0; i <= end.difference(start).inDays; i++) {
+        days.add(DateTime(start.year, start.month, start.day + i));
+      }
+      return days;
+    }).toList();
   }
 
   void _prevMonth() => setState(() {
@@ -579,7 +720,14 @@ class _SelectLeaveDatesPageState extends State<SelectLeaveDatesPage> {
     _visibleMonth = DateTime(_visibleMonth.year, _visibleMonth.month + 1);
   });
 
+  bool _isBlocked(DateTime day) {
+    final d = DateTime(day.year, day.month, day.day);
+    return _blockedDates.any((bd) => bd.year == d.year && bd.month == d.month && bd.day == d.day);
+  }
+
   void _onDayTap(DateTime day) {
+    if (_isBlocked(day)) return;
+
     final today = DateTime.now();
     final d = DateTime(day.year, day.month, day.day);
     final t = DateTime(today.year, today.month, today.day);
@@ -593,7 +741,20 @@ class _SelectLeaveDatesPageState extends State<SelectLeaveDatesPage> {
         _start = d;
         _end = null;
       } else {
-        _end = d;
+        // If range contains any blocked dates, don't allow selecting it
+        bool hasBlocked = false;
+        for (int i = 0; i <= d.difference(_start!).inDays; i++) {
+          if (_isBlocked(DateTime(_start!.year, _start!.month, _start!.day + i))) {
+            hasBlocked = true;
+            break;
+          }
+        }
+        if (hasBlocked) {
+          _start = d;
+          _end = null;
+        } else {
+          _end = d;
+        }
       }
     });
   }
@@ -658,15 +819,17 @@ class _SelectLeaveDatesPageState extends State<SelectLeaveDatesPage> {
       final past = date.isBefore(
         DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day),
       );
+      final blocked = _isBlocked(date);
+
       days.add(
         GestureDetector(
-          onTap: past ? null : () => _onDayTap(date),
+          onTap: (past || blocked) ? null : () => _onDayTap(date),
           child: Container(
             margin: EdgeInsets.all(3.w),
             decoration: BoxDecoration(
               color: selected
                   ? (edge ? _green : _green.withValues(alpha: 0.18))
-                  : Colors.transparent,
+                  : (blocked ? Colors.grey.withValues(alpha: 0.1) : Colors.transparent),
               shape: BoxShape.circle,
             ),
             alignment: Alignment.center,
@@ -675,13 +838,14 @@ class _SelectLeaveDatesPageState extends State<SelectLeaveDatesPage> {
               style: TextStyle(
                 fontSize: 13.sp,
                 fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
-                color: past
+                color: (past || blocked)
                     ? const Color(0xFFCBD5E1)
                     : selected && edge
                     ? Colors.white
                     : selected
                     ? _green
                     : _navy,
+                decoration: blocked ? TextDecoration.lineThrough : null,
               ),
             ),
           ),
@@ -887,7 +1051,7 @@ class ReviewLeaveRequestPage extends StatelessWidget {
       (
         Icons.beach_access_rounded,
         'Leave Type',
-        '${draft.leaveTypeLabel} (${draft.leaveTypeCode})',
+        '${draft.leaveTypeLabel}',
         _yellow, // amber
       ),
       (
@@ -914,12 +1078,13 @@ class ReviewLeaveRequestPage extends StatelessWidget {
         draft.reason,
         const Color(0xFF64748B), // slate
       ),
-      (
-        Icons.attach_file_rounded,
-        'Attachment',
-        draft.attachmentName ?? 'No file attached',
-        const Color(0xFFEF4444), // red
-      ),
+      if (draft.attachmentName != null)
+        (
+          Icons.attach_file_rounded,
+          'Attachment',
+          draft.attachmentName!,
+          const Color(0xFF64748B),
+        ),
     ];
 
     return Scaffold(
@@ -1049,14 +1214,14 @@ class ReviewLeaveRequestPage extends StatelessWidget {
                       children: [
                         _balanceRow(
                           'Current Balance',
-                          '${draft.currentBalance} Days',
+                          '${draft.currentBalance % 1 == 0 ? draft.currentBalance.toInt() : draft.currentBalance} Days',
                         ),
                         Divider(height: 18.h, color: const Color(0xFFE2E8F0)),
                         _balanceRow('Leave Days', '${draft.leaveDays} Days'),
                         Divider(height: 18.h, color: const Color(0xFFE2E8F0)),
                         _balanceRow(
                           'Remaining Balance',
-                          '${draft.remainingBalance} Days',
+                          '${draft.remainingBalance % 1 == 0 ? draft.remainingBalance.toInt() : draft.remainingBalance} Days',
                           highlight: true,
                         ),
                       ],
@@ -1073,30 +1238,69 @@ class ReviewLeaveRequestPage extends StatelessWidget {
               child: SizedBox(
                 width: double.infinity,
                 height: 52.h,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.of(context).pushReplacement(
-                      MaterialPageRoute(
-                        builder: (_) => LeaveSubmittedPage(draft: draft),
+                child: Obx(() {
+                  final LeaveController controller = Get.find<LeaveController>();
+                  return ElevatedButton(
+                    onPressed: controller.isLoading.value
+                        ? null
+                        : () async {
+                            final isHalfDay = draft.duration != 'Full Day';
+                            String? session;
+                            if (draft.duration == 'First Half') session = 'FIRST_HALF';
+                            if (draft.duration == 'Second Half') session = 'SECOND_HALF';
+
+                            final success = await controller.applyLeave(
+                              leaveTypeId: draft.leaveTypeCode ?? '',
+                              fromDate: DateFormat('yyyy-MM-dd').format(draft.fromDate!),
+                              toDate: DateFormat('yyyy-MM-dd').format(draft.toDate!),
+                              reason: draft.reason,
+                              isHalfDay: isHalfDay,
+                              halfDaySession: session,
+                              attachmentBytes: draft.attachmentBytes,
+                              attachmentName: draft.attachmentName,
+                            );
+
+                            if (success) {
+                              Navigator.of(context).pushReplacement(
+                                MaterialPageRoute(
+                                  builder: (_) => LeaveSubmittedPage(draft: draft),
+                                ),
+                              );
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Failed to submit leave request. Please try again.'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _green,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14.r),
                       ),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _green,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14.r),
                     ),
-                  ),
-                  child: Text(
-                    'Submit Leave',
-                    style: TextStyle(
-                      fontSize: 15.sp,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
+                    child: controller.isLoading.value
+                        ? SizedBox(
+                            height: 20.h,
+                            width: 20.h,
+                            child: const CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : Text(
+                            'Submit Leave',
+                            style: TextStyle(
+                              fontSize: 15.sp,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                  );
+                }),
               ),
             ),
           ),
@@ -1211,7 +1415,7 @@ class LeaveSubmittedPage extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  '${draft.leaveTypeLabel} (${draft.leaveTypeCode})',
+                                  '${draft.leaveTypeLabel}',
                                   style: TextStyle(
                                     fontSize: 15.sp,
                                     fontWeight: FontWeight.w800,

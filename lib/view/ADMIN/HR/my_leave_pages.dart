@@ -3,11 +3,13 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 
+import 'package:sarvam/controller/leave_controller.dart';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Models
 // ─────────────────────────────────────────────────────────────────────────────
 
-enum LeaveStatus { pending, approved, rejected }
+enum LeaveStatus { pending, approved, rejected, cancelled }
 
 extension LeaveStatusX on LeaveStatus {
   String get label {
@@ -18,6 +20,8 @@ extension LeaveStatusX on LeaveStatus {
         return 'Approved';
       case LeaveStatus.rejected:
         return 'Rejected';
+      case LeaveStatus.cancelled:
+        return 'Cancelled';
     }
   }
 
@@ -29,6 +33,8 @@ extension LeaveStatusX on LeaveStatus {
         return const Color(0xFF0D6842);
       case LeaveStatus.rejected:
         return const Color(0xFFDC2626);
+      case LeaveStatus.cancelled:
+        return const Color(0xFF64748B);
     }
   }
 
@@ -40,24 +46,27 @@ extension LeaveStatusX on LeaveStatus {
         return const Color(0xFFDCFCE7);
       case LeaveStatus.rejected:
         return const Color(0xFFFEE2E2);
+      case LeaveStatus.cancelled:
+        return const Color(0xFFF1F5F9);
     }
   }
 }
 
 class LeaveRequestItem {
   final String id;
-  final String typeCode; // CL / SL / PL
+  final String typeCode; // e.g. UUID or CASUAL
   final String typeLabel;
   final DateTime fromDate;
   final DateTime toDate;
   final String durationLabel; // e.g. Full Day
   final String reason;
-  final String? attachmentName;
   final DateTime appliedOn;
   final LeaveStatus status;
-  final String? approverRole;
+  final String? approverName;
   final DateTime? decidedAt;
   final String? decisionNote;
+  final double leaveDays;
+  final String? attachment;
 
   const LeaveRequestItem({
     required this.id,
@@ -69,80 +78,62 @@ class LeaveRequestItem {
     required this.reason,
     required this.appliedOn,
     required this.status,
-    this.attachmentName,
-    this.approverRole,
+    required this.leaveDays,
+    this.approverName,
     this.decidedAt,
     this.decisionNote,
+    this.attachment,
   });
 
-  int get leaveDays => toDate.difference(fromDate).inDays + 1;
-
-  String get title => '$typeLabel ($typeCode)';
+  String get title => typeLabel.toUpperCase();
 
   String get dateRange {
     final fmt = DateFormat('dd MMM yyyy');
     return '${fmt.format(fromDate)} – ${fmt.format(toDate)}';
   }
 
-  String get daysText => '$leaveDays Day${leaveDays > 1 ? 's' : ''}';
-}
+  String get daysText => '${leaveDays % 1 == 0 ? leaveDays.toInt() : leaveDays} Day${leaveDays > 1 ? 's' : ''}';
 
-/// Demo data until the leave API is wired.
-final List<LeaveRequestItem> kDemoLeaveRequests = [
-  LeaveRequestItem(
-    id: '1',
-    typeCode: 'CL',
-    typeLabel: 'Casual Leave',
-    fromDate: DateTime(2026, 9, 12),
-    toDate: DateTime(2026, 9, 13),
-    durationLabel: 'Full Day',
-    reason: 'Personal work',
-    appliedOn: DateTime(2026, 9, 10),
-    status: LeaveStatus.approved,
-    approverRole: 'Regional Manager',
-    decidedAt: DateTime(2026, 9, 11, 10, 30),
-    decisionNote: 'Your leave request has been approved.',
-  ),
-  LeaveRequestItem(
-    id: '2',
-    typeCode: 'SL',
-    typeLabel: 'Sick Leave',
-    fromDate: DateTime(2026, 9, 5),
-    toDate: DateTime(2026, 9, 5),
-    durationLabel: 'Full Day',
-    reason: 'Fever and rest advised by doctor',
-    appliedOn: DateTime(2026, 9, 4),
-    status: LeaveStatus.rejected,
-    approverRole: 'Branch Manager',
-    decidedAt: DateTime(2026, 9, 4, 16, 15),
-    decisionNote: 'Your leave request has been rejected.',
-  ),
-  LeaveRequestItem(
-    id: '3',
-    typeCode: 'PL',
-    typeLabel: 'Privilege Leave',
-    fromDate: DateTime(2026, 9, 20),
-    toDate: DateTime(2026, 9, 22),
-    durationLabel: 'Full Day',
-    reason: 'Family function',
-    appliedOn: DateTime(2026, 9, 15),
-    status: LeaveStatus.pending,
-  ),
-  LeaveRequestItem(
-    id: '4',
-    typeCode: 'CL',
-    typeLabel: 'Casual Leave',
-    fromDate: DateTime(2026, 8, 18),
-    toDate: DateTime(2026, 8, 18),
-    durationLabel: 'First Half',
-    reason: 'Bank work',
-    appliedOn: DateTime(2026, 8, 16),
-    status: LeaveStatus.approved,
-    approverRole: 'Regional Manager',
-    decidedAt: DateTime(2026, 8, 17, 9, 45),
-    decisionNote: 'Your leave request has been approved.',
-  ),
-];
+  factory LeaveRequestItem.fromJson(Map<String, dynamic> json) {
+    final leaveType = json['leaveType'] as Map<String, dynamic>?;
+    final approvedBy = json['approvedBy'] as Map<String, dynamic>?;
+
+    String duration = 'Full Day';
+    if (json['isHalfDay'] == true) {
+      final session = json['halfDaySession']?.toString();
+      if (session == 'FIRST_HALF') duration = 'First Half';
+      if (session == 'SECOND_HALF') duration = 'Second Half';
+    }
+
+    LeaveStatus status = LeaveStatus.pending;
+    final s = json['status']?.toString().toUpperCase();
+    if (s == 'APPROVED') status = LeaveStatus.approved;
+    if (s == 'REJECTED') status = LeaveStatus.rejected;
+    if (s == 'CANCELLED') status = LeaveStatus.cancelled;
+
+    String? approver;
+    if (approvedBy != null) {
+      approver = '${approvedBy['firstName'] ?? ''} ${approvedBy['lastName'] ?? ''}'.trim();
+    }
+
+    return LeaveRequestItem(
+      id: json['id'] ?? '',
+      typeCode: leaveType?['leaveType'] ?? '',
+      typeLabel: leaveType?['leaveType'] ?? '',
+      fromDate: DateTime.tryParse(json['fromDate'] ?? '') ?? DateTime.now(),
+      toDate: DateTime.tryParse(json['toDate'] ?? '') ?? DateTime.now(),
+      durationLabel: duration,
+      reason: json['reason'] ?? '',
+      appliedOn: DateTime.tryParse(json['appliedAt'] ?? json['createdAt'] ?? '') ?? DateTime.now(),
+      status: status,
+      leaveDays: double.tryParse(json['numberOfDays']?.toString() ?? '0') ?? 0,
+      approverName: approver,
+      decidedAt: DateTime.tryParse(json['approvedAt'] ?? ''),
+      decisionNote: json['approvalRemarks'],
+      attachment: json['attachment'],
+    );
+  }
+}
 
 const _green = Color(0xFF0D6842);
 const _navy = Color(0xFF0F172A);
@@ -160,20 +151,26 @@ class MyLeaveRequestsPage extends StatefulWidget {
 }
 
 class _MyLeaveRequestsPageState extends State<MyLeaveRequestsPage> {
-  String _filter = 'All'; // All | Pending | Approved | Rejected
+  final LeaveController _controller = Get.put(LeaveController());
+  String _filter = 'All'; // All | Pending | Approved | Rejected | Cancelled
 
-  List<LeaveRequestItem> get _filtered {
-    if (_filter == 'All') return kDemoLeaveRequests;
+  @override
+  void initState() {
+    super.initState();
+    _controller.fetchLeaveApplications();
+  }
+
+  List<LeaveRequestItem> _filtered(List<dynamic> apps) {
+    final list = apps.map((e) => LeaveRequestItem.fromJson(e)).toList();
+    if (_filter == 'All') return list;
     final status = LeaveStatus.values.firstWhere(
       (s) => s.label == _filter,
     );
-    return kDemoLeaveRequests.where((e) => e.status == status).toList();
+    return list.where((e) => e.status == status).toList();
   }
 
   @override
   Widget build(BuildContext context) {
-    final items = _filtered;
-
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
@@ -220,7 +217,7 @@ class _MyLeaveRequestsPageState extends State<MyLeaveRequestsPage> {
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
-                children: ['All', 'Pending', 'Approved', 'Rejected']
+                children: ['All', 'Pending', 'Approved', 'Rejected', 'Cancelled']
                     .map((f) => _filterChip(f))
                     .toList(),
               ),
@@ -228,47 +225,70 @@ class _MyLeaveRequestsPageState extends State<MyLeaveRequestsPage> {
           ),
           SizedBox(height: 12.h),
           Expanded(
-            child: items.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.event_busy_rounded,
-                          size: 48.sp,
-                          color: const Color(0xFFCBD5E1),
-                        ),
-                        SizedBox(height: 10.h),
-                        Text(
-                          'No $_filter leave requests',
-                          style: TextStyle(
-                            fontSize: 14.sp,
-                            fontWeight: FontWeight.w600,
-                            color: _muted,
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.separated(
-                    padding: EdgeInsets.fromLTRB(16.w, 4.h, 16.w, 24.h),
-                    itemCount: items.length,
-                    separatorBuilder: (_, __) => SizedBox(height: 10.h),
-                    itemBuilder: (context, index) {
-                      final item = items[index];
-                      return _LeaveRequestCard(
-                        item: item,
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  LeaveRequestDetailsPage(item: item),
+            child: Obx(() {
+              if (_controller.isLoading.value && _controller.leaveApplications.isEmpty) {
+                return const Center(child: CircularProgressIndicator(color: _green));
+              }
+              final items = _filtered(_controller.leaveApplications);
+
+              if (items.isEmpty) {
+                return RefreshIndicator(
+                  onRefresh: () => _controller.fetchLeaveApplications(),
+                  color: _green,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      SizedBox(height: 120.h),
+                      Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.event_busy_rounded,
+                              size: 48.sp,
+                              color: const Color(0xFFCBD5E1),
                             ),
-                          );
-                        },
-                      );
-                    },
+                            SizedBox(height: 10.h),
+                            Text(
+                              'No $_filter leave requests',
+                              style: TextStyle(
+                                fontSize: 14.sp,
+                                fontWeight: FontWeight.w600,
+                                color: _muted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
+                );
+              }
+
+              return RefreshIndicator(
+                onRefresh: () => _controller.fetchLeaveApplications(),
+                color: _green,
+                child: ListView.separated(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: EdgeInsets.fromLTRB(16.w, 4.h, 16.w, 24.h),
+                  itemCount: items.length,
+                  separatorBuilder: (_, __) => SizedBox(height: 10.h),
+                  itemBuilder: (context, index) {
+                    final item = items[index];
+                    return _LeaveRequestCard(
+                      item: item,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => LeaveRequestDetailsPage(item: item),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              );
+            }),
           ),
         ],
       ),
@@ -452,11 +472,8 @@ class LeaveRequestDetailsPage extends StatelessWidget {
         '${item.daysText} (${item.durationLabel})',
       ),
       (Icons.description_outlined, 'Reason', item.reason),
-      (
-        Icons.attach_file_rounded,
-        'Attachment',
-        item.attachmentName ?? 'No file attached',
-      ),
+      if (item.attachment != null)
+        (Icons.attach_file_rounded, 'Attachment', item.attachment!.split('/').last),
     ];
 
     return Scaffold(
@@ -597,13 +614,17 @@ class LeaveRequestDetailsPage extends StatelessWidget {
                   Icon(
                     item.status == LeaveStatus.approved
                         ? Icons.check_circle_rounded
-                        : Icons.cancel_rounded,
+                        : (item.status == LeaveStatus.rejected
+                            ? Icons.cancel_rounded
+                            : Icons.info_outline_rounded),
                     color: item.status.fg,
                     size: 20.sp,
                   ),
                   SizedBox(width: 8.w),
                   Text(
-                    'Approval Details',
+                    item.status == LeaveStatus.cancelled
+                        ? 'Cancellation Details'
+                        : 'Approval Details',
                     style: TextStyle(
                       fontSize: 14.5.sp,
                       fontWeight: FontWeight.w800,
@@ -642,14 +663,18 @@ class LeaveRequestDetailsPage extends StatelessWidget {
                               Text(
                                 item.status == LeaveStatus.approved
                                     ? 'Approved by'
-                                    : 'Rejected by',
+                                    : (item.status == LeaveStatus.rejected
+                                        ? 'Rejected by'
+                                        : 'Status'),
                                 style: TextStyle(
                                   fontSize: 11.5.sp,
                                   color: _muted,
                                 ),
                               ),
                               Text(
-                                item.approverRole ?? 'Manager',
+                                item.status == LeaveStatus.cancelled
+                                    ? 'Cancelled'
+                                    : (item.approverName ?? 'Manager'),
                                 style: TextStyle(
                                   fontSize: 14.sp,
                                   fontWeight: FontWeight.w800,
@@ -686,7 +711,9 @@ class LeaveRequestDetailsPage extends StatelessWidget {
                         item.decisionNote ??
                             (item.status == LeaveStatus.approved
                                 ? 'Your leave request has been approved.'
-                                : 'Your leave request has been rejected.'),
+                                : item.status == LeaveStatus.rejected
+                                    ? 'Your leave request has been rejected.'
+                                    : 'Your leave request has been cancelled.'),
                         style: TextStyle(
                           fontSize: 12.5.sp,
                           fontWeight: FontWeight.w600,
