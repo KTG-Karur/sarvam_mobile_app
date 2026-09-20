@@ -51,8 +51,8 @@ class DashboardController extends GetxController {
         },
       );
 
-      debugPrint("Response Status Code: ${response.statusCode}");
-      debugPrint("Response Body: ${response.body}");
+      // debugPrint("Response Status Code: ${response.statusCode}");
+      // debugPrint("Response Body: ${response.body}");
 
       if (response.statusCode == 200) {
         final body = response.body;

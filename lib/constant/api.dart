@@ -188,4 +188,11 @@ class Api {
   static String get groupAssignmentSettingsUrl =>
       "$baseUrl/api/settings/group-assignment";
   static String get meetingPlacesUrl => "$baseUrl/api/meeting-places";
+
+  // Payroll / Leave URLs
+  static String leaveBalanceUrl(String employeeId) =>
+      "$baseUrl/api/payroll/leave-balance?employeeId=$employeeId";
+  static String get leaveTypesUrl => "$baseUrl/api/payroll/leave-types";
+  static String get applyLeaveUrl => '$baseUrl/api/hr/leave/apply';
+  static String get getLeaveApplicationsUrl => '$baseUrl/api/hr/leave';
 }
