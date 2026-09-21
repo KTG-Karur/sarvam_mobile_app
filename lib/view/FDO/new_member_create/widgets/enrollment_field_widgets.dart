@@ -300,6 +300,7 @@ class EnrollmentSelectField extends StatelessWidget {
     this.helper,
     this.enabled = true,
     this.labelBuilder,
+    this.onEmptyTap,
   });
 
   final String label;
@@ -311,8 +312,16 @@ class EnrollmentSelectField extends StatelessWidget {
   final bool enabled;
   final String Function(String)? labelBuilder;
 
+  /// Called instead of silently ignoring the tap when there is nothing to pick
+  /// (e.g. to retry loading the list and tell the user why it is empty).
+  final VoidCallback? onEmptyTap;
+
   void _showSearchSheet(BuildContext context) {
-    if (!enabled || options.isEmpty) return;
+    if (!enabled) return;
+    if (options.isEmpty) {
+      onEmptyTap?.call();
+      return;
+    }
 
     final uniqueOptions = {for (final o in options) o: o}.keys.toList();
     final searchCtrl = TextEditingController();
