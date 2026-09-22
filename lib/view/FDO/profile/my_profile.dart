@@ -5,7 +5,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/controller/dashboard_controller.dart';
 import 'package:sarvam/services/hr_api_service.dart';
-import 'package:sarvam/view/auth/set_mpin_screen.dart';
 
 /// "My Profile" — account summary + settings entry points for the FDO.
 /// Total Visits and Target Achieved have no backend data source yet (same
@@ -445,36 +444,6 @@ class _MyProfileState extends State<MyProfile> {
               'Date of Joining': _dateOfJoining.isEmpty ? '—' : _dateOfJoining,
             },
           ),
-        ),
-        _menuDivider(),
-        _menuTile(
-          icon: Icons.lock_outline_rounded,
-          title: 'Security',
-          subtitle: 'Change MPIN / Password',
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const SetMpinScreen(isReset: true)),
-          ),
-        ),
-        _menuDivider(),
-        _menuTile(
-          icon: Icons.notifications_none_rounded,
-          title: 'Notifications',
-          subtitle: 'Manage your notification preferences',
-          onTap: () => _comingSoon('Notifications'),
-        ),
-        _menuDivider(),
-        _menuTile(
-          icon: Icons.settings_outlined,
-          title: 'App Settings',
-          subtitle: 'Language, Theme, App Info',
-          onTap: () => _comingSoon('App Settings'),
-        ),
-        _menuDivider(),
-        _menuTile(
-          icon: Icons.help_outline_rounded,
-          title: 'Help & Support',
-          subtitle: 'Get help or contact support',
-          onTap: () => _comingSoon('Help & Support'),
         ),
       ],
     ),

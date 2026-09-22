@@ -73,7 +73,11 @@ class _LiveTrackingState extends State<LiveTracking>
       if (!mounted) return;
       final route = detail['routeHistory'] is List ? detail['routeHistory'] as List : const [];
       final punchIn = _parseApiDateTime(detail['punchIn']);
-      final punchOut = _parseApiDateTime(detail['punchOut']);
+      // The attendance row is the source of truth, but a punch-out that left
+      // its route event (PUNCH_OUT) while the summary field is still empty must
+      // not read as "still active".
+      final punchOut = _parseApiDateTime(detail['punchOut']) ??
+          _latestPunchOutEvent(route);
       final currentStatus = detail['currentStatus']?.toString() ?? 'OFFLINE';
       setState(() {
         _logs = [
@@ -102,9 +106,24 @@ class _LiveTrackingState extends State<LiveTracking>
     }
   }
 
+  /// Formats in the device's local time. The API sends UTC ISO strings, so
+  /// reading `.hour` directly would show UTC (5h30m behind IST).
   String _time(DateTime value) {
-    final hour = value.hour % 12 == 0 ? 12 : value.hour % 12;
-    return '${hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')} ${value.hour >= 12 ? 'PM' : 'AM'}';
+    final local = value.toLocal();
+    final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+    return '${hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')} ${local.hour >= 12 ? 'PM' : 'AM'}';
+  }
+
+  DateTime? _latestPunchOutEvent(List<dynamic> route) {
+    DateTime? latest;
+    for (final point in route) {
+      if (point is! Map || point['activityType']?.toString() != 'PUNCH_OUT') {
+        continue;
+      }
+      final at = _parseApiDateTime(point['capturedAt']);
+      if (at != null && (latest == null || at.isAfter(latest))) latest = at;
+    }
+    return latest;
   }
 
   /// Tracking fields are optional and occasionally arrive in a non-ISO

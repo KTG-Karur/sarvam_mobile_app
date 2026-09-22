@@ -69,7 +69,38 @@ class HrApiService {
     final backend = await _backendRoadRoute(points);
     final route =
         backend.length >= 2 ? backend : await _osrmRoadRoute(points);
-    return _cleanRoute(route);
+    final cleaned = _cleanRoute(route);
+    return _isFaithfulToGps(cleaned, points) ? cleaned : const [];
+  }
+
+  static double _pathMeters(List<Map<String, double>> path) {
+    var total = 0.0;
+    for (var i = 1; i < path.length; i++) {
+      total += _meters(path[i - 1], path[i]);
+    }
+    return total;
+  }
+
+  /// The router uses a driving profile, so on short walks and one-way streets
+  /// it goes around the block to reach the next fix and draws streets the
+  /// employee never used. When the snapped line is much longer than what the
+  /// GPS fixes actually cover, reject it; the caller then keeps the raw GPS
+  /// polyline, which is the truthful path.
+  static bool _isFaithfulToGps(
+    List<Map<String, double>> snapped,
+    List<Map<String, double>> gps,
+  ) {
+    if (snapped.length < 2) return false;
+    final gpsMeters = _pathMeters(gps);
+    final snappedMeters = _pathMeters(snapped);
+    final faithful = snappedMeters <= gpsMeters * 1.3 + 30;
+    if (!faithful && kDebugMode) {
+      debugPrint(
+        'Route map: snapped route rejected '
+        '(${snappedMeters.toStringAsFixed(0)}m vs GPS ${gpsMeters.toStringAsFixed(0)}m)',
+      );
+    }
+    return faithful;
   }
 
   static double _meters(Map<String, double> a, Map<String, double> b) {

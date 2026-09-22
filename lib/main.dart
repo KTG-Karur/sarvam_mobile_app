@@ -13,29 +13,32 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Lock mobile app strictly to Portrait Up mode (disable screen rotation)
-  SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-  ]);
+  SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
   // Warm up the on-device face model so the auth screens know up front whether
   // verification is available (fails closed when the asset is missing).
-  unawaited(FaceRecognitionEngine.instance.initialize().catchError(
-    (Object error, StackTrace stackTrace) {
-      debugPrint('Face recognition initialization failed: $error\\n$stackTrace');
-    },
-  ));
+  unawaited(
+    FaceRecognitionEngine.instance.initialize().catchError((
+      Object error,
+      StackTrace stackTrace,
+    ) {
+      debugPrint(
+        'Face recognition initialization failed: $error\\n$stackTrace',
+      );
+    }),
+  );
 
   // Registers the Live Tracking background service definition. Does not
   // start it or request any permission — reconcilePunchPrefs() decides that
   // once it knows whether the user is actually punched in.
-  unawaited(TrackingService.init().catchError((Object error, StackTrace stackTrace) {
-    debugPrint('Live tracking initialization failed: $error\n$stackTrace');
-  }));
+  unawaited(
+    TrackingService.init().catchError((Object error, StackTrace stackTrace) {
+      debugPrint('Live tracking initialization failed: $error\n$stackTrace');
+    }),
+  );
 
   runApp(const MyApp());
 }
-
-
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});

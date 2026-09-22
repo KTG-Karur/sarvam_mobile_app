@@ -8,6 +8,10 @@ import 'package:sarvam/view/ADMIN/HR/apply_leave_flow.dart';
 import 'package:sarvam/view/ADMIN/HR/my_leave_pages.dart';
 import 'package:sarvam/view/FDO/performance/my_performance.dart';
 import 'package:sarvam/view/FDO/profile/my_profile.dart';
+import 'package:sarvam/services/face_biometric_service.dart';
+import 'package:sarvam/view/auth/punch_method_screen.dart';
+import 'package:sarvam/view/auth/role_home_router.dart';
+import 'package:sarvam/widgets/punch_out_dialog.dart';
 
 import 'attendance_status.dart';
 import 'employee_id_card.dart';
@@ -15,7 +19,7 @@ import 'live_tracking.dart';
 
 /// HrHome — the HR module's landing screen (reached from the Field Officer
 /// home screen's "HRM" tile). Shows quick-access tiles into the HR
-/// sub-modules, a next-meeting card, and recent updates.
+/// sub-modules, a punch-in/out card and a footer banner.
 class HrHome extends StatefulWidget {
   const HrHome({super.key});
 
@@ -28,7 +32,6 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
   static const _darkText = Color(0xFF0F172A);
   static const _muted = Color(0xFF64748B);
   static const _greenAccent = Color(0xFF0D6842);
-  static const _yellowAccent = Color(0xFFFEF3C7);
   static const _yellowText = Color(0xFFB45309);
   static const _lightGreenBg = Color(0xFFE8F5E9);
   static const _lightYellowBg = Color(0xFFFFF8E1);
@@ -40,6 +43,16 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
 
   String _fullName = '';
   String _role = 'Field Officer';
+
+  // Today's attendance (mirrors the server via the face attendance API).
+  bool _attendanceLoading = true;
+  bool _punchedIn = false;
+  bool _punchedOut = false;
+  bool _isWorkingDay = true;
+  String? _attendanceStatus;
+  String? _attendanceMessage;
+  String _punchInTime = '';
+  String _punchOutTime = '';
 
   @override
   void initState() {
@@ -55,6 +68,47 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
     ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
     _ctrl.forward();
     _loadProfile();
+    _loadAttendance();
+  }
+
+  /// Pulls today's punch state from the server, then lets [reconcilePunchPrefs]
+  /// make local prefs mirror it (offline falls back to the local flags).
+  Future<void> _loadAttendance() async {
+    final prefs = await SharedPreferences.getInstance();
+    final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
+    await reconcilePunchPrefs(prefs, serverInfo);
+    if (!mounted) return;
+    setState(() {
+      final out = serverInfo?.punchedOut ?? hasPunchedOutToday(prefs);
+      final inn = serverInfo != null
+          ? (serverInfo.present || serverInfo.punchedIn)
+          : hasPunchedInToday(prefs);
+      _punchedOut = out;
+      _punchedIn = inn || out;
+      _isWorkingDay = serverInfo?.isWorkingDay ?? true;
+      _attendanceStatus = serverInfo?.status ?? prefs.getString(kPunchStatusKey);
+      _attendanceMessage =
+          serverInfo != null && !serverInfo.faceAttendanceAllowed
+          ? (serverInfo.accessMessage ?? 'Attendance is disabled for today.')
+          : null;
+      _punchInTime = prefs.getString(kPunchInTimeKey) ?? '';
+      _punchOutTime = prefs.getString(kPunchOutTimeKey) ?? '';
+      _attendanceLoading = false;
+    });
+  }
+
+  Future<void> _onPunchTap() async {
+    if (_attendanceLoading || _punchedOut || !_isWorkingDay) return;
+    if (_punchedIn) {
+      await PunchOutDialog.show(context);
+    } else {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => const PunchMethodScreen(isPunchOut: false),
+        ),
+      );
+    }
+    if (mounted) _loadAttendance();
   }
 
   Future<void> _loadProfile() async {
@@ -164,10 +218,10 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
                       children: [
                         _buildHeroBanner(),
                         SizedBox(height: 20.h),
+                        _buildPunchCard(),
+                        SizedBox(height: 20.h),
                         _buildQuickActionsGrid(),
                         SizedBox(height: 20.h),
-                        _buildMeetingCard(),
-                        SizedBox(height: 24.h),
                         _buildFooterBanner(),
                         SizedBox(height: 20.h),
                       ],
@@ -429,8 +483,45 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
     );
   }
 
-  // ── Next Weekly Meeting Card ───────────────────────────────────────────────
-  Widget _buildMeetingCard() {
+  // ── Punch In / Punch Out Card ──────────────────────────────────────────────
+  Widget _buildPunchCard() {
+    final dayStatus = resolveAttendanceDayStatus(
+      isWorkingDay: _isWorkingDay,
+      punchedInToday: _punchedIn && !_punchedOut,
+      punchedOutToday: _punchedOut,
+      serverStatus: _attendanceStatus,
+    );
+    final statusText = attendanceStatusLabel(
+      dayStatus,
+      serverStatus: _attendanceStatus,
+    );
+    final finished =
+        dayStatus == AttendanceDayStatus.completed ||
+        dayStatus == AttendanceDayStatus.holiday;
+    final blocked = _attendanceMessage != null && !_punchedIn;
+    final isPunchOut = _punchedIn && !_punchedOut;
+
+    final String buttonLabel;
+    final IconData buttonIcon;
+    final Color buttonColor;
+    if (dayStatus == AttendanceDayStatus.holiday) {
+      buttonLabel = 'Holiday / Off';
+      buttonIcon = Icons.beach_access_rounded;
+      buttonColor = _muted;
+    } else if (_punchedOut) {
+      buttonLabel = 'Punch-Out Done';
+      buttonIcon = Icons.check_circle_outline_rounded;
+      buttonColor = _greenAccent;
+    } else if (isPunchOut) {
+      buttonLabel = 'Punch Out';
+      buttonIcon = Icons.logout_rounded;
+      buttonColor = const Color(0xFFDC2626);
+    } else {
+      buttonLabel = 'Punch In';
+      buttonIcon = Icons.login_rounded;
+      buttonColor = _greenAccent;
+    }
+
     return Container(
       padding: EdgeInsets.all(16.w),
       decoration: BoxDecoration(
@@ -443,94 +534,140 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
         children: [
           Row(
             children: [
-              Icon(Icons.groups_rounded, color: _greenAccent, size: 20.sp),
+              Icon(Icons.fingerprint_rounded, color: _greenAccent, size: 20.sp),
               SizedBox(width: 8.w),
-              Text(
-                'Next Weekly Meeting',
-                style: GoogleFonts.inter(
-                  fontSize: 14.sp,
-                  fontWeight: FontWeight.w700,
-                  color: _darkText,
+              Expanded(
+                child: Text(
+                  "Today's Attendance",
+                  style: GoogleFonts.inter(
+                    fontSize: 14.sp,
+                    fontWeight: FontWeight.w700,
+                    color: _darkText,
+                  ),
                 ),
               ),
-              const Spacer(),
-              GestureDetector(
-                onTap: () => _comingSoon('Meetings'),
-                child: Row(
-                  children: [
-                    Text(
-                      'View All',
-                      style: GoogleFonts.inter(
-                        fontSize: 12.sp,
-                        fontWeight: FontWeight.w600,
-                        color: _greenAccent,
-                      ),
+              if (_attendanceLoading)
+                SizedBox(
+                  width: 16.w,
+                  height: 16.w,
+                  child: const CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: _greenAccent,
+                  ),
+                )
+              else
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
+                  decoration: BoxDecoration(
+                    color: finished ? _lightGreenBg : _lightYellowBg,
+                    borderRadius: BorderRadius.circular(20.r),
+                  ),
+                  child: Text(
+                    statusText,
+                    style: GoogleFonts.inter(
+                      fontSize: 10.5.sp,
+                      fontWeight: FontWeight.w600,
+                      color: finished ? _greenAccent : _yellowText,
                     ),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      color: _greenAccent,
-                      size: 18.sp,
-                    ),
-                  ],
+                  ),
                 ),
-              ),
             ],
           ),
           SizedBox(height: 14.h),
           Row(
             children: [
-              Icon(Icons.location_on_rounded, color: _greenAccent, size: 18.sp),
-              SizedBox(width: 10.w),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '34 - METTUPATTI (VANNAR ST)',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.inter(
-                        fontSize: 11.sp,
-                        fontWeight: FontWeight.w600,
-                        color: _darkText,
-                      ),
-                    ),
-                    SizedBox(height: 7.h),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.event_available_rounded,
-                          color: _greenAccent,
-                          size: 16.sp,
-                        ),
-                        SizedBox(width: 6.w),
-                        Text(
-                          '12 Sep 2026  |  10:00 AM',
-                          style: GoogleFonts.inter(
-                            fontSize: 10.5.sp,
-                            color: _muted,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                child: _punchTimeTile(
+                  'Punch In',
+                  _punchedIn && _punchInTime.isNotEmpty ? _punchInTime : '--:--',
+                  Icons.login_rounded,
                 ),
               ),
-              Container(
-                width: 36.w,
-                height: 36.w,
-                decoration: const BoxDecoration(
-                  color: _yellowAccent,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.arrow_forward_ios_rounded,
-                  color: _yellowText,
-                  size: 16.sp,
+              SizedBox(width: 12.w),
+              Expanded(
+                child: _punchTimeTile(
+                  'Punch Out',
+                  _punchedOut && _punchOutTime.isNotEmpty
+                      ? _punchOutTime
+                      : '--:--',
+                  Icons.logout_rounded,
                 ),
               ),
             ],
+          ),
+          if (_attendanceMessage != null) ...[
+            SizedBox(height: 10.h),
+            Text(
+              _attendanceMessage!,
+              style: GoogleFonts.inter(
+                fontSize: 10.5.sp,
+                color: const Color(0xFFDC2626),
+              ),
+            ),
+          ],
+          SizedBox(height: 14.h),
+          SizedBox(
+            width: double.infinity,
+            height: 44.h,
+            child: ElevatedButton.icon(
+              onPressed: (_attendanceLoading || finished || blocked)
+                  ? null
+                  : _onPunchTap,
+              icon: Icon(buttonIcon, size: 18.sp),
+              label: Text(
+                buttonLabel,
+                style: GoogleFonts.inter(
+                  fontSize: 13.sp,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: buttonColor,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: buttonColor.withOpacity(0.55),
+                disabledForegroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12.r),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _punchTimeTile(String label, String time, IconData icon) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+      decoration: BoxDecoration(
+        color: _lightGreenBg,
+        borderRadius: BorderRadius.circular(12.r),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: _greenAccent, size: 18.sp),
+          SizedBox(width: 8.w),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: GoogleFonts.inter(fontSize: 10.sp, color: _muted),
+                ),
+                SizedBox(height: 2.h),
+                Text(
+                  time,
+                  style: GoogleFonts.inter(
+                    fontSize: 12.5.sp,
+                    fontWeight: FontWeight.w700,
+                    color: _darkText,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),

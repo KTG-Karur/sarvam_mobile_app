@@ -90,7 +90,8 @@ class Api {
   static String get geoRoadRouteUrl => "$baseUrl/api/geo/road-route";
 
   // Employee ID card
-  static String get employeeDocumentsUrl => "$baseUrl/api/hr/employee-documents";
+  static String get employeeDocumentsUrl =>
+      "$baseUrl/api/hr/employee-documents";
   // Same-origin, auth-checked byte stream for a private storage object key.
   static String storageProxyUrl(String key) =>
       "$baseUrl/api/storage/proxy?key=${Uri.encodeQueryComponent(key)}";
