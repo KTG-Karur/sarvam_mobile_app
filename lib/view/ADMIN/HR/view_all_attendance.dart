@@ -2,7 +2,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:sarvam/controller/attendance_controller.dart';
 
 import 'attendance_status.dart';
 
@@ -26,33 +28,15 @@ class _ViewAllAttendanceState extends State<ViewAllAttendance>
   late final AnimationController _ctrl;
   late final Animation<double> _fade;
 
+  final AttendanceController _attendanceController = Get.find<AttendanceController>();
   final _searchCtrl = TextEditingController();
   DayStatus? _filter;
-  DateTime _month = DateTime(2026, 9);
-
-  List<DateTime> get _allDates {
-    final daysInMonth = DateTime(_month.year, _month.month + 1, 0).day;
-    return List.generate(
-      daysInMonth,
-      (i) => DateTime(_month.year, _month.month, daysInMonth - i),
-    );
-  }
-
-  List<DateTime> get _filteredDates {
-    var dates = _allDates;
-    if (_filter != null) {
-      dates = dates.where((d) => statusFor(d) == _filter).toList();
-    }
-    final query = _searchCtrl.text.trim();
-    if (query.isNotEmpty) {
-      dates = dates.where((d) => d.day.toString().contains(query)).toList();
-    }
-    return dates;
-  }
+  DateTime _month = DateTime.now();
 
   @override
   void initState() {
     super.initState();
+    _month = DateTime(_month.year, _month.month);
     _ctrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 600),
@@ -60,6 +44,32 @@ class _ViewAllAttendanceState extends State<ViewAllAttendance>
     _fade = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
     _ctrl.forward();
     _searchCtrl.addListener(() => setState(() {}));
+    _fetchLedger();
+  }
+
+  void _fetchLedger() {
+    final firstDay = DateTime(_month.year, _month.month, 1);
+    final lastDay = DateTime(_month.year, _month.month + 1, 0);
+    _attendanceController.fetchLedger(
+      fromDate: _attendanceController.formatDate(firstDay),
+      tillDate: _attendanceController.formatDate(lastDay),
+    );
+  }
+
+  List<dynamic> get _filteredRecords {
+    List<dynamic> records = _attendanceController.ledgerRecords;
+    if (_filter != null) {
+      records = records.where((r) => mapDisplayStatus(r['displayStatus']) == _filter).toList();
+    }
+    final query = _searchCtrl.text.trim();
+    if (query.isNotEmpty) {
+      // Query can be date like "15"
+      records = records.where((r) {
+        final date = DateTime.parse(r['date']);
+        return date.day.toString().contains(query);
+      }).toList();
+    }
+    return records;
   }
 
   @override
@@ -73,18 +83,37 @@ class _ViewAllAttendanceState extends State<ViewAllAttendance>
     setState(() => _filter = status);
   }
 
+  void _shiftMonth(int delta) {
+    setState(() {
+      _month = DateTime(_month.year, _month.month + delta);
+      _searchCtrl.clear();
+      _ctrl.forward(from: 0);
+      _fetchLedger();
+    });
+  }
+
   Future<void> _pickDate() async {
+    final now = DateTime.now();
+    DateTime initial;
+    if (_month.year == now.year && _month.month == now.month) {
+      initial = now;
+    } else {
+      initial = DateTime(_month.year, _month.month, 1);
+    }
+
     final picked = await showDatePicker(
       context: context,
-      initialDate: _month,
+      initialDate: initial,
       firstDate: DateTime(2020),
       lastDate: DateTime(2030),
-      helpText: 'Jump to month',
+      helpText: 'Select Date',
     );
     if (picked != null) {
       setState(() {
         _month = DateTime(picked.year, picked.month);
+        _searchCtrl.text = picked.day.toString();
         _ctrl.forward(from: 0);
+        _fetchLedger();
       });
     }
   }
@@ -110,18 +139,21 @@ class _ViewAllAttendanceState extends State<ViewAllAttendance>
               ),
             ),
             Expanded(
-              child: _filteredDates.isEmpty
-                  ? _buildEmptyState()
-                  : ListView.builder(
-                      padding: EdgeInsets.fromLTRB(16.w, 4.h, 16.w, 20.h),
-                      itemCount: _filteredDates.length,
-                      itemBuilder: (context, index) {
-                        return _StaggeredRow(
-                          index: index,
-                          child: _dateRow(_filteredDates[index]),
-                        );
-                      },
-                    ),
+              child: Obx(() {
+                final records = _filteredRecords;
+                if (records.isEmpty) return _buildEmptyState();
+
+                return ListView.builder(
+                  padding: EdgeInsets.fromLTRB(16.w, 4.h, 16.w, 20.h),
+                  itemCount: records.length,
+                  itemBuilder: (context, index) {
+                    return _StaggeredRow(
+                      index: index,
+                      child: _dateRow(records[index]),
+                    );
+                  },
+                );
+              }),
             ),
           ],
         ),
@@ -210,6 +242,7 @@ class _ViewAllAttendanceState extends State<ViewAllAttendance>
       ('All', null, _greenAccent),
       ('Present', DayStatus.present, kPresentColor),
       ('Absent', DayStatus.absent, kAbsentColor),
+      ('Half Day', DayStatus.halfDay, kHalfDayColor),
       ('On Leave', DayStatus.onLeave, kOnLeaveColor),
       ('Holiday', DayStatus.holiday, kHolidayColor),
     ];
@@ -252,6 +285,21 @@ class _ViewAllAttendanceState extends State<ViewAllAttendance>
   }
 
   // ── Month row ───────────────────────────────────────────────────────────
+  Widget _navArrow(IconData icon, VoidCallback onTap) {
+    return Material(
+      color: const Color(0xFFF1F5F9),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: EdgeInsets.all(6.w),
+          child: Icon(icon, size: 20.sp, color: _darkText),
+        ),
+      ),
+    );
+  }
+
   Widget _buildMonthRow() {
     const monthNames = [
       'January',
@@ -271,6 +319,8 @@ class _ViewAllAttendanceState extends State<ViewAllAttendance>
       padding: EdgeInsets.fromLTRB(16.w, 0, 16.w, 8.h),
       child: Row(
         children: [
+          _navArrow(Icons.chevron_left_rounded, () => _shiftMonth(-1)),
+          SizedBox(width: 8.w),
           Text(
             '${monthNames[_month.month - 1]} ${_month.year}',
             style: GoogleFonts.inter(
@@ -279,7 +329,8 @@ class _ViewAllAttendanceState extends State<ViewAllAttendance>
               color: _darkText,
             ),
           ),
-          Icon(Icons.keyboard_arrow_down_rounded, color: _muted, size: 18.sp),
+          SizedBox(width: 8.w),
+          _navArrow(Icons.chevron_right_rounded, () => _shiftMonth(1)),
           const Spacer(),
           Material(
             color: Colors.white,
@@ -320,7 +371,7 @@ class _ViewAllAttendanceState extends State<ViewAllAttendance>
     );
   }
 
-  Widget _dateRow(DateTime date) {
+  Widget _dateRow(dynamic record) {
     const monthAbbr = [
       'JAN',
       'FEB',
@@ -335,16 +386,8 @@ class _ViewAllAttendanceState extends State<ViewAllAttendance>
       'NOV',
       'DEC',
     ];
-    const weekdayFull = {
-      DateTime.monday: 'Monday',
-      DateTime.tuesday: 'Tuesday',
-      DateTime.wednesday: 'Wednesday',
-      DateTime.thursday: 'Thursday',
-      DateTime.friday: 'Friday',
-      DateTime.saturday: 'Saturday',
-      DateTime.sunday: 'Sunday',
-    };
-    final status = statusFor(date);
+    final DateTime date = DateTime.parse(record['date']);
+    final status = mapDisplayStatus(record['displayStatus']);
     final color = statusColor(status);
     return Container(
       margin: EdgeInsets.only(bottom: 10.h),
@@ -375,7 +418,7 @@ class _ViewAllAttendanceState extends State<ViewAllAttendance>
           SizedBox(width: 14.w),
           Expanded(
             child: Text(
-              weekdayFull[date.weekday] ?? '',
+              record['dayOfWeek'] ?? '',
               style: GoogleFonts.inter(
                 fontSize: 13.sp,
                 fontWeight: FontWeight.w600,

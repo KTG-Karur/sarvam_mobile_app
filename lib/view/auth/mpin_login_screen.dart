@@ -21,12 +21,10 @@ class MpinLoginScreen extends StatefulWidget {
 
 class _MpinLoginScreenState extends State<MpinLoginScreen>
     with WidgetsBindingObserver {
-  final List<TextEditingController> _mpinControllers = [
-    TextEditingController(text: '9'),
-    TextEditingController(text: '9'),
-    TextEditingController(text: '9'),
-    TextEditingController(text: '4'),
-  ];
+  final List<TextEditingController> _mpinControllers = List.generate(
+    4,
+        (_) => TextEditingController(),
+  );
   final List<FocusNode> _mpinFocusNodes = List.generate(4, (_) => FocusNode());
 
   bool _showMpin = false;
@@ -221,7 +219,7 @@ class _MpinLoginScreenState extends State<MpinLoginScreen>
     }
 
     if (status == 'PENDING') {
-      Get.snackbar(
+      Get .snackbar(
         'Request Pending',
         'Your MPIN reset request is awaiting administrator approval.',
         snackPosition: SnackPosition.BOTTOM,
@@ -584,8 +582,7 @@ class _MpinLoginScreenState extends State<MpinLoginScreen>
                                 onPressed: _isLoading ? null : _handleLogin,
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: const Color(0xFF0D6842),
-                                  disabledBackgroundColor:
-                                  const Color(0xFF0D6842).withValues(alpha: 0.6),
+                                  disabledBackgroundColor: const Color(0xFF0D6842).withValues(alpha: 0.6),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(27.r),
                                   ),
@@ -696,7 +693,8 @@ class WavePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     // Bottom Wave 1
     final paint1 = Paint()
-      ..shader = LinearGradient(
+      ..shader =
+      LinearGradient(
         begin: Alignment.bottomLeft,
         end: Alignment.topRight,
         colors: [
@@ -729,7 +727,8 @@ class WavePainter extends CustomPainter {
 
     // Bottom Wave 2
     final paint2 = Paint()
-      ..shader = LinearGradient(
+      ..shader =
+      LinearGradient(
         begin: Alignment.bottomRight,
         end: Alignment.topLeft,
         colors: [

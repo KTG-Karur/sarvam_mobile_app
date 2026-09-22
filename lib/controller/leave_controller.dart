@@ -45,14 +45,14 @@ class LeaveController extends GetxController {
       isLoading.value = true;
 
       final prefs = await SharedPreferences.getInstance();
-      final employeeId = prefs.getString('employeeId') ?? '';
+      final userId = prefs.getString('userId') ?? '';
 
-      if (employeeId.isEmpty) {
-        debugPrint("LeaveController: employeeId is empty");
+      if (userId.isEmpty) {
+        debugPrint("LeaveController: userId is empty");
       }
 
       // Fetch Leave Balance
-      final balanceResponse = await _connect.get(Api.leaveBalanceUrl(employeeId));
+      final balanceResponse = await _connect.get(Api.leaveBalanceUrl(userId));
       debugPrint("Leave Balance Response: ${balanceResponse.body}");
       if (balanceResponse.statusCode == 200) {
         final body = balanceResponse.body;

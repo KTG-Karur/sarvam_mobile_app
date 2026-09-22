@@ -4,13 +4,17 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:sarvam/controller/attendance_controller.dart';
 
 import 'view_all_attendance.dart';
 
-enum DayStatus { present, absent, onLeave, holiday }
+/// DayStatus enum for attendance types
+enum DayStatus { present, halfDay, absent, onLeave, holiday }
 
 const kPresentColor = Color(0xFF16A34A);
+const kHalfDayColor = Color(0xFF6366F1);
 const kAbsentColor = Color(0xFFEF4444);
 const kOnLeaveColor = Color(0xFFF59E0B);
 const kHolidayColor = Color(0xFF64748B);
@@ -19,6 +23,8 @@ String statusLabel(DayStatus s) {
   switch (s) {
     case DayStatus.present:
       return 'Present';
+    case DayStatus.halfDay:
+      return 'Half Day';
     case DayStatus.absent:
       return 'Absent';
     case DayStatus.onLeave:
@@ -32,6 +38,8 @@ Color statusColor(DayStatus s) {
   switch (s) {
     case DayStatus.present:
       return kPresentColor;
+    case DayStatus.halfDay:
+      return kHalfDayColor;
     case DayStatus.absent:
       return kAbsentColor;
     case DayStatus.onLeave:
@@ -41,106 +49,40 @@ Color statusColor(DayStatus s) {
   }
 }
 
-/// Sep 2026 is the "current" demo month — its per-day statuses are hand
-/// picked so the week/month/year views and the View All list all agree
-/// with each other (23 present / 3 absent / 2 on leave / 2 holiday = 30).
-final Map<int, DayStatus> _septemberStatuses = {
-  1: DayStatus.present,
-  2: DayStatus.present,
-  3: DayStatus.present,
-  4: DayStatus.absent,
-  5: DayStatus.present,
-  6: DayStatus.holiday,
-  7: DayStatus.onLeave,
-  8: DayStatus.present,
-  9: DayStatus.present,
-  10: DayStatus.absent,
-  11: DayStatus.present,
-  12: DayStatus.present,
-  13: DayStatus.onLeave,
-  14: DayStatus.present,
-  15: DayStatus.present,
-  16: DayStatus.absent,
-  17: DayStatus.present,
-  18: DayStatus.present,
-  19: DayStatus.present,
-  20: DayStatus.holiday,
-  21: DayStatus.present,
-  22: DayStatus.present,
-  23: DayStatus.present,
-  24: DayStatus.present,
-  25: DayStatus.present,
-  26: DayStatus.present,
-  27: DayStatus.present,
-  28: DayStatus.present,
-  29: DayStatus.present,
-  30: DayStatus.present,
-};
-
-DayStatus statusFor(DateTime date) {
-  if (date.year == 2026 && date.month == 9) {
-    return _septemberStatuses[date.day] ?? DayStatus.present;
+DayStatus mapDisplayStatus(String? status) {
+  switch (status?.toUpperCase()) {
+    case 'PRESENT':
+      return DayStatus.present;
+    case 'HALF_DAY':
+      return DayStatus.halfDay;
+    case 'ABSENT':
+      return DayStatus.absent;
+    case 'ON_LEAVE':
+      return DayStatus.onLeave;
+    case 'HOLIDAY':
+      return DayStatus.holiday;
+    default:
+      return DayStatus.present;
   }
-  if (date.day % 11 == 0) return DayStatus.absent;
-  if (date.day % 9 == 0) return DayStatus.onLeave;
-  if (date.weekday == DateTime.sunday && date.day % 14 == 6) {
-    return DayStatus.holiday;
-  }
-  return DayStatus.present;
 }
 
 class MonthTally {
   final int present;
+  final int halfDay;
   final int absent;
   final int onLeave;
   final int holiday;
   final int totalDays;
   const MonthTally({
     required this.present,
+    required this.halfDay,
     required this.absent,
     required this.onLeave,
     required this.holiday,
     required this.totalDays,
   });
 
-  int get tracked => present + absent + onLeave + holiday;
-}
-
-MonthTally tallyForMonth(int year, int month, {required bool hasData}) {
-  final daysInMonth = DateTime(year, month + 1, 0).day;
-  if (!hasData) {
-    return MonthTally(
-      present: 0,
-      absent: 0,
-      onLeave: 0,
-      holiday: 0,
-      totalDays: daysInMonth,
-    );
-  }
-  var present = 0, absent = 0, onLeave = 0, holiday = 0;
-  for (var d = 1; d <= daysInMonth; d++) {
-    switch (statusFor(DateTime(year, month, d))) {
-      case DayStatus.present:
-        present++;
-        break;
-      case DayStatus.absent:
-        absent++;
-        break;
-      case DayStatus.onLeave:
-        onLeave++;
-        break;
-      case DayStatus.holiday:
-        holiday++;
-        break;
-    }
-  }
-  return MonthTally(
-    present: present,
-    absent: absent,
-    onLeave: onLeave,
-    holiday: holiday,
-    totalDays: daysInMonth,
-  );
+  int get tracked => present + halfDay + absent + onLeave + holiday;
 }
 
 const _weekdayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -191,10 +133,10 @@ const _weekdayFullName = {
   DateTime.sunday: 'Sunday',
 };
 
-enum _RangeTab { week, month, year }
+enum _RangeTab { week, month }
 
 /// AttendanceStatus — HR module screen for a field officer's own attendance,
-/// switchable between Week / Month / Year views, with a link into the full
+/// switchable between Week / Month views, with a link into the full
 /// searchable "View All Attendance" history. Reached from HrHome's
 /// "Attendance" quick-action tile.
 class AttendanceStatus extends StatefulWidget {
@@ -210,16 +152,17 @@ class _AttendanceStatusState extends State<AttendanceStatus>
   static const _muted = Color(0xFF64748B);
   static const _greenAccent = Color(0xFF0D6842);
   static const _borderColor = Color(0xFFE2E8F0);
-  static final _today = DateTime(2026, 9, 12);
+  static final _today = DateTime.now();
 
   late final AnimationController _ctrl;
   late final Animation<double> _fade;
   late final Animation<Offset> _slide;
 
+  final AttendanceController _attendanceController = Get.put(AttendanceController());
+
   _RangeTab _tab = _RangeTab.week;
   late DateTime _weekAnchor;
   late DateTime _monthAnchor;
-  int _year = 2026;
 
   @override
   void initState() {
@@ -236,6 +179,31 @@ class _AttendanceStatusState extends State<AttendanceStatus>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
     _ctrl.forward();
+    _fetchData();
+  }
+
+  void _fetchData() {
+    if (_tab == _RangeTab.week) {
+      final tillDate = _weekAnchor.add(const Duration(days: 6));
+      _attendanceController.fetchSummary(
+        fromDate: _attendanceController.formatDate(_weekAnchor),
+        tillDate: _attendanceController.formatDate(tillDate),
+      );
+      _attendanceController.fetchLedger(
+        fromDate: _attendanceController.formatDate(_weekAnchor),
+        tillDate: _attendanceController.formatDate(tillDate),
+      );
+    } else {
+      _attendanceController.fetchSummary(
+        month: _monthAnchor.month,
+        year: _monthAnchor.year,
+      );
+      final lastDay = DateTime(_monthAnchor.year, _monthAnchor.month + 1, 0);
+      _attendanceController.fetchLedger(
+        fromDate: _attendanceController.formatDate(_monthAnchor),
+        tillDate: _attendanceController.formatDate(lastDay),
+      );
+    }
   }
 
   @override
@@ -248,6 +216,7 @@ class _AttendanceStatusState extends State<AttendanceStatus>
     if (_tab == tab) return;
     setState(() => _tab = tab);
     _ctrl.forward(from: 0);
+    _fetchData();
   }
 
   void _shiftWeek(int deltaWeeks) {
@@ -255,6 +224,7 @@ class _AttendanceStatusState extends State<AttendanceStatus>
       _weekAnchor = _weekAnchor.add(Duration(days: 7 * deltaWeeks));
     });
     _ctrl.forward(from: 0);
+    _fetchData();
   }
 
   void _shiftMonth(int delta) {
@@ -262,11 +232,7 @@ class _AttendanceStatusState extends State<AttendanceStatus>
       _monthAnchor = DateTime(_monthAnchor.year, _monthAnchor.month + delta);
     });
     _ctrl.forward(from: 0);
-  }
-
-  void _shiftYear(int delta) {
-    setState(() => _year += delta);
-    _ctrl.forward(from: 0);
+    _fetchData();
   }
 
   void _openViewAll() {
@@ -315,7 +281,6 @@ class _AttendanceStatusState extends State<AttendanceStatus>
                         child: switch (_tab) {
                           _RangeTab.week => _buildWeekView(),
                           _RangeTab.month => _buildMonthView(),
-                          _RangeTab.year => _buildYearView(),
                         },
                       ),
                     ),
@@ -377,7 +342,6 @@ class _AttendanceStatusState extends State<AttendanceStatus>
         children: [
           _tabSegment('This Week', _RangeTab.week),
           _tabSegment('This Month', _RangeTab.month),
-          _tabSegment('This Year', _RangeTab.year),
         ],
       ),
     );
@@ -464,6 +428,7 @@ class _AttendanceStatusState extends State<AttendanceStatus>
       children: [
         _legendItem(kPresentColor, 'Present'),
         _legendItem(kAbsentColor, 'Absent'),
+        _legendItem(kHalfDayColor, 'Half Day'),
         _legendItem(kOnLeaveColor, 'On Leave'),
         _legendItem(kHolidayColor, 'Holiday'),
       ],
@@ -489,6 +454,7 @@ class _AttendanceStatusState extends State<AttendanceStatus>
     final items = [
       (Icons.groups_rounded, tally.present, 'Present', kPresentColor),
       (Icons.block_rounded, tally.absent, 'Absent', kAbsentColor),
+      (Icons.timelapse_rounded, tally.halfDay, 'Half Day', kHalfDayColor),
       (Icons.event_busy_rounded, tally.onLeave, 'On Leave', kOnLeaveColor),
       (Icons.event_available_rounded, tally.holiday, 'Holiday', kHolidayColor),
     ];
@@ -497,10 +463,10 @@ class _AttendanceStatusState extends State<AttendanceStatus>
       physics: const NeverScrollableScrollPhysics(),
       itemCount: items.length,
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 4,
+        crossAxisCount: 5,
         mainAxisSpacing: 8.w,
-        crossAxisSpacing: 8.w,
-        childAspectRatio: 0.82,
+        crossAxisSpacing: 4.w,
+        childAspectRatio: 0.65,
       ),
       itemBuilder: (context, index) {
         final (icon, value, label, color) = items[index];
@@ -545,9 +511,8 @@ class _AttendanceStatusState extends State<AttendanceStatus>
     required String title,
     required VoidCallback onViewAll,
     required String viewAllLabel,
-    required List<DateTime> dates,
+    required List<dynamic> records,
   }) {
-    final sorted = [...dates]..sort((a, b) => b.compareTo(a));
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -585,7 +550,7 @@ class _AttendanceStatusState extends State<AttendanceStatus>
           ],
         ),
         SizedBox(height: 10.h),
-        ...sorted.asMap().entries.map(
+        ...records.asMap().entries.map(
           (e) => _StaggeredEntry(
             index: e.key,
             controller: _ctrl,
@@ -596,8 +561,9 @@ class _AttendanceStatusState extends State<AttendanceStatus>
     );
   }
 
-  Widget _dateRow(DateTime date) {
-    final status = statusFor(date);
+  Widget _dateRow(dynamic record) {
+    final DateTime date = DateTime.parse(record['date']);
+    final status = mapDisplayStatus(record['displayStatus']);
     final color = statusColor(status);
     return Container(
       margin: EdgeInsets.only(bottom: 10.h),
@@ -628,7 +594,7 @@ class _AttendanceStatusState extends State<AttendanceStatus>
           SizedBox(width: 14.w),
           Expanded(
             child: Text(
-              _weekdayFullName[date.weekday] ?? '',
+              record['dayOfWeek'] ?? '',
               style: GoogleFonts.inter(
                 fontSize: 13.sp,
                 fontWeight: FontWeight.w600,
@@ -666,73 +632,66 @@ class _AttendanceStatusState extends State<AttendanceStatus>
     final label =
         '${_monthNamesShort[_weekAnchor.month - 1]} ${_weekAnchor.day.toString().padLeft(2, '0')} – '
         '${_monthNamesShort[days.last.month - 1]} ${days.last.day.toString().padLeft(2, '0')}, ${days.last.year}';
-    var present = 0, absent = 0, onLeave = 0, holiday = 0;
-    for (final d in days) {
-      switch (statusFor(d)) {
-        case DayStatus.present:
-          present++;
-          break;
-        case DayStatus.absent:
-          absent++;
-          break;
-        case DayStatus.onLeave:
-          onLeave++;
-          break;
-        case DayStatus.holiday:
-          holiday++;
-          break;
-      }
-    }
-    final tally = MonthTally(
-      present: present,
-      absent: absent,
-      onLeave: onLeave,
-      holiday: holiday,
-      totalDays: 7,
-    );
 
-    return Column(
-      key: const ValueKey('week'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _navHeader(label, () => _shiftWeek(-1), () => _shiftWeek(1)),
-        SizedBox(height: 14.h),
-        Row(
-          children: days
-              .asMap()
-              .entries
-              .map(
-                (e) => Expanded(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 2.w),
-                    child: _StaggeredEntry(
-                      index: e.key,
-                      controller: _ctrl,
-                      child: _weekDayCell(e.value),
+    return Obx(() {
+      final s = _attendanceController.summary;
+      final tally = MonthTally(
+        present: (s['presentDays'] ?? 0).toInt(),
+        halfDay: (s['halfDays'] ?? 0).toInt(),
+        absent: (s['absentDays'] ?? 0).toInt(),
+        onLeave: (s['leaveDays'] ?? 0).toInt(),
+        holiday: (s['holidays'] ?? 0).toInt(),
+        totalDays: (s['totalLoggedDays'] ?? 7).toInt(),
+      );
+
+      final records = _attendanceController.ledgerRecords;
+
+      return Column(
+        key: const ValueKey('week'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _navHeader(label, () => _shiftWeek(-1), () => _shiftWeek(1)),
+          SizedBox(height: 14.h),
+          Row(
+            children: days
+                .asMap()
+                .entries
+                .map(
+                  (e) => Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 2.w),
+                      child: _StaggeredEntry(
+                        index: e.key,
+                        controller: _ctrl,
+                        child: _weekDayCell(e.value, records),
+                      ),
                     ),
                   ),
-                ),
-              )
-              .toList(),
-        ),
-        SizedBox(height: 12.h),
-        _legendRow(),
-        SizedBox(height: 16.h),
-        _summaryCards(tally),
-        SizedBox(height: 20.h),
-        _detailsList(
-          title: 'Attendance Details',
-          onViewAll: _openViewAll,
-          viewAllLabel: 'View All',
-          dates: days,
-        ),
-      ],
-    );
+                )
+                .toList(),
+          ),
+          SizedBox(height: 12.h),
+          _legendRow(),
+          SizedBox(height: 16.h),
+          _summaryCards(tally),
+          SizedBox(height: 20.h),
+          _detailsList(
+            title: 'Attendance Details',
+            onViewAll: _openViewAll,
+            viewAllLabel: 'View All',
+            records: records,
+          ),
+        ],
+      );
+    });
   }
 
-  Widget _weekDayCell(DateTime date) {
-    final status = statusFor(date);
-    final color = statusColor(status);
+  Widget _weekDayCell(DateTime date, List<dynamic> records) {
+    final String dateStr = _attendanceController.formatDate(date);
+    final record = records.firstWhere((r) => r['date'] == dateStr, orElse: () => null);
+    final status = mapDisplayStatus(record?['displayStatus']);
+    final color = record != null ? statusColor(status) : Colors.transparent;
+
     final isToday = date.year == _today.year &&
         date.month == _today.month &&
         date.day == _today.day;
@@ -777,307 +736,114 @@ class _AttendanceStatusState extends State<AttendanceStatus>
     final month = _monthAnchor.month;
     final daysInMonth = DateTime(year, month + 1, 0).day;
     final firstWeekdaySunFirst = DateTime(year, month, 1).weekday % 7;
-    final tally = tallyForMonth(year, month, hasData: true);
     final label = '${_monthNamesFull[month - 1]} $year';
 
-    return Column(
-      key: const ValueKey('month'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _navHeader(label, () => _shiftMonth(-1), () => _shiftMonth(1)),
-        SizedBox(height: 14.h),
-        Row(
-          children: _weekdayShortSunFirst
-              .map(
-                (w) => Expanded(
-                  child: Center(
-                    child: Text(
-                      w,
-                      style: GoogleFonts.inter(
-                        fontSize: 10.sp,
-                        fontWeight: FontWeight.w600,
-                        color: _muted,
+    return Obx(() {
+      final s = _attendanceController.summary;
+      final tally = MonthTally(
+        present: (s['presentDays'] ?? 0).toInt(),
+        halfDay: (s['halfDays'] ?? 0).toInt(),
+        absent: (s['absentDays'] ?? 0).toInt(),
+        onLeave: (s['leaveDays'] ?? 0).toInt(),
+        holiday: (s['holidays'] ?? 0).toInt(),
+        totalDays: (s['totalLoggedDays'] ?? daysInMonth).toInt(),
+      );
+
+      final records = _attendanceController.ledgerRecords;
+
+      return Column(
+        key: const ValueKey('month'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _navHeader(label, () => _shiftMonth(-1), () => _shiftMonth(1)),
+          SizedBox(height: 14.h),
+          Row(
+            children: _weekdayShortSunFirst
+                .map(
+                  (w) => Expanded(
+                    child: Center(
+                      child: Text(
+                        w,
+                        style: GoogleFonts.inter(
+                          fontSize: 10.sp,
+                          fontWeight: FontWeight.w600,
+                          color: _muted,
+                        ),
                       ),
                     ),
                   ),
+                )
+                .toList(),
+          ),
+          SizedBox(height: 6.h),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: firstWeekdaySunFirst + daysInMonth,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 7,
+              mainAxisSpacing: 4.h,
+              crossAxisSpacing: 2.w,
+              childAspectRatio: 0.8,
+            ),
+            itemBuilder: (context, index) {
+              if (index < firstWeekdaySunFirst) return const SizedBox.shrink();
+              final day = index - firstWeekdaySunFirst + 1;
+              final date = DateTime(year, month, day);
+              final String dateStr = _attendanceController.formatDate(date);
+              final record = records.firstWhere((r) => r['date'] == dateStr, orElse: () => null);
+
+              final isToday = year == _today.year &&
+                  month == _today.month &&
+                  day == _today.day;
+              final status = mapDisplayStatus(record?['displayStatus']);
+              final color = record != null ? statusColor(status) : Colors.transparent;
+
+              return Container(
+                decoration: BoxDecoration(
+                  color: isToday ? kPresentColor.withOpacity(0.12) : null,
+                  borderRadius: BorderRadius.circular(8.r),
                 ),
-              )
-              .toList(),
-        ),
-        SizedBox(height: 6.h),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: firstWeekdaySunFirst + daysInMonth,
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 7,
-            mainAxisSpacing: 4.h,
-            crossAxisSpacing: 2.w,
-            childAspectRatio: 0.8,
-          ),
-          itemBuilder: (context, index) {
-            if (index < firstWeekdaySunFirst) return const SizedBox.shrink();
-            final day = index - firstWeekdaySunFirst + 1;
-            final date = DateTime(year, month, day);
-            final isToday = year == _today.year &&
-                month == _today.month &&
-                day == _today.day;
-            final color = statusColor(statusFor(date));
-            return Container(
-              decoration: BoxDecoration(
-                color: isToday ? kPresentColor.withOpacity(0.12) : null,
-                borderRadius: BorderRadius.circular(8.r),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    '$day',
-                    style: GoogleFonts.inter(
-                      fontSize: 12.sp,
-                      fontWeight: FontWeight.w600,
-                      color: _darkText,
-                    ),
-                  ),
-                  SizedBox(height: 3.h),
-                  Container(
-                    width: 5.w,
-                    height: 5.w,
-                    decoration: BoxDecoration(
-                      color: color,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
-        SizedBox(height: 12.h),
-        _legendRow(),
-        SizedBox(height: 16.h),
-        _summaryCards(tally),
-        SizedBox(height: 20.h),
-        _detailsList(
-          title: 'Attendance Records',
-          onViewAll: _openViewAll,
-          viewAllLabel: 'Month Summary',
-          dates: List.generate(daysInMonth, (i) => DateTime(year, month, i + 1)),
-        ),
-      ],
-    );
-  }
-
-  // ── Year view ───────────────────────────────────────────────────────────
-  Widget _buildYearView() {
-    final yearTally = List.generate(
-      12,
-      (i) => tallyForMonth(_year, i + 1, hasData: (_year < _today.year) ||
-          (_year == _today.year && i + 1 <= _today.month)),
-    );
-    final totalPresent = yearTally.fold<int>(0, (a, b) => a + b.present);
-    final totalAbsent = yearTally.fold<int>(0, (a, b) => a + b.absent);
-    final totalLeave = yearTally.fold<int>(0, (a, b) => a + b.onLeave);
-    final totalHoliday = yearTally.fold<int>(0, (a, b) => a + b.holiday);
-    final grandTally = MonthTally(
-      present: totalPresent,
-      absent: totalAbsent,
-      onLeave: totalLeave,
-      holiday: totalHoliday,
-      totalDays: 365,
-    );
-
-    return Column(
-      key: const ValueKey('year'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _navHeader('$_year', () => _shiftYear(-1), () => _shiftYear(1)),
-        SizedBox(height: 14.h),
-        _summaryCards(grandTally, big: true),
-        SizedBox(height: 20.h),
-        Row(
-          children: [
-            Text(
-              'Monthly Overview',
-              style: GoogleFonts.inter(
-                fontSize: 14.5.sp,
-                fontWeight: FontWeight.w700,
-                color: _darkText,
-              ),
-            ),
-          ],
-        ),
-        SizedBox(height: 8.h),
-        _legendRow(),
-        SizedBox(height: 14.h),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: 12,
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            mainAxisSpacing: 10.h,
-            crossAxisSpacing: 10.w,
-            childAspectRatio: 0.7,
-          ),
-          itemBuilder: (context, index) {
-            final tally = yearTally[index];
-            return _StaggeredEntry(
-              index: index,
-              controller: _ctrl,
-              child: _monthCard(index + 1, tally),
-            );
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _monthCard(int month, MonthTally tally) {
-    return Container(
-      padding: EdgeInsets.symmetric(vertical: 10.h, horizontal: 6.w),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14.r),
-        border: Border.all(color: _borderColor),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            _monthNamesFull[month - 1],
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: GoogleFonts.inter(
-              fontSize: 11.sp,
-              fontWeight: FontWeight.w700,
-              color: _darkText,
-            ),
-          ),
-          SizedBox(height: 5.h),
-          SizedBox(
-            width: 52.w,
-            height: 52.w,
-            child: CustomPaint(
-              painter: _RingPainter(
-                present: tally.present,
-                absent: tally.absent,
-                onLeave: tally.onLeave,
-                total: tally.totalDays,
-              ),
-              child: Center(
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      '${tally.totalDays}',
+                      '$day',
                       style: GoogleFonts.inter(
                         fontSize: 12.sp,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w600,
                         color: _darkText,
                       ),
                     ),
-                    Text(
-                      'Days',
-                      style: GoogleFonts.inter(fontSize: 7.sp, color: _muted),
+                    SizedBox(height: 3.h),
+                    Container(
+                      width: 5.w,
+                      height: 5.w,
+                      decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                      ),
                     ),
                   ],
                 ),
-              ),
-            ),
+              );
+            },
           ),
-          SizedBox(height: 6.h),
-          _monthCountRow(kPresentColor, tally.present),
-          SizedBox(height: 2.h),
-          _monthCountRow(kAbsentColor, tally.absent),
-          SizedBox(height: 2.h),
-          _monthCountRow(kOnLeaveColor, tally.onLeave),
+          SizedBox(height: 12.h),
+          _legendRow(),
+          SizedBox(height: 16.h),
+          _summaryCards(tally),
+          SizedBox(height: 20.h),
+          _detailsList(
+            title: 'Attendance Records',
+            onViewAll: _openViewAll,
+            viewAllLabel: 'Month Summary',
+            records: records,
+          ),
         ],
-      ),
-    );
-  }
-
-  Widget _monthCountRow(Color color, int value) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Container(
-          width: 6.w,
-          height: 6.w,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        SizedBox(width: 5.w),
-        Text(
-          '$value',
-          style: GoogleFonts.inter(
-            fontSize: 10.5.sp,
-            fontWeight: FontWeight.w600,
-            color: _darkText,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _RingPainter extends CustomPainter {
-  final int present;
-  final int absent;
-  final int onLeave;
-  final int total;
-
-  _RingPainter({
-    required this.present,
-    required this.absent,
-    required this.onLeave,
-    required this.total,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    const strokeWidth = 6.0;
-    final center = size.center(Offset.zero);
-    final radius = (size.shortestSide - strokeWidth) / 2;
-    final rect = Rect.fromCircle(center: center, radius: radius);
-
-    final trackPaint = Paint()
-      ..color = const Color(0xFFE2E8F0)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..strokeCap = StrokeCap.round;
-    canvas.drawArc(rect, 0, 2 * math.pi, false, trackPaint);
-
-    if (total <= 0) return;
-    var start = -math.pi / 2;
-    void drawSegment(int value, Color color) {
-      if (value <= 0) return;
-      final sweep = (value / total) * 2 * math.pi;
-      canvas.drawArc(
-        rect,
-        start,
-        sweep,
-        false,
-        Paint()
-          ..color = color
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = strokeWidth
-          ..strokeCap = StrokeCap.round,
       );
-      start += sweep;
-    }
-
-    drawSegment(present, kPresentColor);
-    drawSegment(absent, kAbsentColor);
-    drawSegment(onLeave, kOnLeaveColor);
+    });
   }
-
-  @override
-  bool shouldRepaint(covariant _RingPainter oldDelegate) =>
-      oldDelegate.present != present ||
-      oldDelegate.absent != absent ||
-      oldDelegate.onLeave != onLeave ||
-      oldDelegate.total != total;
 }
 
 /// Staggers each item's entrance off the shared [controller] — later items
