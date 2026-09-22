@@ -189,4 +189,32 @@ class Api {
   static String get groupAssignmentSettingsUrl =>
       "$baseUrl/api/settings/group-assignment";
   static String get meetingPlacesUrl => "$baseUrl/api/meeting-places";
+
+  // Payroll / Leave URLs
+  static String leaveBalanceUrl(String employeeId) =>
+      "$baseUrl/api/payroll/leave-balance?employeeId=$employeeId";
+  static String get leaveTypesUrl => "$baseUrl/api/payroll/leave-types";
+  static String get applyLeaveUrl => '$baseUrl/api/hr/leave/apply';
+  static String get getLeaveApplicationsUrl => '$baseUrl/api/hr/leave';
+
+  // Attendance
+  static String attendanceSummaryUrl({int? month, int? year, String? fromDate, String? tillDate}) {
+    String url = "$baseUrl/api/mobile/attendance/summary";
+    List<String> params = [];
+    if (month != null) params.add("month=$month");
+    if (year != null) params.add("year=$year");
+    if (fromDate != null) params.add("fromDate=$fromDate");
+    if (tillDate != null) params.add("tillDate=$tillDate");
+    if (params.isNotEmpty) url += "?${params.join('&')}";
+    return url;
+  }
+
+  static String attendanceLedgerUrl({String? fromDate, String? tillDate}) {
+    String url = "$baseUrl/api/mobile/attendance/ledger";
+    List<String> params = [];
+    if (fromDate != null) params.add("fromDate=$fromDate");
+    if (tillDate != null) params.add("tillDate=$tillDate");
+    if (params.isNotEmpty) url += "?${params.join('&')}";
+    return url;
+  }
 }

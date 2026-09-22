@@ -140,6 +140,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (!success || !mounted) return;
 
+    debugPrint('Employee ID from Shared Pref: ${prefs.getString('employeeId')}');
+
     final isMpinSet = prefs.getBool('isMpinSet') ?? false;
     if (!isMpinSet) {
       Get.off(() => const SetMpinScreen());
