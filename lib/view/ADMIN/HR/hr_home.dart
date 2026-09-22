@@ -1,9 +1,11 @@
 // ignore_for_file: deprecated_member_use
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sarvam/services/hr_api_service.dart';
 import 'package:sarvam/view/ADMIN/HR/apply_leave_flow.dart';
 import 'package:sarvam/view/ADMIN/HR/my_leave_pages.dart';
 import 'package:sarvam/view/FDO/performance/my_performance.dart';
@@ -78,21 +80,68 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
     final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
     await reconcilePunchPrefs(prefs, serverInfo);
     if (!mounted) return;
+
+    final out = serverInfo?.punchedOut ?? hasPunchedOutToday(prefs);
+    final inn = serverInfo != null
+        ? (serverInfo.present || serverInfo.punchedIn)
+        : hasPunchedInToday(prefs);
+    final punchedOut = out;
+    final punchedIn = inn || out;
+    bool effectivePunchedOut = punchedOut;
+    bool effectivePunchedIn = punchedIn;
+
+    String pInTime = (serverInfo?.punchInTime != null && serverInfo!.punchInTime!.isNotEmpty)
+        ? serverInfo.punchInTime!
+        : (prefs.getString(kPunchInTimeKey) ?? '');
+    String pOutTime = (serverInfo?.punchOutTime != null && serverInfo!.punchOutTime!.isNotEmpty)
+        ? serverInfo.punchOutTime!
+        : (prefs.getString(kPunchOutTimeKey) ?? '');
+
+    // If punched in or punched out, but punch times are not in prefs or serverInfo
+    // (e.g. fresh reinstall or app update), fetch from HrApiService.trackingDetail.
+    if ((effectivePunchedIn && pInTime.isEmpty) || (effectivePunchedOut && pOutTime.isEmpty) || (effectivePunchedIn && pOutTime.isEmpty)) {
+      try {
+        final id = prefs.getString('userId') ?? prefs.getString('employeeId') ?? '';
+        if (id.isNotEmpty) {
+          final detail = await HrApiService.trackingDetail(
+            employeeId: id,
+            date: DateTime.now(),
+          );
+          final rawIn = detail['punchIn'];
+          final rawOut = detail['punchOut'];
+          if (rawIn != null && pInTime.isEmpty) {
+            final dtIn = DateTime.tryParse(rawIn.toString())?.toLocal();
+            if (dtIn != null) {
+              pInTime = formatPunchTime(dtIn);
+              await prefs.setString(kPunchInTimeKey, pInTime);
+            }
+          }
+          if (rawOut != null && pOutTime.isEmpty) {
+            final dtOut = DateTime.tryParse(rawOut.toString())?.toLocal();
+            if (dtOut != null) {
+              pOutTime = formatPunchTime(dtOut);
+              await prefs.setString(kPunchOutTimeKey, pOutTime);
+              effectivePunchedOut = true;
+            }
+          }
+        }
+      } catch (e) {
+        if (kDebugMode) debugPrint('Fallback trackingDetail punch error: $e');
+      }
+    }
+
+    if (!mounted) return;
     setState(() {
-      final out = serverInfo?.punchedOut ?? hasPunchedOutToday(prefs);
-      final inn = serverInfo != null
-          ? (serverInfo.present || serverInfo.punchedIn)
-          : hasPunchedInToday(prefs);
-      _punchedOut = out;
-      _punchedIn = inn || out;
+      _punchedOut = effectivePunchedOut;
+      _punchedIn = effectivePunchedIn || effectivePunchedOut;
       _isWorkingDay = serverInfo?.isWorkingDay ?? true;
       _attendanceStatus = serverInfo?.status ?? prefs.getString(kPunchStatusKey);
       _attendanceMessage =
           serverInfo != null && !serverInfo.faceAttendanceAllowed
           ? (serverInfo.accessMessage ?? 'Attendance is disabled for today.')
           : null;
-      _punchInTime = prefs.getString(kPunchInTimeKey) ?? '';
-      _punchOutTime = prefs.getString(kPunchOutTimeKey) ?? '';
+      _punchInTime = pInTime;
+      _punchOutTime = pOutTime;
       _attendanceLoading = false;
     });
   }

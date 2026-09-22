@@ -331,9 +331,15 @@ Future<void> reconcilePunchPrefs(
 
   if (serverIn) {
     await prefs.setString(kPunchInDateKey, today);
+    if (info.punchInTime != null && info.punchInTime!.isNotEmpty) {
+      await prefs.setString(kPunchInTimeKey, info.punchInTime!);
+    }
   }
   if (serverOut) {
     await prefs.setString(kPunchOutDateKey, today);
+    if (info.punchOutTime != null && info.punchOutTime!.isNotEmpty) {
+      await prefs.setString(kPunchOutTimeKey, info.punchOutTime!);
+    }
     // Keep local history current for a punch-out the server already knows
     // about (e.g. punched out on another device).
     await archiveAttendanceDay(

@@ -4,6 +4,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
+import 'package:sarvam/services/hr_api_service.dart';
 import 'package:sarvam/view/auth/punch_method_screen.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
@@ -57,7 +58,7 @@ class PunchOutDialog extends StatefulWidget {
     }
 
     if (!context.mounted) return;
-    showDialog(
+    await showDialog(
       context: context,
       barrierDismissible: true,
       builder: (_) => const PunchOutDialog(),
@@ -85,9 +86,31 @@ class _PunchOutDialogState extends State<PunchOutDialog> {
 
   Future<void> _loadShiftDetails() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _punchInTime = prefs.getString('lastPunchInTime') ?? 'Today';
-    });
+    var time = prefs.getString(kPunchInTimeKey);
+    if (time == null || time.isEmpty) {
+      try {
+        final id = prefs.getString('userId') ?? prefs.getString('employeeId') ?? '';
+        if (id.isNotEmpty) {
+          final detail = await HrApiService.trackingDetail(
+            employeeId: id,
+            date: DateTime.now(),
+          );
+          final rawIn = detail['punchIn'];
+          if (rawIn != null) {
+            final dtIn = DateTime.tryParse(rawIn.toString())?.toLocal();
+            if (dtIn != null) {
+              time = formatPunchTime(dtIn);
+              await prefs.setString(kPunchInTimeKey, time);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    if (mounted) {
+      setState(() {
+        _punchInTime = time ?? 'Today';
+      });
+    }
   }
 
   @override

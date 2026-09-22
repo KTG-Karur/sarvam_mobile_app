@@ -806,6 +806,33 @@ class FaceBiometricService {
         final data = resData['data'] is Map ? resData['data'] : resData;
         if (data is Map) {
           final bool isPunchedIn = data['present'] == true || data['punchedIn'] == true;
+          DateTime? checkIn;
+          DateTime? checkOut;
+          if (data['checkIn'] != null) {
+            try {
+              checkIn = DateTime.parse(data['checkIn'].toString()).toLocal();
+            } catch (_) {}
+          }
+          if (data['checkOut'] != null) {
+            try {
+              checkOut = DateTime.parse(data['checkOut'].toString()).toLocal();
+            } catch (_) {}
+          }
+          String? punchInTime = data['punchInTime']?.toString();
+          if ((punchInTime == null || punchInTime.isEmpty) && checkIn != null) {
+            final hour = checkIn.hour % 12 == 0 ? 12 : checkIn.hour % 12;
+            final minute = checkIn.minute.toString().padLeft(2, '0');
+            final period = checkIn.hour >= 12 ? 'PM' : 'AM';
+            punchInTime = '$hour:$minute $period';
+          }
+          String? punchOutTime = data['punchOutTime']?.toString();
+          if ((punchOutTime == null || punchOutTime.isEmpty) && checkOut != null) {
+            final hour = checkOut.hour % 12 == 0 ? 12 : checkOut.hour % 12;
+            final minute = checkOut.minute.toString().padLeft(2, '0');
+            final period = checkOut.hour >= 12 ? 'PM' : 'AM';
+            punchOutTime = '$hour:$minute $period';
+          }
+
           return ServerAttendanceInfo(
             present: isPunchedIn,
             punchedIn: isPunchedIn,
@@ -815,6 +842,10 @@ class FaceBiometricService {
             faceAttendanceAllowed: data['faceAttendanceAllowed'] ?? true,
             faceTrainingAllowed: data['faceTrainingAllowed'] ?? true,
             accessMessage: data['accessMessage']?.toString(),
+            punchInTime: punchInTime,
+            punchOutTime: punchOutTime,
+            checkIn: checkIn,
+            checkOut: checkOut,
           );
         }
       }
@@ -882,6 +913,10 @@ class ServerAttendanceInfo {
   final bool faceAttendanceAllowed;
   final bool faceTrainingAllowed;
   final String? accessMessage;
+  final String? punchInTime;
+  final String? punchOutTime;
+  final DateTime? checkIn;
+  final DateTime? checkOut;
 
   ServerAttendanceInfo({
     required this.present,
@@ -892,5 +927,9 @@ class ServerAttendanceInfo {
     this.faceAttendanceAllowed = true,
     this.faceTrainingAllowed = true,
     this.accessMessage,
+    this.punchInTime,
+    this.punchOutTime,
+    this.checkIn,
+    this.checkOut,
   });
 }
