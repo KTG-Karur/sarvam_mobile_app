@@ -283,9 +283,7 @@ class ClientEnrollmentController extends GetxController
     ever(spouseEconomicActivityId, (_) => _syncSpouseToNomineeIfLocked());
 
     loadStaticLookups();
-    currentBranchId().then((branchId) {
-      if (branchId.isNotEmpty) loadProductsForBranch(branchId);
-    });
+    ensureProductsLoaded(force: true);
     startAutoSaveListeners();
   }
 
@@ -436,7 +434,11 @@ class ClientEnrollmentController extends GetxController
 
   Future<String> currentBranchId() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('branchId') ?? '';
+    final saved = prefs.getString('branchId') ?? '';
+    if (saved.isNotEmpty) return saved;
+    // Some logins only persist the assigned-branch list.
+    final assigned = prefs.getStringList('assignedBranchIds');
+    return assigned != null && assigned.isNotEmpty ? assigned.first : '';
   }
 
   Future<void> fetchLocation() async {

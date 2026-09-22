@@ -90,6 +90,17 @@ class LoanDetailsTab extends StatelessWidget {
               onChanged: controller.onLoanProductSelected,
               required: controller.isRequired('requestedLoanProductId'),
               enabled: controller.requestedLoanProductTypeId.value != null,
+              helper: controller.loanProductEmptyReason,
+              onEmptyTap: () async {
+                // Retry when the list itself is empty; otherwise the filter
+                // (type + frequency) just has no match, which the helper
+                // text already explains.
+                if (controller.productsForBranch.isEmpty) {
+                  await controller.ensureProductsLoaded(force: true);
+                }
+                final reason = controller.loanProductEmptyReason;
+                if (reason != null) Get.snackbar('Loan Product', reason);
+              },
             ),
             EnrollmentTextField(
               label: 'Loan Amount',

@@ -13,6 +13,9 @@ enum EaScope { client, spouse, coApplicant }
 mixin EnrollmentLookupsMixin on GetxController {
   EnrollmentApiService get api;
 
+  // Implemented by the main controller class.
+  Future<String> currentBranchId();
+
   // Referenced from the main controller class (all fields declared there).
   Rxn<String> get memberGroupStatus;
   Rxn<String> get requestedCenterId;
@@ -54,6 +57,8 @@ mixin EnrollmentLookupsMixin on GetxController {
   final groupsForCenter = <dynamic>[].obs;
   final loanProductTypes = <dynamic>[].obs;
   final productsForBranch = <dynamic>[].obs;
+  final isLoadingProducts = false.obs;
+  final productsLoadMessage = RxnString();
   final loanPurposeTypes = <dynamic>[].obs;
   final loanPurposesForType = <dynamic>[].obs;
   final economicActivityTypes = <dynamic>[].obs;
@@ -235,6 +240,51 @@ mixin EnrollmentLookupsMixin on GetxController {
       productsForBranch.assignAll(await api.getProducts(branchId));
     } catch (e) {
       debugPrint('Failed to load products: $e');
+    }
+  }
+
+  /// Why the Loan Product dropdown has nothing to pick, in words an FDO can
+  /// act on — `null` while there are options. The dropdown itself silently
+  /// ignores taps when empty, which read as "unable to select".
+  String? get loanProductEmptyReason {
+    if (isLoadingProducts.value) return 'Loading loan products…';
+    if (filteredProducts.isNotEmpty) return null;
+    if (productsLoadMessage.value != null) return productsLoadMessage.value;
+    if (productsForBranch.isNotEmpty) {
+      return 'No ${requestedLoanFrequency.value} products for this product '
+          'type in your branch. Try another frequency or product type.';
+    }
+    return null;
+  }
+
+  /// (Re)loads the branch's product list. The one-shot load at startup can
+  /// come back empty (slow network, expired token, branch id not saved yet)
+  /// and was never retried, leaving the dropdown dead for the whole session.
+  Future<void> ensureProductsLoaded({bool force = false}) async {
+    if (isLoadingProducts.value) return;
+    if (!force && productsForBranch.isNotEmpty) return;
+    isLoadingProducts.value = true;
+    productsLoadMessage.value = null;
+    try {
+      final branchId = await currentBranchId();
+      if (branchId.isEmpty) {
+        productsLoadMessage.value =
+            'Your branch could not be determined. Please log out and log in again.';
+        return;
+      }
+      final list = await api.getProducts(branchId);
+      productsForBranch.assignAll(list);
+      if (list.isEmpty) {
+        productsLoadMessage.value =
+            'No loan products are available for your branch. Check your '
+            'connection and tap to retry; if it persists, ask admin to map '
+            'products to this branch (Branch Product Map).';
+      }
+    } catch (e) {
+      debugPrint('Failed to load products: $e');
+      productsLoadMessage.value = 'Could not load loan products. Tap to retry.';
+    } finally {
+      isLoadingProducts.value = false;
     }
   }
 
