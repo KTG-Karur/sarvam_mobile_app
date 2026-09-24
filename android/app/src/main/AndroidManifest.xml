@@ -15,6 +15,17 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Injected by open_filex; not needed. Photo uploads go through the system
+         photo picker (image_picker) / SAF (file_picker), and open_filex only
+         opens PDF/XLSX files this app wrote itself. Play policy rejects these. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" tools:node="remove" />
+    <!-- Injected by camera (audio is never recorded: every CameraController
+         uses enableAudio: false) and implied by tflite_gpu's old targetSdk.
+         Neither is used; removing them keeps the Data safety form honest. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" tools:node="remove" />
 
     <application
         android:label="Sarvam"

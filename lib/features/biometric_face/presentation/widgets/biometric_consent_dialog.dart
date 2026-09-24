@@ -68,17 +68,17 @@ class BiometricConsentDialog extends StatelessWidget {
             const SizedBox(height: 14),
             _buildBulletItem(
               Icons.lock_outline,
-              'AES-256 Encrypted: Your biometric template is encrypted and saved only in secure hardware storage.',
+              'Secure Storage: Your face template and one enrolment photo are sent over an encrypted connection to Sarvam servers and kept in encrypted storage on this device.',
             ),
             const SizedBox(height: 8),
             _buildBulletItem(
               Icons.no_photography_outlined,
-              'No Image Logging: We NEVER record, upload, or save your camera photos or raw video.',
+              'Attendance Only: Face data is used only to verify your attendance. No video is recorded and it is never shared with third parties.',
             ),
             const SizedBox(height: 8),
             _buildBulletItem(
               Icons.delete_sweep_outlined,
-              'Full Control: You can delete your enrolled biometric data at any time in settings.',
+              'Full Control: You can ask for your face data to be deleted at any time by contacting Sarvam (see Privacy Policy).',
             ),
             const SizedBox(height: 24),
             Row(

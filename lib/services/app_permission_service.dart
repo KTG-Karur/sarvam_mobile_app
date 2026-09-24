@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Asks for every runtime permission the app needs up front (right after
@@ -31,6 +33,15 @@ class AppPermissionService {
 
   static Future<void> _requestLocation() async {
     var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.always ||
+        permission == LocationPermission.deniedForever) {
+      return;
+    }
+    // Play's User Data policy requires an in-app prominent disclosure before
+    // any runtime prompt for background location. Declining skips the OS
+    // prompts entirely; features that need location ask again when used.
+    if (!await _showLocationDisclosure()) return;
+
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
@@ -39,6 +50,43 @@ class AppPermissionService {
     if (permission == LocationPermission.whileInUse) {
       await Geolocator.requestPermission();
     }
+  }
+
+  static Future<bool> _showLocationDisclosure() async {
+    final accepted = await Get.dialog<bool>(
+      PopScope(
+        canPop: false,
+        child: AlertDialog(
+          title: const Text('Location access'),
+          content: const SingleChildScrollView(
+            child: Text(
+              'Sarvam collects location data to enable attendance punch-in/out, '
+              'live tracking of field visits, and geotagging of member '
+              'verification, collection and disbursement entries, '
+              'even when the app is closed or not in use.\n\n'
+              'Background location is collected only while you are punched in, '
+              'and stops automatically when you punch out. It is shared only '
+              'with your authorised managers at Sarvam and is never used for '
+              'advertising.\n\n'
+              'On the next screen, choose "Allow all the time" to enable live '
+              'tracking.',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Get.back(result: false),
+              child: const Text('No thanks'),
+            ),
+            FilledButton(
+              onPressed: () => Get.back(result: true),
+              child: const Text('Continue'),
+            ),
+          ],
+        ),
+      ),
+      barrierDismissible: false,
+    );
+    return accepted ?? false;
   }
 
   /// The battery-optimisation screen is a full settings dialog, so show it only
