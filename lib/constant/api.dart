@@ -1,6 +1,6 @@
 class Api {
   // Uses http://localhost:3320 (working via adb reverse tcp:3320 tcp:3320 for Android emulators/devices)
-  static String get baseUrl => "https://sarvam.nidhimfi.com";
+  static String get baseUrl => "https://ktg.nidhimfi.com";
 
   static String get mobileLoginUrl => "$baseUrl/api/mobile/login";
   static String get loginUrl => "$baseUrl/api/mobile/login";
@@ -198,7 +198,12 @@ class Api {
   static String get getLeaveApplicationsUrl => '$baseUrl/api/hr/leave';
 
   // Attendance
-  static String attendanceSummaryUrl({int? month, int? year, String? fromDate, String? tillDate}) {
+  static String attendanceSummaryUrl({
+    int? month,
+    int? year,
+    String? fromDate,
+    String? tillDate,
+  }) {
     String url = "$baseUrl/api/mobile/attendance/summary";
     List<String> params = [];
     if (month != null) params.add("month=$month");
