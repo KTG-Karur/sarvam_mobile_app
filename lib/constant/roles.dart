@@ -4,7 +4,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// values (ADMIN / AREA_MANAGER / BRANCH_MANAGER / FDO) as well as the
 /// human-readable `rbacRoleName` and auto-generated RBAC role slugs — the
 /// same tolerance used by the web app's role checks.
-enum AppRole { admin, areaManager, branchManager, fdo, unknown }
+///
+/// [headOffice] covers HR and executive roles (HR, HRM, CM-HR, CEO, COO, CAO,
+/// Zonal Head, Division Manager). They have no branch/field dashboard on
+/// mobile and the backend rejects them on ADMIN-only APIs, so they land on
+/// the HRM screen.
+enum AppRole { admin, headOffice, areaManager, branchManager, fdo, unknown }
 
 /// Central place for role-based access decisions. Screens, menus and
 /// permission checks should use these helpers instead of re-implementing
@@ -39,15 +44,45 @@ class RoleScope {
   static bool isBranchManager(String value) =>
       _matches(value, _branchTokens, const ['BRANCH', 'BRANCHMANAGER']);
 
-  static bool isAdmin(String value) {
-    final v = value.trim().toUpperCase();
-    return v == 'ADMIN' || v == 'SUPER ADMIN' || v.contains('ADMIN');
-  }
+  static const List<String> _adminTokens = [
+    'ADMIN',
+    'ADMINISTRATOR',
+    'SUPER ADMIN',
+    'SUPER_ADMIN',
+    'SUPERADMIN',
+  ];
+
+  /// Exact match only — the backend grants admin APIs to `role == 'ADMIN'`
+  /// alone, so a substring match wrongly promoted e.g. "Chief
+  /// Administrative Officer" (CAO) to the admin console.
+  static bool isAdmin(String value) =>
+      _adminTokens.contains(value.trim().toUpperCase());
+
+  static const List<String> _headOfficeTokens = [
+    'HR',
+    'HRM',
+    'CM-HR',
+    'CEO',
+    'COO',
+    'CAO',
+    'ZH',
+    'DM',
+    'DIVISION_MANAGER',
+  ];
+
+  static bool isHeadOffice(String value) => _matches(
+    value,
+    _headOfficeTokens,
+    const ['HUMAN RESOURCE', 'CHIEF', 'ZONAL', 'DIVISION'],
+  );
 
   /// Resolves an [AppRole] from either the raw `role` or the display
   /// `rbacRoleName` value. Admin wins over manager checks.
   static AppRole resolve(String role, String rbacRoleName) {
     if (isAdmin(role) || isAdmin(rbacRoleName)) return AppRole.admin;
+    if (isHeadOffice(role) || isHeadOffice(rbacRoleName)) {
+      return AppRole.headOffice;
+    }
     if (isAreaManager(role) || isAreaManager(rbacRoleName)) {
       return AppRole.areaManager;
     }

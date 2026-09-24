@@ -19,8 +19,9 @@ import 'attendance_status.dart';
 import 'employee_id_card.dart';
 import 'live_tracking.dart';
 
-/// HrHome — the HR module's landing screen (reached from the Field Officer
-/// home screen's "HRM" tile). Shows quick-access tiles into the HR
+/// HrHome — the HR module's landing screen (reached from every role home's
+/// "HRM" entry, and the home screen itself for AppRole.headOffice roles —
+/// see resolveHomeScreen). Shows quick-access tiles into the HR
 /// sub-modules, a punch-in/out card and a footer banner.
 class HrHome extends StatefulWidget {
   const HrHome({super.key});

@@ -10,6 +10,7 @@ import 'package:sarvam/constant/roles.dart';
 import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/controller/admin/admin_dashboard_controller.dart';
 import 'package:sarvam/services/excel_export_service.dart';
+import 'package:sarvam/view/ADMIN/HR/hr_home.dart';
 import 'package:sarvam/view/ADMIN/masters/funder_list.dart';
 import 'package:sarvam/view/ADMIN/masters/gl_list.dart';
 import 'package:sarvam/view/ADMIN/masters/loan_products_list.dart';
@@ -1765,6 +1766,13 @@ class _AdminHomeState extends State<AdminHome>
               icon: Icons.person_search_rounded,
               color: const Color(0xFF7C3AED),
               onTap: () => _push(const ClientSearchLocate()),
+            ),
+            _buildQuickActionCard(
+              title: 'HRM',
+              subtitle: 'Attendance, leave, tracking & ID card',
+              icon: Icons.groups_rounded,
+              color: const Color(0xFF0284C7),
+              onTap: () => _push(const HrHome()),
             ),
           ],
         ),

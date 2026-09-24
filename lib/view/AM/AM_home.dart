@@ -13,6 +13,7 @@ import 'package:sarvam/view/AM/collection_view/collection_view_hub.dart';
 import 'package:sarvam/view/AM/disbursement_approval/disbursement_approval.dart';
 import 'package:sarvam/view/AM/foreclosure_approval/foreclosure_approval.dart';
 import 'package:sarvam/view/AM/gold_return/gold_return_approval.dart';
+import 'package:sarvam/view/ADMIN/HR/hr_home.dart';
 import 'package:sarvam/view/ADMIN/users/user_list.dart';
 import 'package:sarvam/view/BM/correct_collection_entry.dart';
 import 'package:sarvam/view/BM/correct_single_collection.dart';
@@ -734,6 +735,19 @@ class _AmHomeState extends State<AmHome> with SingleTickerProviderStateMixin {
                 subtitle: 'Demand, DCB, PAR, portfolio & performance reports',
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const AmReportsHub()),
+                ),
+              ),
+            ],
+          ),
+          _moduleSection(
+            title: 'HR MANAGEMENT',
+            items: [
+              _ModuleItem(
+                icon: Icons.groups_rounded,
+                title: 'HRM',
+                subtitle: 'Attendance, leave, live tracking & ID card',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const HrHome()),
                 ),
               ),
             ],

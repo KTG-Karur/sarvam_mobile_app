@@ -9,6 +9,7 @@ import 'package:sarvam/view/FDO/home/home.dart';
 import 'package:sarvam/view/BM/BM_home.dart';
 import 'package:sarvam/view/AM/AM_home.dart';
 import 'package:sarvam/view/ADMIN/admin_home.dart';
+import 'package:sarvam/view/ADMIN/HR/hr_home.dart';
 
 /// Calendar-day key ('YYYY-MM-DD') used to gate face verification to once
 /// per day: an FDO who punched in already shouldn't have to face-verify
@@ -392,6 +393,8 @@ Future<Widget> resolveHomeScreen() async {
       return const AmHome();
     case AppRole.admin:
       return const AdminHome();
+    case AppRole.headOffice:
+      return const HrHome();
     case AppRole.fdo:
     case AppRole.unknown:
       return const Home();

@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/controller/dashboard_controller.dart';
+import 'package:sarvam/view/ADMIN/HR/hr_home.dart';
 import 'package:sarvam/view/auth/punch_method_screen.dart';
 import 'package:sarvam/view/AM/collection_view/collection_view_hub.dart';
 import 'package:sarvam/view/FDO/client_search_locate/client_search_locate.dart';
@@ -547,6 +548,8 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
 
         SizedBox(height: 10.h),
         _shortcutRow2(),
+        SizedBox(height: 10.h),
+        _shortcutRow3(),
         SizedBox(height: 20.h),
       ],
     );
@@ -1124,7 +1127,6 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
   Widget _shortcutRow2() {
     return Row(
       children: [
-        SizedBox(width: 10.w),
         Expanded(
           child: _tile(
             asset: 'assets/icon/client_update.png',
@@ -1166,6 +1168,29 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
             onTap: () => _showProfileSheet(context),
           ),
         ),
+      ],
+    );
+  }
+
+  /// Row 3 — HR self-service (attendance, leave, ID card)
+  Widget _shortcutRow3() {
+    return Row(
+      children: [
+        Expanded(
+          child: _tile(
+            asset: 'assets/icon/bg.png',
+            label: 'HRM',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const HrHome()),
+            ),
+          ),
+        ),
+        SizedBox(width: 10.w),
+        const Expanded(child: SizedBox()),
+        SizedBox(width: 10.w),
+        const Expanded(child: SizedBox()),
+        SizedBox(width: 10.w),
+        const Expanded(child: SizedBox()),
       ],
     );
   }
