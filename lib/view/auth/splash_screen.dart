@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/view/auth/login_screen.dart';
 import 'package:sarvam/view/auth/mpin_login_screen.dart';
+import 'package:sarvam/view/FDO/home/home.dart';
 import 'package:sarvam/services/secure_session_service.dart';
 import 'package:sarvam/services/app_permission_service.dart';
 
@@ -44,7 +45,10 @@ class _SplashScreenState extends State<SplashScreen>
       final prefs = await SharedPreferences.getInstance();
       final String? token = await SecureSessionService.readAccessToken();
       final bool mpinSet = prefs.getBool('isMpinSet') ?? false;
-      if (token != null && token.isNotEmpty && mpinSet) {
+      final bool directLogin = prefs.getBool('directLogin') ?? false;
+      if (token != null && token.isNotEmpty && directLogin) {
+        Get.off(() => const Home());
+      } else if (token != null && token.isNotEmpty && mpinSet) {
         Get.off(() => const MpinLoginScreen());
       } else {
         Get.off(() => const LoginScreen());

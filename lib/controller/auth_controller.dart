@@ -182,7 +182,15 @@ class AuthController extends GetxController {
           final prefs = await SharedPreferences.getInstance();
           await SecureSessionService.saveTokens(
             accessToken: accessToken?.toString(), refreshToken: refreshToken?.toString());
-          
+
+          // Server-allowlisted FDO: the session above is already final — no
+          // MPIN setup, face training or face verification follows.
+          if (data['directLogin'] == true) {
+            await prefs.setBool('directLogin', true);
+          } else {
+            await prefs.remove('directLogin');
+          }
+
           if (user != null) {
             await prefs.setString('userId', user['id'] ?? '');
             await prefs.setString('employeeId', user['employeeId'] ?? '');
@@ -237,6 +245,7 @@ class AuthController extends GetxController {
         final String code = body['code']?.toString() ?? '';
 
         final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('directLogin');
         if (accessToken != null && accessToken.toString().isNotEmpty) {
           await SecureSessionService.savePendingToken(accessToken.toString());
         }
@@ -1062,6 +1071,7 @@ class AuthController extends GetxController {
       await prefs.remove('lastPunchStatus');
       await prefs.setBool('isMpinSet', false);
       await prefs.setBool('faceEnrollmentCompleted', false);
+      await prefs.remove('directLogin');
 
       Get.offAll(() => const LoginScreen());
     } catch (e) {

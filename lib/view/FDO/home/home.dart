@@ -96,6 +96,9 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
           serverInfo?.status ?? prefs.getString(kPunchStatusKey);
       _isWorkingDay = serverInfo?.isWorkingDay ?? true;
     });
+    // Direct-login FDO accounts skip every biometric step, including the
+    // mandatory face/fingerprint punch-in redirect.
+    if (prefs.getBool('directLogin') ?? false) return;
     _enforcePunchInGate();
   }
 

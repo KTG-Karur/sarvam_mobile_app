@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/view/auth/set_mpin_screen.dart';
 import 'package:sarvam/view/auth/mpin_login_screen.dart';
+import 'package:sarvam/view/FDO/home/home.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -141,6 +142,11 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!success || !mounted) return;
 
     debugPrint('Employee ID from Shared Pref: ${prefs.getString('employeeId')}');
+
+    if (prefs.getBool('directLogin') ?? false) {
+      Get.offAll(() => const Home());
+      return;
+    }
 
     final isMpinSet = prefs.getBool('isMpinSet') ?? false;
     if (!isMpinSet) {
