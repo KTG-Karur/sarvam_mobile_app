@@ -81,6 +81,37 @@ class LeaveController extends GetxController {
     }
   }
 
+  Future<Map<String, dynamic>?> uploadAttachment(Uint8List bytes, String fileName) async {
+    try {
+      isLoading.value = true;
+      final formData = FormData({
+        "file": MultipartFile(bytes, filename: fileName),
+      });
+
+      final response = await _connect.post(Api.uploadLeaveAttachmentUrl, formData);
+      debugPrint("Upload Attachment Response: ${response.body}");
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final body = response.body;
+        if (body != null && body['success'] == true && body['data'] != null) {
+          return body['data'];
+        }
+      }
+      
+      String errorMsg = 'Upload failed';
+      if (response.body != null && response.body['message'] != null) {
+        errorMsg = response.body['message'];
+      }
+      Get.snackbar('Error', errorMsg, snackPosition: SnackPosition.BOTTOM);
+      return null;
+    } catch (e) {
+      debugPrint("Error uploading attachment: $e");
+      return null;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
   Future<bool> applyLeave({
     required String leaveTypeId,
     required String fromDate,
@@ -88,44 +119,27 @@ class LeaveController extends GetxController {
     required String reason,
     bool isHalfDay = false,
     String? halfDaySession,
-    Uint8List? attachmentBytes,
-    String? attachmentName,
+    List<Map<String, String>>? attachments,
   }) async {
     try {
       isLoading.value = true;
 
-      Response response;
-      if (attachmentBytes != null) {
-        final formData = FormData({
-          "leaveTypeId": leaveTypeId,
-          "fromDate": fromDate,
-          "toDate": toDate,
-          "reason": reason,
-          "isHalfDay": isHalfDay.toString(),
-          if (halfDaySession != null) "halfDaySession": halfDaySession,
-          "attachment": MultipartFile(
-            attachmentBytes,
-            filename: attachmentName ?? 'attachment.pdf',
-          ),
-        });
-        response = await _connect.post(Api.applyLeaveUrl, formData);
-      } else {
-        final Map<String, dynamic> payload = {
-          "leaveTypeId": leaveTypeId,
-          "fromDate": fromDate,
-          "toDate": toDate,
-          "reason": reason,
-        };
+      final Map<String, dynamic> payload = {
+        "leaveTypeId": leaveTypeId,
+        "fromDate": fromDate,
+        "toDate": toDate,
+        "reason": reason,
+        if (attachments != null && attachments.isNotEmpty) "attachments": attachments,
+      };
 
-        if (isHalfDay) {
-          payload["isHalfDay"] = true;
-          if (halfDaySession != null) {
-            payload["halfDaySession"] = halfDaySession;
-          }
+      if (isHalfDay) {
+        payload["isHalfDay"] = true;
+        if (halfDaySession != null) {
+          payload["halfDaySession"] = halfDaySession;
         }
-        response = await _connect.post(Api.applyLeaveUrl, payload);
       }
 
+      final response = await _connect.post(Api.applyLeaveUrl, payload);
       debugPrint("Apply Leave Response: ${response.body}");
 
       if (response.statusCode == 200 || response.statusCode == 201) {

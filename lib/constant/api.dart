@@ -195,6 +195,7 @@ class Api {
   static String get leaveTypesUrl => "$baseUrl/api/payroll/leave-types";
   static String get applyLeaveUrl => '$baseUrl/api/hr/leave/apply';
   static String get getLeaveApplicationsUrl => '$baseUrl/api/hr/leave';
+  static String get uploadLeaveAttachmentUrl => '$baseUrl/api/hr/leave/attachments/upload';
 
   // Attendance
   static String attendanceSummaryUrl({int? month, int? year, String? fromDate, String? tillDate}) {

@@ -20,8 +20,8 @@ class LeaveRequestDraft {
   DateTime? toDate;
   String duration = 'Full Day'; // Full Day | First Half | Second Half
   String reason = '';
-  Uint8List? attachmentBytes;
   String? attachmentName;
+  String? fileKey;
 
   double currentBalance = 0;
 
@@ -470,21 +470,34 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
               ],
             ),
             icon: Icon(Icons.keyboard_arrow_down_rounded, color: _muted),
-            items: _controller.leaveTypes
-                .map(
-                  (t) {
-                    final id = t['id']?.toString() ?? '';
-                    final name = t['leaveType']?.toString() ?? '';
-                    return DropdownMenuItem(
-                      value: id,
-                      child: Text(
-                        name.toUpperCase(),
-                        style: TextStyle(fontSize: 13.5.sp, color: _navy),
-                      ),
-                    );
-                  },
-                )
-                .toList(),
+            items: _controller.leaveTypes.map((t) {
+              final id = t['id']?.toString() ?? '';
+              final name = t['leaveType']?.toString() ?? '';
+
+              // Find matching balance to check if it should be enabled
+              final matchingBalance = _controller.leaveBalances.firstWhere(
+                (b) =>
+                    (b['id']?.toString() ?? '') == id ||
+                    (b['typeId']?.toString() ?? '') == id,
+                orElse: () => null,
+              );
+              final balanceVal = matchingBalance != null
+                  ? (double.tryParse(matchingBalance['remainingBalance']?.toString() ?? '0') ?? 0)
+                  : 0.0;
+              final isEnabled = balanceVal > 0;
+
+              return DropdownMenuItem(
+                value: id,
+                enabled: isEnabled,
+                child: Text(
+                  name.toUpperCase() + (isEnabled ? '' : ' (NO BALANCE)'),
+                  style: TextStyle(
+                    fontSize: 13.5.sp,
+                    color: isEnabled ? _navy : _muted.withOpacity(0.5),
+                  ),
+                ),
+              );
+            }).toList(),
             onChanged: (v) {
               if (v == null) return;
               final selectedType = _controller.leaveTypes.firstWhere(
@@ -494,10 +507,12 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
               final name = selectedType != null
                   ? (selectedType['leaveType']?.toString() ?? '')
                   : v;
-              
+
               // Find matching balance if any to set currentBalance
               final matchingBalance = _controller.leaveBalances.firstWhere(
-                (b) => (b['id']?.toString() ?? '') == v,
+                (b) =>
+                    (b['id']?.toString() ?? '') == v ||
+                    (b['typeId']?.toString() ?? '') == v,
                 orElse: () => null,
               );
               final balanceVal = matchingBalance != null
@@ -627,7 +642,7 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
                 onTap: () {
                   setState(() {
                     _draft.attachmentName = null;
-                    _draft.attachmentBytes = null;
+                    _draft.fileKey = null;
                   });
                 },
                 child: Padding(
@@ -657,14 +672,40 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
         }
 
         if (bytes != null) {
-          setState(() {
-            _draft.attachmentBytes = bytes;
-            _draft.attachmentName = pickedFile.name;
-          });
+          // Check file size (max 5MB)
+          if (bytes.length > 5 * 1024 * 1024) {
+            _toast('File size exceeds 5MB limit');
+            return;
+          }
+
+          // Show loading screen
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => const Center(
+              child: CircularProgressIndicator(color: _green),
+            ),
+          );
+
+          try {
+            final uploadData = await _controller.uploadAttachment(bytes, pickedFile.name);
+            if (mounted) Navigator.of(context).pop(); // Dismiss loading screen
+
+            if (uploadData != null) {
+              setState(() {
+                _draft.fileKey = uploadData['fileKey'];
+                _draft.attachmentName = uploadData['fileName'];
+              });
+              _toast('File uploaded successfully');
+            }
+          } catch (e) {
+            if (mounted) Navigator.of(context).pop();
+            _toast('Upload failed');
+          }
         }
       }
     } catch (e) {
-      _toast('Error picking file');
+      _toast('Error picking or uploading file');
     }
   }
 }
@@ -1256,8 +1297,14 @@ class ReviewLeaveRequestPage extends StatelessWidget {
                               reason: draft.reason,
                               isHalfDay: isHalfDay,
                               halfDaySession: session,
-                              attachmentBytes: draft.attachmentBytes,
-                              attachmentName: draft.attachmentName,
+                              attachments: draft.fileKey != null
+                                  ? [
+                                      {
+                                        "fileKey": draft.fileKey!,
+                                        "fileName": draft.attachmentName!,
+                                      }
+                                    ]
+                                  : null,
                             );
 
                             if (success) {
