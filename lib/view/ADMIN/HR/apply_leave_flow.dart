@@ -24,6 +24,7 @@ class LeaveRequestDraft {
   String? fileKey;
 
   double currentBalance = 0;
+  int? attachmentRequiredAboveDays;
 
   double get leaveDays {
     if (fromDate == null || toDate == null) return 0;
@@ -32,6 +33,11 @@ class LeaveRequestDraft {
       return days - 0.5;
     }
     return days.toDouble();
+  }
+
+  bool get isAttachmentMandatory {
+    if (attachmentRequiredAboveDays == null) return false;
+    return leaveDays > attachmentRequiredAboveDays!;
   }
 
   String get dateRangeText {
@@ -160,6 +166,11 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
     }
     if (_draft.reason.isEmpty) {
       _toast('Please enter a reason for leave');
+      return;
+    }
+    if (_draft.isAttachmentMandatory && _draft.fileKey == null) {
+      _toast(
+          'Attachment is required for ${_draft.leaveTypeLabel} exceeding ${_draft.attachmentRequiredAboveDays} days');
       return;
     }
     Navigator.of(context).push(
@@ -345,8 +356,8 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
                       ),
                     ),
                   ),
-                  SizedBox(height: 16.h),
-                  _label('Attachment (Optional)'),
+                  SizedBox(height: 8.h),
+                  _label(_draft.isAttachmentMandatory ? 'Attachment (Required)' : 'Attachment (Optional)'),
                   SizedBox(height: 8.h),
                   _attachmentSelector(),
                 ],
@@ -519,10 +530,13 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
                   ? (double.tryParse(matchingBalance['remainingBalance']?.toString() ?? '0') ?? 0)
                   : 0.0;
 
+              final reqDays = selectedType != null ? selectedType['attachmentRequiredAboveDays'] : null;
+
               setState(() {
                 _draft.leaveTypeCode = v;
                 _draft.leaveTypeLabel = name.toUpperCase();
                 _draft.currentBalance = balanceVal;
+                _draft.attachmentRequiredAboveDays = (reqDays != null) ? int.tryParse(reqDays.toString()) : null;
               });
             },
           );
