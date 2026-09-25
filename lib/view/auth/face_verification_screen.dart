@@ -627,13 +627,17 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
         return;
       }
 
-      final storedSamples = await FaceBiometricService.getEnrolledFeatures();
-      if (storedSamples.isEmpty) {
+      // After a reinstall the device cache is empty even though the server
+      // still holds the template — restore it instead of asking to re-enroll.
+      final storedSamples =
+          await FaceBiometricService.getOrRestoreEnrolledFeatures();
+      final bool serverOnly = storedSamples.isEmpty;
+      if (serverOnly && !await FaceBiometricService.isFaceEnrolled()) {
         setState(() => _isVerifying = false);
         _showMatchResultDialog(
           isMatched: false,
           scorePercent: 0,
-          message: 'Your face is not enrolled on this device. '
+          message: 'Your face is not enrolled yet. '
               'Please register your face first.',
           imageBytes: snapshotBytes,
           enrolledImageBytes: null,
@@ -642,14 +646,18 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
       }
 
       // 2. On-device identity gate — reject a different person before the
-      //    server is ever contacted.
-      final deviceCosine =
-          FaceBiometricService.bestDeviceCosine(probe, storedSamples);
-      final deviceOk = deviceCosine >= FaceBiometricService.deviceCosineThreshold;
+      //    server is ever contacted. Skipped only when the template could not
+      //    be restored locally; the server match below still decides.
+      final deviceCosine = serverOnly
+          ? null
+          : FaceBiometricService.bestDeviceCosine(probe, storedSamples);
+      final deviceOk = serverOnly ||
+          deviceCosine! >= FaceBiometricService.deviceCosineThreshold;
+      final displayCosine = (deviceCosine ?? 0.0).clamp(0.0, 1.0);
 
       if (kDebugMode) {
-        print('[FACE_VERIFY] dim=${probe.length} '
-            'deviceCosine=${deviceCosine.toStringAsFixed(3)} '
+        print('[FACE_VERIFY] dim=${probe.length} serverOnly=$serverOnly '
+            'deviceCosine=${deviceCosine?.toStringAsFixed(3)} '
             'threshold=${FaceBiometricService.deviceCosineThreshold} '
             'deviceOk=$deviceOk');
       }
@@ -661,9 +669,9 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
         setState(() => _isVerifying = false);
         _showMatchResultDialog(
           isMatched: false,
-          scorePercent: (deviceCosine.clamp(0.0, 1.0)) * 100.0,
+          scorePercent: displayCosine * 100.0,
           message:
-              'This face does not match the enrolled user (${(deviceCosine.clamp(0.0, 1.0) * 100).toStringAsFixed(1)}% similarity). '
+              'This face does not match the enrolled user (${(displayCosine * 100).toStringAsFixed(1)}% similarity). '
               'Punch-in denied.',
           imageBytes: snapshotBytes,
           enrolledImageBytes: enrolledPhotoBytes,
@@ -703,7 +711,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
         isMatched: matchResult.isMatch,
         scorePercent: matchResult.isMatch
             ? matchResult.scorePercent
-            : (deviceCosine.clamp(0.0, 1.0)) * 100.0,
+            : displayCosine * 100.0,
         message: matchResult.isMatch ? successMessage : matchResult.message,
         imageBytes: snapshotBytes,
         enrolledImageBytes: enrolledPhotoBytes,

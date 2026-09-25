@@ -620,6 +620,60 @@ class FaceBiometricService {
     }
   }
 
+  /// Returns the local enrolled samples, restoring them from the server when
+  /// the device cache is empty (app reinstalled / data cleared) but the user
+  /// is already enrolled server-side.
+  static Future<List<List<double>>> getOrRestoreEnrolledFeatures() async {
+    final local = await getEnrolledFeatures();
+    if (local.isNotEmpty) return local;
+    await restoreEnrollmentFromServer();
+    return getEnrolledFeatures();
+  }
+
+  /// Pulls the caller's own template from `GET /api/auth/face/register` and
+  /// re-seeds the device cache. Returns true when a template was restored.
+  static Future<bool> restoreEnrollmentFromServer() async {
+    final token = await SecureSessionService.readAccessToken();
+    if (token == null || token.isEmpty) return false;
+
+    try {
+      final response = await http.get(
+        Uri.parse(Api.faceRegisterUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      ).timeout(const Duration(seconds: 12));
+      if (response.statusCode != 200) return false;
+
+      final resData = jsonDecode(response.body);
+      final data = resData['data'] is Map ? resData['data'] : resData;
+      if (data is! Map || data['enrolled'] != true) return false;
+
+      final rawEmbeddings = data['embeddings'];
+      if (rawEmbeddings is! List || rawEmbeddings.isEmpty) return false;
+      final samples = rawEmbeddings
+          .whereType<List>()
+          .map((s) => s.map((e) => (e as num).toDouble()).toList())
+          .where((s) => s.isNotEmpty)
+          .toList();
+      if (samples.isEmpty) return false;
+
+      final photo = data['photoBase64']?.toString();
+      await saveEnrolledFeatures(
+        samples,
+        photoBase64: (photo != null && photo.isNotEmpty) ? photo : null,
+      );
+      if (kDebugMode) {
+        print('[FACE_RESTORE] restored ${samples.length} sample(s) from server');
+      }
+      return true;
+    } catch (e) {
+      if (kDebugMode) print('Face template restore error: $e');
+      return false;
+    }
+  }
+
   /// Compares a live face feature vector using the authoritative backend API.
   static Future<FaceMatchResult> verifyFace({
     required List<double> liveFeatures,
