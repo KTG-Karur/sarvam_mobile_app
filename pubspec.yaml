@@ -61,6 +61,7 @@ dependencies:
   flutter_background_service: ^5.1.0
   battery_plus: ^7.1.1
   connectivity_plus: ^6.1.5
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:

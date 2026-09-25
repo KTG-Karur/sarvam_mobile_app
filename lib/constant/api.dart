@@ -88,6 +88,14 @@ class Api {
   static String get geoDrivingDistanceUrl =>
       "$baseUrl/api/geo/driving-distance";
   static String get geoRoadRouteUrl => "$baseUrl/api/geo/road-route";
+  static String get clientSearchUrl => "$baseUrl/api/clients/search";
+
+  // Same key as com.google.android.geo.API_KEY in AndroidManifest.xml; needs
+  // the "Routes API" enabled in Google Cloud for road directions.
+  static const String googleMapsApiKey =
+      "AIzaSyBIuZIM9WzWSlxtdGpUQKkO2XdSHOFh3As";
+  static const String googleRoutesUrl =
+      "https://routes.googleapis.com/directions/v2:computeRoutes";
 
   // Employee ID card
   static String get employeeDocumentsUrl =>

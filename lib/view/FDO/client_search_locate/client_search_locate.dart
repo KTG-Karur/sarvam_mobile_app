@@ -1,6 +1,12 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:sarvam/view/FDO/branch_to_centre_distance.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:http/http.dart' as http;
+import 'package:sarvam/constant/api.dart';
+import 'package:sarvam/services/secure_session_service.dart';
+import 'package:sarvam/view/FDO/client_search_locate/location_navigation_screen.dart';
 
 class ClientSearchLocate extends StatefulWidget {
   const ClientSearchLocate({super.key});
@@ -16,13 +22,46 @@ class ClientSearchItem {
     required this.center,
     required this.phone,
     required this.status,
+    this.branchName = '',
+    this.member,
+    this.centerPoint,
+    this.branchPoint,
   });
+
+  factory ClientSearchItem.fromJson(Map<String, dynamic> json) {
+    LatLng? point(String lat, String lng) {
+      final la = json[lat], ln = json[lng];
+      if (la is! num || ln is! num) return null;
+      if (la == 0 && ln == 0) return null;
+      return LatLng(la.toDouble(), ln.toDouble());
+    }
+
+    final center = json['centerName']?.toString() ?? '';
+    return ClientSearchItem(
+      accountId: (json['displayAccountId'] ?? json['accountId'] ?? '')
+          .toString(),
+      name: json['clientName']?.toString() ?? '',
+      center: center.isEmpty ? 'No Center' : center,
+      phone: json['phone']?.toString() ?? '',
+      status: json['status']?.toString() ?? 'Active',
+      branchName: json['branchName']?.toString() ?? '',
+      member: point('memberLatitude', 'memberLongitude'),
+      centerPoint:
+          point('centerLatitude', 'centerLongitude') ??
+          point('latitude', 'longitude'),
+      branchPoint: point('branchLatitude', 'branchLongitude'),
+    );
+  }
 
   final String accountId;
   final String name;
   final String center;
   final String phone;
   final String status;
+  final String branchName;
+  final LatLng? member;
+  final LatLng? centerPoint;
+  final LatLng? branchPoint;
 }
 
 class _ClientSearchLocateState extends State<ClientSearchLocate> {
@@ -33,43 +72,17 @@ class _ClientSearchLocateState extends State<ClientSearchLocate> {
   static const _lightGreen = Color(0xFFE4F5EB);
   static const _fill = Color(0xFFF7FBF7);
 
-  final List<ClientSearchItem> _allClients = const [
-    ClientSearchItem(
-      accountId: 'DRF-3-5',
-      name: 'DRF-3-5 - Julie M',
-      center: 'No Center',
-      phone: '6384990320',
-      status: 'Active',
-    ),
-    ClientSearchItem(
-      accountId: '3-6-1-1',
-      name: '3-6-1-1 - Rahini',
-      center: 'FOREST ROAD 2',
-      phone: '8754247896',
-      status: 'Active',
-    ),
-    ClientSearchItem(
-      accountId: '3-5-2-3',
-      name: '3-5-2-3 - Preetha Marimuthu',
-      center: 'SOKKADEVANPATTI - 1',
-      phone: '8110968081',
-      status: 'Active',
-    ),
-    ClientSearchItem(
-      accountId: '3-5-2-2',
-      name: '3-5-2-2 - Alaguranjitha S',
-      center: 'SOKKADEVANPATTI - 1',
-      phone: '8428499293',
-      status: 'Active',
-    ),
-    ClientSearchItem(
-      accountId: '3-5-2-1',
-      name: '3-5-2-1 - Ragu Ram',
-      center: 'SOKKADEVANPATTI - 1',
-      phone: '9751517996',
-      status: 'Active',
-    ),
-  ];
+  List<ClientSearchItem> _allClients = const [];
+  bool _loading = false;
+  bool _searched = false;
+  String? _error;
+  final _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   final List<String> _searchTypes = const [
     'Search All (ID / Name / Phone)',
@@ -78,10 +91,9 @@ class _ClientSearchLocateState extends State<ClientSearchLocate> {
     'Search by Phone',
   ];
 
-  final List<String> _centers = const [
+  List<String> get _centers => [
     'All Centers',
-    'FOREST ROAD 2',
-    'SOKKADEVANPATTI - 1',
+    ...{for (final c in _allClients) c.center},
   ];
 
   final List<String> _statuses = const [
@@ -112,8 +124,125 @@ class _ClientSearchLocateState extends State<ClientSearchLocate> {
     }).toList();
   }
 
-  void _clearSearch() {
+  String get _apiSearchType {
+    switch (_searchTypes.indexOf(_selectedSearchType)) {
+      case 1:
+        return 'clientId';
+      case 2:
+        return 'clientName';
+      case 3:
+        return 'phone';
+      default:
+        return 'searchAll';
+    }
+  }
+
+  Future<void> _search() async {
+    FocusScope.of(context).unfocus();
+    final value = _searchValue.trim();
+    if (value.isEmpty) {
+      setState(() => _error = 'Enter an ID, name or phone number to search.');
+      return;
+    }
     setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final token = await SecureSessionService.readAccessToken() ?? '';
+      final uri = Uri.parse(Api.clientSearchUrl).replace(
+        queryParameters: {
+          'searchType': _apiSearchType,
+          'searchValue': value,
+          'page': '1',
+          'pageSize': '50',
+        },
+      );
+      final response = await http
+          .get(
+            uri,
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'application/json',
+            },
+          )
+          .timeout(const Duration(seconds: 20));
+      final body = jsonDecode(response.body);
+      if (response.statusCode != 200 ||
+          body is! Map ||
+          body['success'] != true) {
+        final message = body is Map ? (body['message'] ?? body['error']) : null;
+        throw Exception(message ?? 'Search failed (${response.statusCode})');
+      }
+      final list = (body['data'] as Map?)?['clients'];
+      if (!mounted) return;
+      setState(() {
+        _allClients = list is List
+            ? list
+                  .whereType<Map>()
+                  .map(
+                    (m) =>
+                        ClientSearchItem.fromJson(Map<String, dynamic>.from(m)),
+                  )
+                  .toList()
+            : const [];
+        _selectedCenter = _centers.first;
+        _searched = true;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(
+        () => _error = e is Exception
+            ? e.toString().replaceFirst('Exception: ', '')
+            : 'Unable to search clients. Check your connection.',
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _openLocate(ClientSearchItem client) {
+    final memberName = client.name.contains(' - ')
+        ? client.name.split(' - ').last
+        : client.name;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => LocationNavigationScreen(
+          title: client.name,
+          targets: [
+            NavTarget(
+              label: 'Member',
+              name: memberName,
+              icon: Icons.home_outlined,
+              hue: BitmapDescriptor.hueRed,
+              point: client.member,
+            ),
+            NavTarget(
+              label: 'Centre',
+              name: client.center,
+              icon: Icons.groups_outlined,
+              hue: BitmapDescriptor.hueGreen,
+              point: client.centerPoint,
+            ),
+            NavTarget(
+              label: 'Branch',
+              name: client.branchName.isEmpty ? 'Branch' : client.branchName,
+              icon: Icons.account_balance_outlined,
+              hue: BitmapDescriptor.hueOrange,
+              point: client.branchPoint,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() {
+      _allClients = const [];
+      _searched = false;
+      _error = null;
       _searchValue = '';
       _selectedSearchType = _searchTypes.first;
       _selectedCenter = _centers.first;
@@ -282,11 +411,7 @@ class _ClientSearchLocateState extends State<ClientSearchLocate> {
                 _actionChip(
                   Icons.location_on_outlined,
                   'Locate',
-                  () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const BranchToCentreDistancePage(),
-                    ),
-                  ),
+                  () => _openLocate(client),
                 ),
                 _actionChip(Icons.remove_red_eye_outlined, 'KYC', () {}),
                 _actionChip(Icons.receipt_long_outlined, 'Loans', () {}),
@@ -372,6 +497,9 @@ class _ClientSearchLocateState extends State<ClientSearchLocate> {
                   ),
                   SizedBox(height: 12.h),
                   TextField(
+                    controller: _searchController,
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: (_) => _search(),
                     style: TextStyle(fontSize: 13.sp),
                     decoration: InputDecoration(
                       hintText: 'Enter value to search',
@@ -469,15 +597,24 @@ class _ClientSearchLocateState extends State<ClientSearchLocate> {
                                 borderRadius: BorderRadius.circular(10.r),
                               ),
                             ),
-                            icon: Icon(Icons.search, size: 18.sp),
+                            icon: _loading
+                                ? SizedBox(
+                                    width: 16.w,
+                                    height: 16.w,
+                                    child: const CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Icon(Icons.search, size: 18.sp),
                             label: Text(
-                              'Search',
+                              _loading ? 'Searching…' : 'Search',
                               style: TextStyle(
                                 fontSize: 13.sp,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
-                            onPressed: () => setState(() {}),
+                            onPressed: _loading ? null : _search,
                           ),
                         ),
                       ),
@@ -501,18 +638,26 @@ class _ClientSearchLocateState extends State<ClientSearchLocate> {
                 ],
               ),
             ),
-            SizedBox(height: 18.h),
-            Text(
-              'Showing ${_filteredClients.length} of ${_allClients.length} clients',
-              style: TextStyle(
-                fontSize: 13.sp,
-                fontWeight: FontWeight.w800,
-                color: _darkGreen,
+            if (_error != null) ...[
+              SizedBox(height: 12.h),
+              Text(
+                _error!,
+                style: TextStyle(fontSize: 12.sp, color: Colors.redAccent),
               ),
-            ),
+            ],
+            SizedBox(height: 18.h),
+            if (_searched)
+              Text(
+                'Showing ${_filteredClients.length} of ${_allClients.length} clients',
+                style: TextStyle(
+                  fontSize: 13.sp,
+                  fontWeight: FontWeight.w800,
+                  color: _darkGreen,
+                ),
+              ),
             SizedBox(height: 12.h),
             ..._filteredClients.map(_buildClientCard),
-            if (_filteredClients.isEmpty)
+            if (_searched && _filteredClients.isEmpty)
               Container(
                 width: double.infinity,
                 padding: EdgeInsets.all(24.w),
