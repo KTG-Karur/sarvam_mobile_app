@@ -26,7 +26,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
     ArrearCollectionController(),
   );
   late DateTime _date;
-  // The branch's actual resolved EOD working date â€” distinct from `_date`,
+  // The branch's actual resolved EOD working date — distinct from `_date`,
   // which the user can move earlier to browse older arrears (mirrors the
   // web's `max={eodWorkingDate}` cap: never later than this, but any
   // earlier date is fair game). The "EOD not completed" banner is keyed to
@@ -38,7 +38,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
   final List<TextEditingController> _advances = [];
   final List<String> _attendance = [];
   final Set<String> _selectedKeys = <String>{};
-  // Explicit controller for the arrear table's horizontal Scrollbar â€”
+  // Explicit controller for the arrear table's horizontal Scrollbar —
   // Scrollbar(thumbVisibility: true) requires one; without it, Flutter
   // falls back to the PrimaryScrollController, which doesn't exist for a
   // horizontal SingleChildScrollView and crashes with
@@ -85,7 +85,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
       '${item['clientId'] ?? item['clientCode'] ?? 'client'}-${item['loanNumber'] ?? index}';
 
   /// A loan whose arrear was already collected (server `status: 'COLLECTED'`)
-  /// must never be re-selectable â€” matches Demand Collection's guard so a
+  /// must never be re-selectable — matches Demand Collection's guard so a
   /// client already showing the "Collected" badge can't be checked again and
   /// re-submitted for a loan that has nothing left to collect.
   bool _isFullyCollected(Map<String, dynamic> item) =>
@@ -95,7 +95,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
     final num n = value is num
         ? value
         : num.tryParse(value?.toString() ?? '') ?? 0;
-    return 'â‚¹${n.toStringAsFixed(2)}';
+    return '₹${n.toStringAsFixed(2)}';
   }
 
   void _setupControllers(int count) {
@@ -247,7 +247,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
 
   Future<void> _pickDate() async {
     // Arrears legitimately span past dates, so this stays editable (unlike
-    // Demand Collection's locked field) â€” but capped at the branch's actual
+    // Demand Collection's locked field) — but capped at the branch's actual
     // working date, mirroring the web app's `max={eodWorkingDate}`, so a
     // collection can never be backdated past today yet postdated beyond
     // what the branch has actually reached.
@@ -424,12 +424,12 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
                         children: [
                           _amountCard(
                             'Arrear Principal',
-                            'â‚¹${_totalArrearPrincipal.toStringAsFixed(2)}',
+                            '₹${_totalArrearPrincipal.toStringAsFixed(2)}',
                           ),
                           SizedBox(width: 10.w),
                           _amountCard(
                             'Arrear Interest',
-                            'â‚¹${_totalArrearInterest.toStringAsFixed(2)}',
+                            '₹${_totalArrearInterest.toStringAsFixed(2)}',
                           ),
                         ],
                       ),
@@ -510,7 +510,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
                 if (value != null) {
                   _controller.selectedCenterName.value = value;
                   // Match against the same formatter the dropdown items were
-                  // built with (not a raw concat) â€” formatCenterDisplay can
+                  // built with (not a raw concat) — formatCenterDisplay can
                   // reformat the code (e.g. pad "6" to "06"), so a raw
                   // rebuild here could never match any center and crash
                   // with "Bad state: No element".
@@ -614,14 +614,14 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
       SizedBox(width: 8.w),
       _summary(
         'Total Arrear Due',
-        'â‚¹${_totalArrearDue.toStringAsFixed(2)}',
+        '₹${_totalArrearDue.toStringAsFixed(2)}',
         Icons.currency_rupee,
         const Color(0xFFF2A900),
       ),
       SizedBox(width: 8.w),
       _summary(
         'Collected',
-        'â‚¹${_totalCollected.toStringAsFixed(2)}',
+        '₹${_totalCollected.toStringAsFixed(2)}',
         Icons.check_circle_outline,
         const Color(0xFF008A3D),
       ),
@@ -702,7 +702,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
 
   Widget _clients() {
     final list = _controller.arrearCollections;
-    // "Select All" only ever selects still-collectible clients â€” a
+    // "Select All" only ever selects still-collectible clients — a
     // collected row has no checkbox to toggle (see the DataRow below), so
     // it must never be counted here either.
     final allKeys = {
@@ -750,7 +750,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
                           ),
                           SizedBox(width: 8.w),
                           const Text(
-                            'â—‰ Gold Loan',
+                            '◉ Gold Loan',
                             style: TextStyle(
                               fontSize: 9,
                               color: Color(0xFFF08A00),
@@ -855,7 +855,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
                     return DataRow(
                       // Never shows selected for an already-collected loan,
                       // even if a stale key somehow lingered in
-                      // _selectedKeys â€” mirrors Demand Collection's guard.
+                      // _selectedKeys — mirrors Demand Collection's guard.
                       selected: !isCollected && _selectedKeys.contains(key),
                       onSelectChanged: isCollected
                           ? null
@@ -1153,7 +1153,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
   /// Builds the arrear-shaped `collections`/`attendance` payload for
   /// whichever clients are currently selected, and submits it via the
   /// software's own `POST /api/collections/arrear` contract (multipart,
-  /// mandatory meeting photo + denomination) â€” mirrors
+  /// mandatory meeting photo + denomination) — mirrors
   /// `ArrearCollectionClient.tsx`'s `handleFinalSubmit`. Returns false
   /// (without navigating) if there's nothing valid to send, so the
   /// submission wizard stays open instead of silently "succeeding".
@@ -1245,10 +1245,10 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
       ),
       label: Text(
         _submissionComplete
-            ? 'Submitted âœ“'
+            ? 'Submitted ✓'
             : LoanAdvanceConfig.enabled
-            ? 'Submit Arrear Collection (â‚¹${_selectedTotalCollected.toStringAsFixed(2)} + Loan Adv â‚¹${_selectedTotalAdvances.toStringAsFixed(2)})'
-            : 'Submit Arrear Collection (â‚¹${_selectedTotalCollected.toStringAsFixed(2)})',
+            ? 'Submit Arrear Collection (₹${_selectedTotalCollected.toStringAsFixed(2)} + Loan Adv ₹${_selectedTotalAdvances.toStringAsFixed(2)})'
+            : 'Submit Arrear Collection (₹${_selectedTotalCollected.toStringAsFixed(2)})',
         style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700),
         overflow: TextOverflow.ellipsis,
       ),

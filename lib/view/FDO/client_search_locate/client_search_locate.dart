@@ -1,11 +1,9 @@
-import 'dart:convert';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:http/http.dart' as http;
 import 'package:sarvam/constant/api.dart';
-import 'package:sarvam/services/secure_session_service.dart';
+import 'package:sarvam/services/api_client.dart';
 import 'package:sarvam/view/FDO/client_search_locate/location_navigation_screen.dart';
 
 class ClientSearchLocate extends StatefulWidget {
@@ -149,25 +147,28 @@ class _ClientSearchLocateState extends State<ClientSearchLocate> {
       _error = null;
     });
     try {
-      final token = await SecureSessionService.readAccessToken() ?? '';
-      final uri = Uri.parse(Api.clientSearchUrl).replace(
-        queryParameters: {
+      // ApiClient attaches the current token (the one its 401 refresh keeps
+      // up to date) and retries once after refreshing an expired session.
+      final client = ApiClient()..timeout = const Duration(seconds: 20);
+      final response = await client.get(
+        Api.clientSearchUrl,
+        query: {
           'searchType': _apiSearchType,
           'searchValue': value,
           'page': '1',
           'pageSize': '50',
         },
       );
-      final response = await http
-          .get(
-            uri,
-            headers: {
-              'Authorization': 'Bearer $token',
-              'Content-Type': 'application/json',
-            },
-          )
-          .timeout(const Duration(seconds: 20));
-      final body = jsonDecode(response.body);
+      final body = response.body;
+      if (kDebugMode) {
+        debugPrint(
+          'Client search ${response.statusCode}: '
+          '${response.bodyString?.substring(0, (response.bodyString?.length ?? 0).clamp(0, 300))}',
+        );
+      }
+      if (response.statusCode == null) {
+        throw Exception('Unable to reach the server. Check your connection.');
+      }
       if (response.statusCode != 200 ||
           body is! Map ||
           body['success'] != true) {
