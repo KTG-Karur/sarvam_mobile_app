@@ -5,6 +5,7 @@ import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/collection_controller.dart';
 import 'package:sarvam/controller/live_collection_controller.dart';
+import 'package:sarvam/services/loan_advance_config.dart';
 import 'package:sarvam/view/FDO/colletion/collection_submission_flow.dart';
 import 'package:sarvam/utils/center_formatter.dart';
 import 'package:sarvam/view/shared/eod_pending_banner.dart';
@@ -98,29 +99,31 @@ class ClientCollectionDetailsPage extends StatelessWidget {
         'Rem Interest',
         _number(['remainingInterest', 'remInterest']),
       ),
-      _ClientDetailField(
-        'Loan Advance',
-        _number(['loanAdvance', 'advanceAmount', 'advance', 'loanAdv']),
-      ),
-      _ClientDetailField(
-        'Loan Adv Adjusted',
-        _number([
-          'loanAdvanceAdjusted',
-          'advanceAdjusted',
-          'adjustedLoanAdvance',
-          'loanAdvAdjusted',
-        ]),
-      ),
-      _ClientDetailField(
-        'Loan Adv Collect',
-        _number([
-          'loanAdvanceCollectedToday',
-          'loanAdvanceCollect',
-          'advanceCollect',
-          'loanAdvanceCollection',
-          'loanAdvCollect',
-        ]),
-      ),
+      if (LoanAdvanceConfig.enabled) ...[
+        _ClientDetailField(
+          'Loan Advance',
+          _number(['loanAdvance', 'advanceAmount', 'advance', 'loanAdv']),
+        ),
+        _ClientDetailField(
+          'Loan Adv Adjusted',
+          _number([
+            'loanAdvanceAdjusted',
+            'advanceAdjusted',
+            'adjustedLoanAdvance',
+            'loanAdvAdjusted',
+          ]),
+        ),
+        _ClientDetailField(
+          'Loan Adv Collect',
+          _number([
+            'loanAdvanceCollectedToday',
+            'loanAdvanceCollect',
+            'advanceCollect',
+            'loanAdvanceCollection',
+            'loanAdvCollect',
+          ]),
+        ),
+      ],
       _ClientDetailField(
         'Attendance',
         _text('attendance', fallback: _text('attendanceStatus', fallback: 'A')),
@@ -383,8 +386,9 @@ class _ClientCollectionEditPanelState extends State<ClientCollectionEditPanel> {
           : numDemand.toStringAsFixed(2),
     );
 
-    widget.client['loanAdvanceCollectedToday'] =
-        double.tryParse(_advanceCollectController.text) ?? 0;
+    widget.client['loanAdvanceCollectedToday'] = LoanAdvanceConfig.amount(
+      double.tryParse(_advanceCollectController.text),
+    );
     widget.client['collectedAmount'] =
         double.tryParse(_collectAmountController.text) ?? numDemand;
 
@@ -422,7 +426,9 @@ class _ClientCollectionEditPanelState extends State<ClientCollectionEditPanel> {
       key.toLowerCase().replaceAll(RegExp('[^a-z0-9]'), '');
 
   Future<void> _save() async {
-    final advance = double.tryParse(_advanceCollectController.text.trim());
+    final advance = LoanAdvanceConfig.enabled
+        ? double.tryParse(_advanceCollectController.text.trim())
+        : 0.0;
     final collection = double.tryParse(_collectAmountController.text.trim());
     if (advance == null ||
         collection == null ||
@@ -474,12 +480,14 @@ class _ClientCollectionEditPanelState extends State<ClientCollectionEditPanel> {
               style: TextStyle(fontSize: 10.sp, color: const Color(0xFF638B74)),
             ),
           ),
-        _amountField(
-          'Loan Adv Collect',
-          _advanceCollectController,
-          enabled: !_isCollected,
-        ),
-        SizedBox(height: 12.h),
+        if (LoanAdvanceConfig.enabled) ...[
+          _amountField(
+            'Loan Adv Collect',
+            _advanceCollectController,
+            enabled: !_isCollected,
+          ),
+          SizedBox(height: 12.h),
+        ],
         _amountField(
           'Due Amount',
           _collectAmountController,
@@ -637,6 +645,9 @@ class _DemandCollectionState extends State<DemandCollection> {
   @override
   void initState() {
     super.initState();
+    LoanAdvanceConfig.refresh().then((_) {
+      if (mounted) setState(() {});
+    });
     _date = widget.initialDate ?? DateTime.now();
     _collectionController.demandCollections.clear();
     _loadEligibleCenters();
@@ -667,7 +678,7 @@ class _DemandCollectionState extends State<DemandCollection> {
                 item['totalSavingsDue'] ??
                 item['savingsCurrentDemand'],
           );
-          item['loanAdvanceCollectedToday'] = target;
+          item['loanAdvanceCollectedToday'] = LoanAdvanceConfig.amount(target);
         }
       }
     }
@@ -1206,11 +1217,12 @@ class _DemandCollectionState extends State<DemandCollection> {
               _quickFullCollection,
               _toggleQuickFullCollection,
             ),
-            _quickToggle(
-              '100% Loan Advance',
-              _quickFullAdvance,
-              _toggleQuickFullAdvance,
-            ),
+            if (LoanAdvanceConfig.enabled)
+              _quickToggle(
+                '100% Loan Advance',
+                _quickFullAdvance,
+                _toggleQuickFullAdvance,
+              ),
           ],
         ),
         SizedBox(height: 14.h),
@@ -1660,6 +1672,7 @@ class _DemandCollectionState extends State<DemandCollection> {
                       ],
                     ),
                   ),
+                  if (LoanAdvanceConfig.enabled) ...[
                   SizedBox(width: 10.w),
                   Expanded(
                     child: Column(
@@ -1708,6 +1721,7 @@ class _DemandCollectionState extends State<DemandCollection> {
                       ],
                     ),
                   ),
+                  ],
                 ],
               ),
               SizedBox(height: 10.h),
@@ -1774,11 +1788,13 @@ class _DemandCollectionState extends State<DemandCollection> {
       0,
       (sum, item) =>
           sum +
-          _asNum(
-            item['loanAdvanceCollectedToday'] ??
-                item['loanAdvanceCollect'] ??
-                item['loanAdvance'] ??
-                item['advanceAmount'],
+          LoanAdvanceConfig.amount(
+            _asNum(
+              item['loanAdvanceCollectedToday'] ??
+                  item['loanAdvanceCollect'] ??
+                  item['loanAdvance'] ??
+                  item['advanceAmount'],
+            ),
           ),
     );
     final num grandTotal = totalCollection + totalAdvance;

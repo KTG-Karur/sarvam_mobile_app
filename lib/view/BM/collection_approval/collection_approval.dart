@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/services/api_client.dart';
+import 'package:sarvam/services/loan_advance_config.dart';
 import 'package:sarvam/view/AM/foreclosure_approval/foreclosure_approval.dart';
 import 'package:sarvam/view/BM/group_assignment/widgets/id_dropdown.dart';
 
@@ -80,6 +81,9 @@ class _CollectionApprovalState extends State<CollectionApproval>
   @override
   void initState() {
     super.initState();
+    LoanAdvanceConfig.refresh().then((_) {
+      if (mounted) setState(() {});
+    });
     _tabController = TabController(length: _modeTabs.length, vsync: this);
     _tabController.addListener(() {
       if (_tabController.indexIsChanging && _modeTabs[_tabController.index] == 'ALLOCATE_EOD') {
@@ -1217,7 +1221,8 @@ class _CollectionApprovalState extends State<CollectionApproval>
               _metricCol('Collected', '₹${totalAmount.toStringAsFixed(2)}', isBold: true),
               _metricCol('Principal', '₹${principal.toStringAsFixed(2)}'),
               _metricCol('Interest', '₹${interest.toStringAsFixed(2)}'),
-              _metricCol('Adv. Coll.', '₹${loanAdv.toStringAsFixed(2)}'),
+              if (LoanAdvanceConfig.enabled)
+                _metricCol('Adv. Coll.', '₹${loanAdv.toStringAsFixed(2)}'),
             ],
           ),
           if (!isApproved) ...[
@@ -1379,7 +1384,10 @@ class _CollectionApprovalState extends State<CollectionApproval>
         return const Center(child: CircularProgressIndicator(color: _green));
       }
 
-      final loanAdvance = _loanAdvanceAllocation.value;
+      // Hidden entirely (like the web) when Admin has Loan Advance switched off.
+      final loanAdvance = LoanAdvanceConfig.enabled
+          ? _loanAdvanceAllocation.value
+          : null;
       final loanAdvancePending = (double.tryParse('${loanAdvance?['pendingAmount'] ?? 0}') ?? 0) > 0.01;
       final loanAdvanceOverAllocated = loanAdvance?['overAllocated'] == true;
       final loanAdvancePosted = (double.tryParse('${loanAdvance?['postedAmount'] ?? 0}') ?? 0) > 0.01;

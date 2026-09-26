@@ -89,6 +89,8 @@ class Api {
       "$baseUrl/api/geo/driving-distance";
   static String get geoRoadRouteUrl => "$baseUrl/api/geo/road-route";
   static String get clientSearchUrl => "$baseUrl/api/clients/search";
+  static String get loanAdvanceSettingUrl =>
+      "$baseUrl/api/settings/loan-advance";
 
   // Same key as com.google.android.geo.API_KEY in AndroidManifest.xml; needs
   // the "Routes API" enabled in Google Cloud for road directions.

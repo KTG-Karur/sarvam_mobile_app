@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/bulk_centre_collection_controller.dart';
 import 'package:sarvam/controller/live_collection_controller.dart';
+import 'package:sarvam/services/loan_advance_config.dart';
 import 'package:sarvam/view/FDO/colletion/collection_submission_flow.dart';
 import 'package:sarvam/view/FDO/colletion/demand_collection.dart'
     show ClientCollectionDetailsPage;
@@ -55,6 +56,9 @@ class _SingleCollectionDetailsBulkCenterCollectionState
   @override
   void initState() {
     super.initState();
+    LoanAdvanceConfig.refresh().then((_) {
+      if (mounted) setState(() {});
+    });
     // Default dates and clears
     _controller.selectedCenterId.value = '';
     _controller.selectedCenterName.value = '';
@@ -297,7 +301,9 @@ class _SingleCollectionDetailsBulkCenterCollectionState
 
   Widget _singleBody() {
     final double collectVal = double.tryParse(_singleAmount.text) ?? 0.0;
-    final double advVal = double.tryParse(_advance.text) ?? 0.0;
+    final double advVal = LoanAdvanceConfig.amount(
+      double.tryParse(_advance.text),
+    );
     final double totalCollected = collectVal + advVal;
 
     return Column(
@@ -541,11 +547,12 @@ class _SingleCollectionDetailsBulkCenterCollectionState
                 _singleAmount,
                 enabled: !_isSingleCollected,
               ),
-              _inputField(
-                'Loan Advance',
-                _advance,
-                enabled: !_isSingleCollected,
-              ),
+              if (LoanAdvanceConfig.enabled)
+                _inputField(
+                  'Loan Advance',
+                  _advance,
+                  enabled: !_isSingleCollected,
+                ),
               _readField(
                 'Total Collected',
                 '₹${totalCollected.toStringAsFixed(2)}',
@@ -572,7 +579,9 @@ class _SingleCollectionDetailsBulkCenterCollectionState
           totalCollecting += double.tryParse(_bulkAmounts[i].text) ?? 0;
         }
         if (i < _bulkAdvances.length) {
-          totalCollecting += double.tryParse(_bulkAdvances[i].text) ?? 0;
+          totalCollecting += LoanAdvanceConfig.amount(
+            double.tryParse(_bulkAdvances[i].text),
+          );
         }
       }
     }
@@ -1254,6 +1263,7 @@ class _SingleCollectionDetailsBulkCenterCollectionState
                         ],
                       ),
                     ),
+                    if (LoanAdvanceConfig.enabled) ...[
                     SizedBox(width: 10.w),
                     Expanded(
                       child: Column(
@@ -1284,6 +1294,7 @@ class _SingleCollectionDetailsBulkCenterCollectionState
                         ],
                       ),
                     ),
+                    ],
                   ],
                 ),
               ],
@@ -1423,7 +1434,9 @@ class _SingleCollectionDetailsBulkCenterCollectionState
 
                   final double collectVal =
                       double.tryParse(_singleAmount.text) ?? 0.0;
-                  final double advVal = double.tryParse(_advance.text) ?? 0.0;
+                  final double advVal = LoanAdvanceConfig.amount(
+                    double.tryParse(_advance.text),
+                  );
 
                   final submitted = await Navigator.of(context).push<bool>(
                     MaterialPageRoute(
@@ -1466,7 +1479,9 @@ class _SingleCollectionDetailsBulkCenterCollectionState
                         ? (double.tryParse(_bulkAmounts[i].text) ?? 0.0)
                         : 0.0;
                     final double advance = i < _bulkAdvances.length
-                        ? (double.tryParse(_bulkAdvances[i].text) ?? 0.0)
+                        ? LoanAdvanceConfig.amount(
+                            double.tryParse(_bulkAdvances[i].text),
+                          )
                         : 0.0;
                     // Backend accepts a row with amount = 0 as long as it
                     // carries a loan advance (`isSelected && (amount > 0 ||

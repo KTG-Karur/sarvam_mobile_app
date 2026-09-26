@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:sarvam/services/loan_advance_config.dart';
 
 class ArrearCollectionClientDetails extends StatefulWidget {
   final dynamic clientData;
@@ -31,6 +32,9 @@ class _ArrearCollectionClientDetailsState
   @override
   void initState() {
     super.initState();
+    LoanAdvanceConfig.refresh().then((_) {
+      if (mounted) setState(() {});
+    });
     data = widget.clientData ?? <String, dynamic>{};
 
     final rawAmount =
@@ -74,7 +78,9 @@ class _ArrearCollectionClientDetailsState
   Future<void> _saveCollectionDetails() async {
     FocusScope.of(context).unfocus();
     final newCollect = double.tryParse(_collectionAmountController.text) ?? 0;
-    final newAdvance = double.tryParse(_loanAdvanceController.text) ?? 0;
+    final newAdvance = LoanAdvanceConfig.amount(
+      double.tryParse(_loanAdvanceController.text),
+    );
 
     // Initial arrear before collection deduction
     final double originalArrear = (data['originalTotalArrear'] ??
@@ -183,11 +189,13 @@ class _ArrearCollectionClientDetailsState
                     _receiptRow('Inst.', '#${_text(data['installmentNo'] ?? data['installment'], fallback: '4')}'),
                     Divider(height: 16.h, color: Colors.black26),
                     _receiptRow('EMI Collected', _amount(data['collectionAmount'] ?? 3300), isBold: true),
-                    _receiptRow('Loan Advance', _amount(data['loanAdvance'] ?? 100), color: const Color(0xFF008A3D)),
+                    if (LoanAdvanceConfig.enabled)
+                      _receiptRow('Loan Advance', _amount(data['loanAdvance'] ?? 100), color: const Color(0xFF008A3D)),
                     Divider(height: 16.h, color: Colors.black),
                     _receiptRow(
                       'TOTAL',
-                      _amount(((data['collectionAmount'] ?? 3300) as num) + ((data['loanAdvance'] ?? 100) as num)),
+                      _amount(((data['collectionAmount'] ?? 3300) as num) +
+                          LoanAdvanceConfig.amount((data['loanAdvance'] ?? 100) as num)),
                       isBold: true,
                     ),
                     SizedBox(height: 12.h),
@@ -433,20 +441,22 @@ class _ArrearCollectionClientDetailsState
               decoration: _fieldDecoration(),
             ),
           ),
-          Divider(height: 1.h, color: const Color(0xFFE2E8F0)),
-          _editableRow(
-            'Loan Advance',
-            TextField(
-              controller: _loanAdvanceController,
-              enabled: !locked,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
+          if (LoanAdvanceConfig.enabled) ...[
+            Divider(height: 1.h, color: const Color(0xFFE2E8F0)),
+            _editableRow(
+              'Loan Advance',
+              TextField(
+                controller: _loanAdvanceController,
+                enabled: !locked,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                textAlign: TextAlign.right,
+                style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w600),
+                decoration: _fieldDecoration(),
               ),
-              textAlign: TextAlign.right,
-              style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w600),
-              decoration: _fieldDecoration(),
             ),
-          ),
+          ],
           Divider(height: 1.h, color: const Color(0xFFE2E8F0)),
           _editableRow(
             'Collection Status',

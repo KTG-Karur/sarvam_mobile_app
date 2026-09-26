@@ -7,6 +7,7 @@ import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/arrear_collection_controller.dart';
 import 'package:sarvam/controller/live_collection_controller.dart';
+import 'package:sarvam/services/loan_advance_config.dart';
 import 'package:sarvam/view/FDO/colletion/arrear_collection_client_details.dart';
 import 'package:sarvam/view/FDO/colletion/collection_submission_flow.dart';
 import 'package:sarvam/utils/center_formatter.dart';
@@ -25,7 +26,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
     ArrearCollectionController(),
   );
   late DateTime _date;
-  // The branch's actual resolved EOD working date — distinct from `_date`,
+  // The branch's actual resolved EOD working date â€” distinct from `_date`,
   // which the user can move earlier to browse older arrears (mirrors the
   // web's `max={eodWorkingDate}` cap: never later than this, but any
   // earlier date is fair game). The "EOD not completed" banner is keyed to
@@ -37,7 +38,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
   final List<TextEditingController> _advances = [];
   final List<String> _attendance = [];
   final Set<String> _selectedKeys = <String>{};
-  // Explicit controller for the arrear table's horizontal Scrollbar —
+  // Explicit controller for the arrear table's horizontal Scrollbar â€”
   // Scrollbar(thumbVisibility: true) requires one; without it, Flutter
   // falls back to the PrimaryScrollController, which doesn't exist for a
   // horizontal SingleChildScrollView and crashes with
@@ -53,6 +54,9 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
   @override
   void initState() {
     super.initState();
+    LoanAdvanceConfig.refresh().then((_) {
+      if (mounted) setState(() {});
+    });
     _date = DateTime.now();
     _workingDate = DateTime.now();
     _controller.arrearCollections.clear();
@@ -81,7 +85,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
       '${item['clientId'] ?? item['clientCode'] ?? 'client'}-${item['loanNumber'] ?? index}';
 
   /// A loan whose arrear was already collected (server `status: 'COLLECTED'`)
-  /// must never be re-selectable — matches Demand Collection's guard so a
+  /// must never be re-selectable â€” matches Demand Collection's guard so a
   /// client already showing the "Collected" badge can't be checked again and
   /// re-submitted for a loan that has nothing left to collect.
   bool _isFullyCollected(Map<String, dynamic> item) =>
@@ -91,7 +95,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
     final num n = value is num
         ? value
         : num.tryParse(value?.toString() ?? '') ?? 0;
-    return '₹${n.toStringAsFixed(2)}';
+    return 'â‚¹${n.toStringAsFixed(2)}';
   }
 
   void _setupControllers(int count) {
@@ -243,7 +247,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
 
   Future<void> _pickDate() async {
     // Arrears legitimately span past dates, so this stays editable (unlike
-    // Demand Collection's locked field) — but capped at the branch's actual
+    // Demand Collection's locked field) â€” but capped at the branch's actual
     // working date, mirroring the web app's `max={eodWorkingDate}`, so a
     // collection can never be backdated past today yet postdated beyond
     // what the branch has actually reached.
@@ -314,7 +318,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
     for (var i = 0; i < list.length && i < _advances.length; i++) {
       final key = _clientKey(list[i] as Map<String, dynamic>, i);
       if (_selectedKeys.contains(key)) {
-        total += double.tryParse(_advances[i].text) ?? 0;
+        total += LoanAdvanceConfig.amount(double.tryParse(_advances[i].text));
       }
     }
     return total;
@@ -420,12 +424,12 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
                         children: [
                           _amountCard(
                             'Arrear Principal',
-                            '₹${_totalArrearPrincipal.toStringAsFixed(2)}',
+                            'â‚¹${_totalArrearPrincipal.toStringAsFixed(2)}',
                           ),
                           SizedBox(width: 10.w),
                           _amountCard(
                             'Arrear Interest',
-                            '₹${_totalArrearInterest.toStringAsFixed(2)}',
+                            'â‚¹${_totalArrearInterest.toStringAsFixed(2)}',
                           ),
                         ],
                       ),
@@ -506,7 +510,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
                 if (value != null) {
                   _controller.selectedCenterName.value = value;
                   // Match against the same formatter the dropdown items were
-                  // built with (not a raw concat) — formatCenterDisplay can
+                  // built with (not a raw concat) â€” formatCenterDisplay can
                   // reformat the code (e.g. pad "6" to "06"), so a raw
                   // rebuild here could never match any center and crash
                   // with "Bad state: No element".
@@ -610,14 +614,14 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
       SizedBox(width: 8.w),
       _summary(
         'Total Arrear Due',
-        '₹${_totalArrearDue.toStringAsFixed(2)}',
+        'â‚¹${_totalArrearDue.toStringAsFixed(2)}',
         Icons.currency_rupee,
         const Color(0xFFF2A900),
       ),
       SizedBox(width: 8.w),
       _summary(
         'Collected',
-        '₹${_totalCollected.toStringAsFixed(2)}',
+        'â‚¹${_totalCollected.toStringAsFixed(2)}',
         Icons.check_circle_outline,
         const Color(0xFF008A3D),
       ),
@@ -698,7 +702,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
 
   Widget _clients() {
     final list = _controller.arrearCollections;
-    // "Select All" only ever selects still-collectible clients — a
+    // "Select All" only ever selects still-collectible clients â€” a
     // collected row has no checkbox to toggle (see the DataRow below), so
     // it must never be counted here either.
     final allKeys = {
@@ -746,7 +750,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
                           ),
                           SizedBox(width: 8.w),
                           const Text(
-                            '◉ Gold Loan',
+                            'â—‰ Gold Loan',
                             style: TextStyle(
                               fontSize: 9,
                               color: Color(0xFFF08A00),
@@ -824,22 +828,23 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
                     fontWeight: FontWeight.w700,
                     color: const Color(0xFF475569),
                   ),
-                  columns: const [
-                    DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('#')))),
-                    DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Client Name')))),
-                    DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Loan No.')))),
-                    DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Inst.')))),
-                    DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('OS Pri')))),
-                    DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('OS Int')))),
-                    DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Arrear Pri')))),
-                    DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Arrear Int')))),
-                    DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Fees')))),
-                    DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Penalty')))),
-                    DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Total Arrear')))),
-                    DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Attend.')))),
-                    DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Collect Amt')))),
-                    DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Loan Advance')))),
-                    DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Status')))),
+                  columns: [
+                    const DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('#')))),
+                    const DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Client Name')))),
+                    const DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Loan No.')))),
+                    const DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Inst.')))),
+                    const DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('OS Pri')))),
+                    const DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('OS Int')))),
+                    const DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Arrear Pri')))),
+                    const DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Arrear Int')))),
+                    const DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Fees')))),
+                    const DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Penalty')))),
+                    const DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Total Arrear')))),
+                    const DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Attend.')))),
+                    const DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Collect Amt')))),
+                    if (LoanAdvanceConfig.enabled)
+                      DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Loan Advance')))),
+                    const DataColumn(label: Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text('Status')))),
                   ],
                   rows: List.generate(list.length, (index) {
                     final item = list[index] as Map<String, dynamic>;
@@ -850,7 +855,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
                     return DataRow(
                       // Never shows selected for an already-collected loan,
                       // even if a stale key somehow lingered in
-                      // _selectedKeys — mirrors Demand Collection's guard.
+                      // _selectedKeys â€” mirrors Demand Collection's guard.
                       selected: !isCollected && _selectedKeys.contains(key),
                       onSelectChanged: isCollected
                           ? null
@@ -947,14 +952,15 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
                                 )
                               : const Text('-'),
                         ),
-                        DataCell(
-                          hasControllers
-                              ? _amountFieldCell(
-                                  _advances[index],
-                                  readOnly: isCollected,
-                                )
-                              : const Text('-'),
-                        ),
+                        if (LoanAdvanceConfig.enabled)
+                          DataCell(
+                            hasControllers
+                                ? _amountFieldCell(
+                                    _advances[index],
+                                    readOnly: isCollected,
+                                  )
+                                : const Text('-'),
+                          ),
                         DataCell(
                           _statusCell(
                             item: item,
@@ -1147,7 +1153,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
   /// Builds the arrear-shaped `collections`/`attendance` payload for
   /// whichever clients are currently selected, and submits it via the
   /// software's own `POST /api/collections/arrear` contract (multipart,
-  /// mandatory meeting photo + denomination) — mirrors
+  /// mandatory meeting photo + denomination) â€” mirrors
   /// `ArrearCollectionClient.tsx`'s `handleFinalSubmit`. Returns false
   /// (without navigating) if there's nothing valid to send, so the
   /// submission wizard stays open instead of silently "succeeding".
@@ -1171,7 +1177,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
           : 0.0;
       if (amount <= 0) continue;
       final advance = i < _advances.length
-          ? (double.tryParse(_advances[i].text.trim()) ?? 0)
+          ? LoanAdvanceConfig.amount(double.tryParse(_advances[i].text.trim()))
           : 0.0;
 
       collections.add({
@@ -1239,8 +1245,10 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
       ),
       label: Text(
         _submissionComplete
-            ? 'Submitted ✓'
-            : 'Submit Arrear Collection (₹${_selectedTotalCollected.toStringAsFixed(2)} + Loan Adv ₹${_selectedTotalAdvances.toStringAsFixed(2)})',
+            ? 'Submitted âœ“'
+            : LoanAdvanceConfig.enabled
+            ? 'Submit Arrear Collection (â‚¹${_selectedTotalCollected.toStringAsFixed(2)} + Loan Adv â‚¹${_selectedTotalAdvances.toStringAsFixed(2)})'
+            : 'Submit Arrear Collection (â‚¹${_selectedTotalCollected.toStringAsFixed(2)})',
         style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700),
         overflow: TextOverflow.ellipsis,
       ),

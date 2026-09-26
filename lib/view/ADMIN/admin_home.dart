@@ -10,6 +10,7 @@ import 'package:sarvam/constant/roles.dart';
 import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/controller/admin/admin_dashboard_controller.dart';
 import 'package:sarvam/services/excel_export_service.dart';
+import 'package:sarvam/services/loan_advance_config.dart';
 import 'package:sarvam/view/ADMIN/HR/hr_home.dart';
 import 'package:sarvam/view/ADMIN/masters/funder_list.dart';
 import 'package:sarvam/view/ADMIN/masters/gl_list.dart';
@@ -89,6 +90,11 @@ class _AdminHomeState extends State<AdminHome>
   @override
   void initState() {
     super.initState();
+
+    // Hide Loan Advance menus if the Admin switched the feature off.
+    LoanAdvanceConfig.refresh(force: true).then((_) {
+      if (mounted) setState(() {});
+    });
 
     // Initialize main animation controller
     _mainController = AnimationController(
@@ -2288,7 +2294,7 @@ class _AdminHomeState extends State<AdminHome>
         ),
 
         // 2. 18 Expandable Module Cards List
-        ..._hubModules.map((mod) {
+        ...LoanAdvanceConfig.filterModules(_hubModules).map((mod) {
           final String name = mod['name'];
           final IconData icon = mod['icon'];
           final Color color = mod['color'];
@@ -3482,6 +3488,7 @@ class _AdminHomeState extends State<AdminHome>
         ],
       },
     ];
+    final visibleModules = LoanAdvanceConfig.filterModules(modules);
 
     return Drawer(
       backgroundColor: _lightBg,
@@ -3573,9 +3580,9 @@ class _AdminHomeState extends State<AdminHome>
             Expanded(
               child: ListView.builder(
                 padding: EdgeInsets.symmetric(horizontal: 10.w),
-                itemCount: modules.length,
+                itemCount: visibleModules.length,
                 itemBuilder: (context, index) {
-                  final mod = modules[index];
+                  final mod = visibleModules[index];
                   final String name = mod['name'];
                   final IconData icon = mod['icon'];
                   final Color color = mod['color'];

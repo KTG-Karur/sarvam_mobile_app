@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:get/get.dart';
+import 'package:sarvam/services/loan_advance_config.dart';
 import 'package:sarvam/view/ADMIN/users/user_list.dart';
 import 'package:sarvam/view/ADMIN/roles/role_list.dart';
 import 'package:sarvam/view/ADMIN/branches/branch_list.dart';
@@ -41,6 +42,18 @@ class _ModuleDirectoryScreenState extends State<ModuleDirectoryScreen> {
   static const _darkText = Color(0xFF0F172A);
   static const _muted = Color(0xFF64748B);
   static const _lightBg = Color(0xFFF8FAFC);
+
+  @override
+  void initState() {
+    super.initState();
+    // Hide Loan Advance menus if the Admin switched the feature off.
+    LoanAdvanceConfig.refresh().then((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  List<Map<String, dynamic>> get _visibleModules =>
+      LoanAdvanceConfig.filterModules(_modules);
 
   final List<Map<String, dynamic>> _modules = [
     {
@@ -307,10 +320,10 @@ class _ModuleDirectoryScreenState extends State<ModuleDirectoryScreen> {
             Expanded(
               child: ListView.separated(
                 padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
-                itemCount: _modules.length,
+                itemCount: _visibleModules.length,
                 separatorBuilder: (context, index) => SizedBox(height: 10.h),
                 itemBuilder: (context, index) {
-                  final mod = _modules[index];
+                  final mod = _visibleModules[index];
                   final String name = mod['name'];
                   final IconData icon = mod['icon'];
                   final Color color = mod['color'];

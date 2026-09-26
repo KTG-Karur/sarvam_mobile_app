@@ -4,6 +4,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:sarvam/controller/collection_controller.dart';
+import 'package:sarvam/services/loan_advance_config.dart';
 
 class CollectionSubmissionFlowPage extends StatefulWidget {
   const CollectionSubmissionFlowPage({
@@ -549,8 +550,10 @@ class _CollectionSubmissionFlowPageState
             client['collectAmount'] ??
             client['totalDemand'],
       );
-      final advance = _asNum(
-        client['loanAdvanceCollectedToday'] ?? client['loanAdvanceCollect'],
+      final advance = LoanAdvanceConfig.amount(
+        _asNum(
+          client['loanAdvanceCollectedToday'] ?? client['loanAdvanceCollect'],
+        ),
       );
       return {
         'loanId': client['loanId'],

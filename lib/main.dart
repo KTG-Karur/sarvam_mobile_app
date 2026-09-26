@@ -8,6 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:sarvam/view/auth/splash_screen.dart';
 import 'package:sarvam/services/face_recognition_engine.dart';
 import 'package:sarvam/services/tracking_service.dart';
+import 'package:sarvam/services/loan_advance_config.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,6 +37,10 @@ void main() {
       debugPrint('Live tracking initialization failed: $error\n$stackTrace');
     }),
   );
+
+  // Admin's project-wide Loan Advance switch — cached value first, then the
+  // server. Screens that show Loan Advance also refresh it on open.
+  unawaited(LoanAdvanceConfig.init());
 
   runApp(const MyApp());
 }
