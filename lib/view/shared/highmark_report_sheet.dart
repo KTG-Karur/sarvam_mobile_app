@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:sarvam/services/enrollment_api_service.dart';
+import 'package:sarvam/view/shared/highmark_cb_report.dart';
 
 /// Mirrors the web approval workbench's `HighmarkHistoryButton` +
 /// `HighmarkFullReportDialog`: fetches this client's Highmark pull history
@@ -311,6 +312,8 @@ class _HighmarkReportSheetState extends State<HighmarkReportSheet> {
           'Provider Reference',
           report['providerReference']?.toString() ?? '—',
         ),
+        const Divider(height: 24),
+        HighmarkCbSummary(report: report),
       ],
     );
   }

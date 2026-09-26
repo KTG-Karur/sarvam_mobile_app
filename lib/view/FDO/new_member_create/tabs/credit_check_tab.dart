@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:sarvam/controller/client_enrollment_controller.dart';
 import 'package:sarvam/view/FDO/new_member_create/widgets/enrollment_field_widgets.dart';
+import 'package:sarvam/view/shared/highmark_cb_report.dart';
 
 class CreditCheckTab extends StatefulWidget {
   const CreditCheckTab({super.key, required this.controller});
@@ -178,6 +179,8 @@ class _CreditCheckTabState extends State<CreditCheckTab> {
               ),
             ],
           ),
+          const SizedBox(height: 12),
+          HighmarkCbSummary(report: report),
         ],
       ),
     );
