@@ -3,6 +3,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:sarvam/controller/admin/admin_hub_controller.dart';
+import 'package:sarvam/services/loan_advance_config.dart';
 
 class HubManagementScreen extends StatefulWidget {
   const HubManagementScreen({super.key});
@@ -46,6 +47,7 @@ class _HubManagementScreenState extends State<HubManagementScreen>
     _controller.loadAreas();
     _controller.loadBranches();
     _controller.loadGroupAssignmentSettings();
+    LoanAdvanceConfig.refresh(force: true);
   }
 
   void _loadDataForTab(int index) {
@@ -64,6 +66,7 @@ class _HubManagementScreenState extends State<HubManagementScreen>
         break;
       case 4:
         _controller.loadGroupAssignmentSettings();
+        LoanAdvanceConfig.refresh(force: true);
         break;
     }
   }
@@ -750,8 +753,10 @@ class _HubManagementScreenState extends State<HubManagementScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _buildAnimatedItem(index: 0, child: _buildLoanAdvanceCard()),
+          SizedBox(height: 16.h),
           _buildAnimatedItem(
-            index: 0,
+            index: 1,
             child: Container(
               padding: EdgeInsets.all(16.w),
               decoration: BoxDecoration(
@@ -909,6 +914,156 @@ class _HubManagementScreenState extends State<HubManagementScreen>
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  /// Project-wide Loan Advance switch — same setting as web Hub → Settings.
+  Widget _buildLoanAdvanceCard() {
+    Future<void> toggle(bool value) async {
+      if (!value) {
+        final confirmed = await Get.dialog<bool>(
+          AlertDialog(
+            title: const Text('Disable Loan Advance?'),
+            content: const Text(
+              'Loan Advance will be hidden and blocked in Single / Bulk / '
+              'Arrear / Demand Collection, Loan Advance Refund, EOD '
+              'allocation/revert and related reports — for every branch and '
+              'role. Existing historical records are not deleted.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Get.back(result: false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Get.back(result: true),
+                child: const Text(
+                  'Disable',
+                  style: TextStyle(color: Colors.red),
+                ),
+              ),
+            ],
+          ),
+        );
+        if (confirmed != true) return;
+      }
+      final error = await LoanAdvanceConfig.save(value);
+      if (error == null) {
+        Get.snackbar(
+          'Saved',
+          value ? 'Loan Advance enabled.' : 'Loan Advance disabled.',
+          backgroundColor: _green,
+          colorText: Colors.white,
+        );
+      } else {
+        Get.snackbar(
+          'Error',
+          error,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+        );
+      }
+    }
+
+    return Container(
+      padding: EdgeInsets.all(16.w),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16.r),
+        border: Border.all(color: _green.withOpacity(0.2)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: EdgeInsets.all(10.w),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE6F5EC),
+                  borderRadius: BorderRadius.circular(12.r),
+                ),
+                child: Icon(
+                  Icons.account_balance_wallet_outlined,
+                  color: _green,
+                  size: 24.sp,
+                ),
+              ),
+              SizedBox(width: 12.w),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Loan Advance',
+                      style: GoogleFonts.inter(
+                        fontSize: 16.sp,
+                        fontWeight: FontWeight.w700,
+                        color: _darkText,
+                      ),
+                    ),
+                    SizedBox(height: 2.h),
+                    Text(
+                      'Project-wide switch for the Loan Advance feature. When '
+                      'disabled, Loan Advance is hidden and blocked in '
+                      'Single/Bulk/Arrear/Demand Collection, Loan Advance '
+                      'Refund, EOD allocation/revert, and every related report '
+                      '— for every branch and role. Existing historical '
+                      'records are never deleted.',
+                      style: GoogleFonts.inter(fontSize: 11.sp, color: _muted),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 16.h),
+          Divider(color: Colors.grey.shade200, height: 1),
+          SizedBox(height: 8.h),
+          Obx(() {
+            final enabled = LoanAdvanceConfig.enabled;
+            final saving = LoanAdvanceConfig.saving.value;
+            return Row(
+              children: [
+                Switch(
+                  value: enabled,
+                  activeThumbColor: Colors.white,
+                  activeTrackColor: _green,
+                  onChanged: saving ? null : toggle,
+                ),
+                SizedBox(width: 8.w),
+                Expanded(
+                  child: Text(
+                    enabled ? 'Loan Advance enabled' : 'Loan Advance disabled',
+                    style: GoogleFonts.inter(
+                      fontSize: 13.sp,
+                      fontWeight: FontWeight.w600,
+                      color: _darkText,
+                    ),
+                  ),
+                ),
+                if (saving)
+                  SizedBox(
+                    width: 18.w,
+                    height: 18.w,
+                    child: const CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: _green,
+                    ),
+                  ),
+              ],
+            );
+          }),
         ],
       ),
     );

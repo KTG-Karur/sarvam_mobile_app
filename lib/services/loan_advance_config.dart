@@ -75,6 +75,38 @@ class LoanAdvanceConfig {
     }
   }
 
+  /// True while an Admin save is in flight (drives the Settings switch).
+  static final RxBool saving = false.obs;
+
+  /// Admin-only: turns the feature on/off project-wide via
+  /// `PUT /api/settings/loan-advance`. Returns null on success, else the
+  /// error message (server rejects non-Admins with 403).
+  static Future<String?> save(bool value) async {
+    if (saving.value) return 'Please wait — saving.';
+    saving.value = true;
+    try {
+      final client = ApiClient()..timeout = const Duration(seconds: 20);
+      final response = await client.put(Api.loanAdvanceSettingUrl, {
+        'enabled': value,
+      });
+      final body = response.body;
+      if (response.statusCode == 200 && body is Map && body['success'] == true) {
+        _enabled.value = value;
+        _fetchedAt = DateTime.now();
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool(_prefsKey, value);
+        return null;
+      }
+      final message = body is Map ? (body['message'] ?? body['error']) : null;
+      return message?.toString() ??
+          'Failed to save setting (${response.statusCode ?? 'no response'}).';
+    } catch (e) {
+      return 'Failed to save setting. Check your connection.';
+    } finally {
+      saving.value = false;
+    }
+  }
+
   /// Menu entries that only make sense with Loan Advance on (web:
   /// `requiresLoanAdvance` in navigation.config.ts).
   static const menuItems = {'Loan Advance Refund', 'Loan Advance Revert'};
