@@ -1,6 +1,9 @@
 class Api {
   // Uses http://localhost:3320 (working via adb reverse tcp:3320 tcp:3320 for Android emulators/devices)
+  // live URL
   static String get baseUrl => "https://sarvam.nidhimfi.com";
+  //  Development URL
+  // static String get baseUrl => "https://ktg.nidhimfi.com";
 
   static String get mobileLoginUrl => "$baseUrl/api/mobile/login";
   static String get loginUrl => "$baseUrl/api/mobile/login";
