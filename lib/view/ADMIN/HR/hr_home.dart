@@ -30,7 +30,7 @@ class HrHome extends StatefulWidget {
   State<HrHome> createState() => _HrHomeState();
 }
 
-class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
+class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   // ── Colors ────────────────────────────────────────────────────────────────
   static const _darkText = Color(0xFF0F172A);
   static const _muted = Color(0xFF64748B);
@@ -60,6 +60,7 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _ctrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 700),
@@ -74,11 +75,30 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
     _loadAttendance();
   }
 
-  /// Pulls today's punch state from the server, then lets [reconcilePunchPrefs]
-  /// make local prefs mirror it (offline falls back to the local flags).
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Refresh attendance when app returns to foreground to ensure
+      // date-rollovers and cron job updates are reflected.
+      _loadAttendance();
+    }
+  }
+
   Future<void> _loadAttendance() async {
     final prefs = await SharedPreferences.getInstance();
+    final today = todayDateKey();
+
+    // 1. Date Validation: If local prefs are for a previous day, roll them over
+    // before checking server or rendering. This prevents stale yesterday-data
+    // from showing up during network lag.
+    final localInDate = prefs.getString(kPunchInDateKey);
+    if (localInDate != null && localInDate != today) {
+      await rolloverAttendanceForNewDay(prefs);
+    }
+
     final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
+    // reconcilePunchPrefs internally handles rollover too, but we did it above
+    // for immediate consistency.
     await reconcilePunchPrefs(prefs, serverInfo);
     if (!mounted) return;
 
@@ -86,17 +106,21 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
     final inn = serverInfo != null
         ? (serverInfo.present || serverInfo.punchedIn)
         : hasPunchedInToday(prefs);
+
     final punchedOut = out;
     final punchedIn = inn || out;
     bool effectivePunchedOut = punchedOut;
     bool effectivePunchedIn = punchedIn;
 
+    // 2. Strict Server Authority: Only fall back to local punch time if
+    // the local record is actually for today.
     String pInTime = (serverInfo?.punchInTime != null && serverInfo!.punchInTime!.isNotEmpty)
         ? serverInfo.punchInTime!
-        : (prefs.getString(kPunchInTimeKey) ?? '');
+        : (prefs.getString(kPunchInDateKey) == today ? (prefs.getString(kPunchInTimeKey) ?? '') : '');
+
     String pOutTime = (serverInfo?.punchOutTime != null && serverInfo!.punchOutTime!.isNotEmpty)
         ? serverInfo.punchOutTime!
-        : (prefs.getString(kPunchOutTimeKey) ?? '');
+        : (prefs.getString(kPunchOutDateKey) == today ? (prefs.getString(kPunchOutTimeKey) ?? '') : '');
 
     // If punched in or punched out, but punch times are not in prefs or serverInfo
     // (e.g. fresh reinstall or app update), fetch from HrApiService.trackingDetail.
@@ -177,6 +201,7 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _ctrl.dispose();
     super.dispose();
   }
