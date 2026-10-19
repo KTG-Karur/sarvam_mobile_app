@@ -176,12 +176,18 @@ class AuthController extends GetxController {
           final refreshToken = data['refreshToken'];
           final user = data['user'];
           final branch = data['branch'];
+
           final bool isMpinSet = data['isMpinSet'] ?? (user != null && user['isMpinSet'] == true);
           final bool requiresMpinSetup = data['requiresMpinSetup'] ?? (!isMpinSet);
 
+          final tokenVal = accessToken?.toString();
+          if (tokenVal != null) {
+            debugPrint('Login Success. Token: $tokenVal');
+          }
+
           final prefs = await SharedPreferences.getInstance();
           await SecureSessionService.saveTokens(
-            accessToken: accessToken?.toString(), refreshToken: refreshToken?.toString());
+            accessToken: tokenVal, refreshToken: refreshToken?.toString());
 
           // Server-allowlisted FDO: the session above is already final — no
           // MPIN setup, face training or face verification follows.
@@ -247,7 +253,9 @@ class AuthController extends GetxController {
         final prefs = await SharedPreferences.getInstance();
         await prefs.remove('directLogin');
         if (accessToken != null && accessToken.toString().isNotEmpty) {
-          await SecureSessionService.savePendingToken(accessToken.toString());
+          final tokenVal = accessToken.toString();
+          debugPrint('MPIN Pending Token (Login): $tokenVal');
+          await SecureSessionService.savePendingToken(tokenVal);
         }
 
         if (user != null && user is Map) {
@@ -551,7 +559,9 @@ class AuthController extends GetxController {
         if (body != null && body['success'] == true) {
           final data = body['data'];
           if (data != null && data['accessToken'] != null) {
-            await SecureSessionService.saveTokens(accessToken: data['accessToken'].toString());
+            final tokenVal = data['accessToken'].toString();
+            debugPrint('MPIN Setup Success. Token: $tokenVal');
+            await SecureSessionService.saveTokens(accessToken: tokenVal);
           }
           if (data != null && data['refreshToken'] != null) {
             await SecureSessionService.saveTokens(refreshToken: data['refreshToken'].toString());
@@ -635,7 +645,9 @@ class AuthController extends GetxController {
         if (body != null && body['success'] == true) {
           final data = body['data'];
           if (data != null && data['accessToken'] != null) {
-            await SecureSessionService.saveTokens(accessToken: data['accessToken'].toString());
+            final tokenVal = data['accessToken'].toString();
+            debugPrint('MPIN Verify Success. Token: $tokenVal');
+            await SecureSessionService.saveTokens(accessToken: tokenVal);
           }
           if (data != null && data['refreshToken'] != null) {
             await SecureSessionService.saveTokens(refreshToken: data['refreshToken'].toString());
@@ -650,6 +662,10 @@ class AuthController extends GetxController {
           if (data != null) {
             final user = data['user'];
             if (user is Map) {
+              debugPrint('rbacRoleSlug: ${user['rbacRoleSlug']}');
+              debugPrint('rbacRoleName: ${user['rbacRoleName']}');
+              debugPrint('isSubAdmin: ${user['isSubAdmin']}');
+
               if (user['id'] != null) await prefs.setString('userId', user['id'].toString());
               if (user['employeeId'] != null) await prefs.setString('employeeId', user['employeeId'].toString());
               if (user['mobileNumber'] != null) await prefs.setString('mobileNumber', user['mobileNumber'].toString());
@@ -737,7 +753,9 @@ class AuthController extends GetxController {
         if (body != null && body['success'] == true) {
           final data = body['data'];
           if (data != null && data['accessToken'] != null) {
-            await SecureSessionService.saveTokens(accessToken: data['accessToken'].toString());
+            final tokenVal = data['accessToken'].toString();
+            debugPrint('MPIN Forgot Success. Token: $tokenVal');
+            await SecureSessionService.saveTokens(accessToken: tokenVal);
           }
           await prefs.setBool('isMpinSet', false);
           return true;
@@ -977,7 +995,9 @@ class AuthController extends GetxController {
         if (body != null && body['success'] == true) {
           final data = body['data'];
           if (data != null && data['accessToken'] != null) {
-            await SecureSessionService.saveTokens(accessToken: data['accessToken'].toString());
+            final tokenVal = data['accessToken'].toString();
+            debugPrint('MPIN Verify Success. Token: $tokenVal');
+            await SecureSessionService.saveTokens(accessToken: tokenVal);
           }
           if (data != null && data['refreshToken'] != null) {
             await SecureSessionService.saveTokens(refreshToken: data['refreshToken'].toString());

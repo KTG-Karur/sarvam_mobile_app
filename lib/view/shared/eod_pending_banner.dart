@@ -47,7 +47,7 @@ class EodPendingBanner extends StatelessWidget {
             SizedBox(width: 6.w),
             Expanded(
               child: Text(
-                'EOD not completed for $_formatted — this is the pending working date, not today.',
+                'Branch System is locked to $_formatted. Please complete the EOD process on the web portal to enable today\'s collections.',
                 style: TextStyle(
                   fontSize: 10.5.sp,
                   fontWeight: FontWeight.w800,

@@ -28,6 +28,8 @@ mixin EnrollmentDraftMixin on GetxController {
   bool get renewalMode;
 
   final isAutoSaving = false.obs;
+  final isRestoringDraft = false.obs;
+  String? _lastCheckedMobile;
   final lastAutoSavedAt = Rxn<DateTime>();
   Timer? _autoSaveTimer;
   Timer? _periodicSaveTimer;
@@ -212,8 +214,16 @@ mixin EnrollmentDraftMixin on GetxController {
   }
 
   void scheduleAutoSave() {
-    if (renewalMode) return;
+    if (renewalMode || isRestoringDraft.value) return;
     final mobile = mobileNumberCtrl.text.trim();
+
+    // If we just hit 10 digits and haven't checked for a draft yet,
+    // trigger the load immediately instead of scheduling a save.
+    if (mobile.length == 10 && mobile != _lastCheckedMobile) {
+      loadDraftIfExists();
+      return;
+    }
+
     if (mobile.length < 10) return;
     _autoSaveTimer?.cancel();
     _autoSaveTimer = Timer(const Duration(milliseconds: 1500), () {
@@ -305,7 +315,7 @@ mixin EnrollmentDraftMixin on GetxController {
   }
 
   Future<void> saveDraft({bool silent = false}) async {
-    if (renewalMode) return;
+    if (renewalMode || isRestoringDraft.value) return;
     final mobile = mobileNumberCtrl.text.trim();
     if (mobile.length < 10) {
       if (!silent) {
@@ -348,10 +358,21 @@ mixin EnrollmentDraftMixin on GetxController {
   }
 
   Future<void> loadDraftIfExists() async {
-    if (renewalMode) return;
+    if (renewalMode || isRestoringDraft.value) return;
     final mobile = mobileNumberCtrl.text.trim();
-    if (mobile.length < 10) return;
+    if (mobile.length < 10) {
+      _lastCheckedMobile = null;
+      return;
+    }
+    if (mobile == _lastCheckedMobile) return;
+
     try {
+      isRestoringDraft.value = true;
+      _lastCheckedMobile = mobile;
+
+      // Cancel any pending auto-save to prevent overwriting with empty data
+      _autoSaveTimer?.cancel();
+
       final draft = await api.loadDraft(mobile);
       if (draft == null) return;
 
@@ -593,6 +614,8 @@ mixin EnrollmentDraftMixin on GetxController {
       );
     } catch (e) {
       debugPrint('Failed to load draft: $e');
+    } finally {
+      isRestoringDraft.value = false;
     }
   }
 

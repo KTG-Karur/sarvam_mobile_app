@@ -18,11 +18,13 @@ class _SignedImage extends StatefulWidget {
   const _SignedImage({
     required this.api,
     required this.rawUrlOrKey,
+    this.fit = BoxFit.contain,
     this.errorWidget,
   });
 
   final EnrollmentApiService api;
   final String rawUrlOrKey;
+  final BoxFit fit;
   final Widget? errorWidget;
 
   static final Map<String, Future<String?>> _cache = {};
@@ -57,7 +59,7 @@ class _SignedImageState extends State<_SignedImage> {
       }
       return Image.network(
         url,
-        fit: BoxFit.cover,
+        fit: widget.fit,
         errorBuilder: (_, __, ___) =>
             widget.errorWidget ??
             const Icon(Icons.broken_image_outlined, color: Color(0xFFA9C9B7)),
@@ -117,9 +119,9 @@ class KycDetailsTab extends StatelessWidget {
     subtitle: 'Upload required documents for client and co-applicant verification.',
     icon: Icons.badge_outlined,
     children: [
-      _uploadGroup('Client Documents', _clientDocLabels, owner: 'client', viewOnly: true),
+      _uploadGroup('Client Documents', _clientDocLabels, owner: 'client'),
       SizedBox(height: 16.h),
-      _uploadGroup('Co-Applicant Documents', _coApplicantDocLabels, owner: 'coApplicant', viewOnly: true),
+      _uploadGroup('Co-Applicant Documents', _coApplicantDocLabels, owner: 'coApplicant'),
       SizedBox(height: 16.h),
       _uploadGroup(
         'Residence Verification',
@@ -225,6 +227,7 @@ class KycDetailsTab extends StatelessWidget {
                   child: _SignedImage(
                     api: controller.api,
                     rawUrlOrKey: url,
+                    fit: BoxFit.cover,
                     errorWidget: Icon(Icons.qr_code_2_rounded, size: 40.sp, color: enrollmentGreen),
                   ),
                 ),
@@ -524,6 +527,7 @@ class KycDetailsTab extends StatelessWidget {
                             : _SignedImage(
                                 api: controller.api,
                                 rawUrlOrKey: state!.fileUrl!,
+                                fit: BoxFit.cover,
                                 errorWidget: Icon(Icons.broken_image_outlined, size: 28.sp, color: const Color(0xFFA9C9B7)),
                               ),
               ),
@@ -635,10 +639,16 @@ class KycDetailsTab extends StatelessWidget {
               const SizedBox(height: 8),
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: SizedBox(
-                  width: 220,
-                  height: 220,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minWidth: 280.w,
+                    minHeight: 280.w,
+                    maxWidth: 320.w,
+                    maxHeight: 450.h,
+                  ),
                   child: InteractiveViewer(
+                    minScale: 0.5,
+                    maxScale: 4.0,
                     child: _SignedImage(
                       api: controller.api,
                       rawUrlOrKey: url,
