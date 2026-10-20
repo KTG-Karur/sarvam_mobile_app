@@ -11,20 +11,12 @@ import 'package:sarvam/view/BM/collection_approval/collection_approval.dart';
 import 'package:sarvam/view/BM/final_disbursement/final_disbursement.dart';
 import 'package:sarvam/view/FDO/loan_disbursement/center_list.dart';
 import 'package:sarvam/view/FDO/new_member_create/new_member_create.dart';
+import 'package:sarvam/constant/roles.dart';
+
 // Renewal Loan is no longer a separate entry point — it's the "Loan Type"
 // toggle inside NewMemberCreate (Member Enrollment), matching web's single
 // Member Enrollment screen. `renewal_loan/` files are kept on disk (still
 // referenced from within themselves) but no longer navigated to from here.
-
-// Same raw-role / human-readable-role tokens used by role_home_router.dart's
-// resolveHomeScreen() — kept in sync manually since that list is private to
-// its own file.
-const List<String> _branchManagerRoleTokens = [
-  'BM',
-  'BRANCH MANAGER',
-  'BRANCH_MANAGER',
-];
-// area manager tokens intentionally omitted here — centre approval is BM-only
 
 class MyFile extends StatefulWidget {
   const MyFile({super.key});
@@ -36,6 +28,7 @@ class MyFile extends StatefulWidget {
 class _MyFileState extends State<MyFile> {
   bool _isBranchManager = false;
   bool _isAreaManager = false;
+  String _role = '';
 
   @override
   void initState() {
@@ -49,157 +42,174 @@ class _MyFileState extends State<MyFile> {
     final rbacRoleName = (prefs.getString('rbacRoleName') ?? '')
         .trim()
         .toUpperCase();
+
+    // Delegate to RoleScope for robust substring matching (e.g. "Assistant
+    // Branch Manager" contains "BRANCH").
     final isBranchManager =
-        _branchManagerRoleTokens.contains(role) ||
-        _branchManagerRoleTokens.contains(rbacRoleName);
-    // Detect area manager tokens (allow 'AM' or 'AREA') so Area Managers
-    // can see Member Approval.
+        RoleScope.isBranchManager(role) || RoleScope.isBranchManager(rbacRoleName);
     final isAreaManager =
-        role.contains('AM') ||
-        rbacRoleName.contains('AM') ||
-        role.contains('AREA') ||
-        rbacRoleName.contains('AREA');
+        RoleScope.isAreaManager(role) || RoleScope.isAreaManager(rbacRoleName);
+
+    debugPrint('[MyFile] Role: "$role", RBAC: "$rbacRoleName"');
+    debugPrint(
+      '[MyFile] Logic: BM tokens check = $isBranchManager, AM substring check = $isAreaManager',
+    );
+
+    if (isBranchManager) {
+      debugPrint('[MyFile] Displaying: BRANCH MANAGER menu (Full Approvals & Assignments)');
+    } else if (isAreaManager) {
+      debugPrint('[MyFile] Displaying: AREA MANAGER menu (Member Approval)');
+    } else {
+      debugPrint('[MyFile] Displaying: FDO menu (New Centre & Enrollment)');
+    }
+
     // Managers include branch or area managers for menu purposes.
     if (mounted) {
       setState(() {
         _isBranchManager = isBranchManager;
         _isAreaManager = isAreaManager;
+        _role = role;
       });
     }
   }
 
   @override
-  Widget build(BuildContext context) => Theme(
-    data: Theme.of(context).copyWith(
-      textTheme: GoogleFonts.poppinsTextTheme(Theme.of(context).textTheme),
-    ),
-    child: Scaffold(
-      backgroundColor: const Color(0xFFF7FBF8),
-      appBar: AppBar(
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        backgroundColor: Colors.white,
-        leading: IconButton(
-          onPressed: () => Navigator.maybePop(context),
-          icon: const Icon(Icons.arrow_back, color: Color(0xFF0D6842)),
+  Widget build(BuildContext context) {
+    debugPrint('[MyFile] Rendering UI | Role State: isBM=$_isBranchManager, isAM=$_isAreaManager');
+    return Theme(
+      data: Theme.of(context).copyWith(
+        textTheme: GoogleFonts.poppinsTextTheme(Theme.of(context).textTheme),
+      ),
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF7FBF8),
+        appBar: AppBar(
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          backgroundColor: Colors.white,
+          leading: IconButton(
+            onPressed: () => Navigator.maybePop(context),
+            icon: const Icon(Icons.arrow_back, color: Color(0xFF0D6842)),
+          ),
+          title: Text(
+            'My File',
+            style: TextStyle(
+              fontSize: 19.sp,
+              fontWeight: FontWeight.w800,
+              color: const Color(0xFF10472A),
+            ),
+          ),
         ),
-        title: Text(
-          'My File',
-          style: TextStyle(
-            fontSize: 19.sp,
-            fontWeight: FontWeight.w800,
-            color: const Color(0xFF10472A),
+        body: SingleChildScrollView(
+          padding: EdgeInsets.all(16.w),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(height: 10.h),
+              if (_role == 'FDO' || (!_isBranchManager && !_isAreaManager)) ...[
+                _menuItem(
+                  context,
+                  'New Centre',
+                  'Create a center and begin a new loan file',
+                  'assets/images/new_centre.png',
+                  const Color(0xFF008A3D),
+                  const Color(0xFFE5F6EC),
+                ),
+                SizedBox(height: 8.h),
+                _menuItem(
+                  context,
+                  'Member Enrollment',
+                  'Enroll a new member, or start a renewal loan',
+                  'assets/images/new_member_create.png',
+                  const Color(0xFF008A3D),
+                  const Color(0xFFE5F6EC),
+                ),
+                SizedBox(height: 8.h),
+              ],
+              if (_isBranchManager) ...[
+                // Branch managers see centre approval and BM-only workflows
+                _menuItem(
+                  context,
+                  'Centre Approval',
+                  'Review and approve pending centres',
+                  'assets/images/new_file.png',
+                  const Color(0xFF008A3D),
+                  const Color(0xFFE5F6EC),
+                ),
+                SizedBox(height: 8.h),
+                _menuItem(
+                  context,
+                  'Center & Group Assignment',
+                  'Assign or reassign clients to centers and groups',
+                  'assets/images/new_centre.png',
+                  const Color(0xFF008A3D),
+                  const Color(0xFFE5F6EC),
+                ),
+                SizedBox(height: 8.h),
+                _menuItem(
+                  context,
+                  'Member Approval',
+                  'Review member enrollments and co-applicant approvals',
+                  'assets/images/new_member_create.png',
+                  const Color(0xFF008A3D),
+                  const Color(0xFFE5F6EC),
+                ),
+                SizedBox(height: 8.h),
+
+                _menuItem(
+                  context,
+                  'Loan Index Approval',
+                  'Review member enrollments and co-applicant approvals',
+                  'assets/images/loan_index_approval.png',
+                  const Color(0xFF008A3D),
+                  const Color(0xFFE5F6EC),
+                ),
+                SizedBox(height: 8.h),
+
+                _menuItem(
+                  context,
+                  'Member Individual',
+                  'Cash flow, appraisal & house visit before AM approval',
+                  'assets/images/member_individual.png',
+                  const Color(0xFF008A3D),
+                  const Color(0xFFE5F6EC),
+                ),
+                SizedBox(height: 8.h),
+
+                _menuItem(
+                  context,
+                  'Final Disbursement',
+                  'Disburse AM-approved loans with attendance entry',
+                  'assets/images/final_disbursement.png',
+                  const Color(0xFF008A3D),
+                  const Color(0xFFE5F6EC),
+                ),
+                SizedBox(height: 8.h),
+
+                _menuItem(
+                  context,
+                  'Collection Approval',
+                  'Review and approve pending collection entries',
+                  'assets/images/loan_index_approval.png',
+                  const Color(0xFF008A3D),
+                  const Color(0xFFE5F6EC),
+                ),
+              ] else if (_isAreaManager) ...[
+                // Area managers should be able to access member approvals
+                _menuItem(
+                  context,
+                  'Member Approval',
+                  'Review member enrollments and co-applicant approvals',
+                  'assets/images/new_member_create.png',
+                  const Color(0xFF008A3D),
+                  const Color(0xFFE5F6EC),
+                ),
+              ],
+            ],
           ),
         ),
       ),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.all(16.w),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(height: 10.h),
-            if (_isBranchManager) ...[
-              // Branch managers see centre approval and BM-only workflows
-              _menuItem(
-                context,
-                'Centre Approval',
-                'Review and approve pending centres',
-                'assets/images/new_file.png',
-                const Color(0xFF008A3D),
-                const Color(0xFFE5F6EC),
-              ),
-              SizedBox(height: 8.h),
-              _menuItem(
-                context,
-                'Center & Group Assignment',
-                'Assign or reassign clients to centers and groups',
-                'assets/images/new_centre.png',
-                const Color(0xFF008A3D),
-                const Color(0xFFE5F6EC),
-              ),
-              SizedBox(height: 8.h),
-              _menuItem(
-                context,
-                'Member Approval',
-                'Review member enrollments and co-applicant approvals',
-                'assets/images/new_member_create.png',
-                const Color(0xFF008A3D),
-                const Color(0xFFE5F6EC),
-              ),
-              SizedBox(height: 8.h),
-
-              _menuItem(
-                context,
-                'Loan Index Approval',
-                'Review member enrollments and co-applicant approvals',
-                'assets/images/loan_index_approval.png',
-                const Color(0xFF008A3D),
-                const Color(0xFFE5F6EC),
-              ),
-              SizedBox(height: 8.h),
-
-              _menuItem(
-                context,
-                'Member Individual',
-                'Cash flow, appraisal & house visit before AM approval',
-                'assets/images/member_individual.png',
-                const Color(0xFF008A3D),
-                const Color(0xFFE5F6EC),
-              ),
-              SizedBox(height: 8.h),
-
-              _menuItem(
-                context,
-                'Final Disbursement',
-                'Disburse AM-approved loans with attendance entry',
-                'assets/images/final_disbursement.png',
-                const Color(0xFF008A3D),
-                const Color(0xFFE5F6EC),
-              ),
-              SizedBox(height: 8.h),
-
-              _menuItem(
-                context,
-                'Collection Approval',
-                'Review and approve pending collection entries',
-                'assets/images/loan_index_approval.png',
-                const Color(0xFF008A3D),
-                const Color(0xFFE5F6EC),
-              ),
-            ] else if (_isAreaManager) ...[
-              // Area managers should be able to access member approvals
-              _menuItem(
-                context,
-                'Member Approval',
-                'Review member enrollments and co-applicant approvals',
-                'assets/images/new_member_create.png',
-                const Color(0xFF008A3D),
-                const Color(0xFFE5F6EC),
-              ),
-            ] else ...[
-              _menuItem(
-                context,
-                'New Centre',
-                'Create a center and begin a new loan file',
-                'assets/images/new_centre.png',
-                const Color(0xFF008A3D),
-                const Color(0xFFE5F6EC),
-              ),
-              SizedBox(height: 12.h),
-              _menuItem(
-                context,
-                'Member Enrollment',
-                'Enroll a new member, or start a renewal loan',
-                'assets/images/new_member_create.png',
-                const Color(0xFF008A3D),
-                const Color(0xFFE5F6EC),
-              ),
-            ],
-          ],
-        ),
-      ),
-    ),
-  );
+    );
+  }
 
   Widget _menuItem(
     BuildContext context,

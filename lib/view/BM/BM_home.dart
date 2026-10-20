@@ -12,6 +12,7 @@ import 'package:sarvam/view/AM/collection_view/collection_view_hub.dart';
 import 'package:sarvam/view/FDO/client_search_locate/client_search_locate.dart';
 import 'package:sarvam/view/FDO/loan_disbursement/loan_disbursement.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
+import 'package:sarvam/view/FDO/colletion/collection.dart';
 import 'package:sarvam/widgets/punch_out_dialog.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
 
@@ -46,6 +47,7 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
   bool _presentToday = false;
   bool _punchedOutToday = false;
   String? _attendanceStatus;
+  String _role = '';
 
   static const _months = [
     'January',
@@ -106,6 +108,7 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
     setState(() {
       _employeeId = prefs.getString('employeeId') ?? '';
       _branchName = prefs.getString('branchName') ?? '';
+      _role = prefs.getString('role') ?? '';
       _userName =
           '${prefs.getString('firstName') ?? ''} ${prefs.getString('lastName') ?? ''}'
               .trim();
@@ -1185,8 +1188,23 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
             ),
           ),
         ),
-        SizedBox(width: 10.w),
-        const Expanded(child: SizedBox()),
+        if (_role.toUpperCase() == 'FDO') ...[
+          SizedBox(width: 10.w),
+          Expanded(
+            child: _tile(
+              asset: 'assets/icon/create_collection.png',
+              label: 'Collection Relationship',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const Collection(),
+                ),
+              ),
+            ),
+          ),
+        ] else ...[
+          SizedBox(width: 10.w),
+          const Expanded(child: SizedBox()),
+        ],
         SizedBox(width: 10.w),
         const Expanded(child: SizedBox()),
         SizedBox(width: 10.w),

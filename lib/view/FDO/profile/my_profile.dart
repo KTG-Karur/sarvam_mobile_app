@@ -138,6 +138,17 @@ class _MyProfileState extends State<MyProfile> {
                   _menuCard(context),
                   SizedBox(height: 16.h),
                   _logoutButton(context),
+                  SizedBox(height: 24.h),
+                  Center(
+                    child: Text(
+                      'App Version 1.0.4',
+                      style: TextStyle(
+                        fontSize: 11.sp,
+                        color: const Color(0xFF94A3B8),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),

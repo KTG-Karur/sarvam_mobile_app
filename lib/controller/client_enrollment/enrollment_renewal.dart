@@ -178,9 +178,9 @@ mixin EnrollmentRenewalMixin on GetxController {
       return;
     }
     try {
-      rnEligibleMembers.assignAll(
-        await loanApi.getEligibleClientsForRenewal(centerId, groupId: rnGroupId.value),
-      );
+      final members = await loanApi.getEligibleClientsForRenewal(centerId, groupId: rnGroupId.value);
+      debugPrint('[Renewal] Eligible members for center $centerId, group ${rnGroupId.value}: $members');
+      rnEligibleMembers.assignAll(members);
     } catch (e) {
       debugPrint('Failed to load renewal-eligible members: $e');
       rnEligibleMembers.clear();
@@ -215,6 +215,7 @@ mixin EnrollmentRenewalMixin on GetxController {
     rnPrefilled.value = false;
     try {
       final d = await loanApi.getRenewalPrefill(clientId);
+      debugPrint('[Renewal] Prefill data for member $clientId: $d');
       if (d.isEmpty) {
         Get.snackbar(
           'Error',

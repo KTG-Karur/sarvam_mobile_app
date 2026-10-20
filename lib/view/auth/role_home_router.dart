@@ -385,6 +385,7 @@ Future<Widget> resolveHomeScreen() async {
   final rbacRoleName = prefs.getString('rbacRoleName') ?? '';
 
   final resolved = RoleScope.resolve(role, rbacRoleName);
+  debugPrint('[Role Home Router] $role role detected ($rbacRoleName), showing ${resolved.name.toUpperCase()} dashboard.');
 
   switch (resolved) {
     case AppRole.branchManager:

@@ -152,6 +152,8 @@ class RenewalLoanController extends GetxController {
         api.getEligibleClientsForRenewal(value),
         api.getUnindexedLoans(value),
       ]);
+      debugPrint('[RenewalLoanController] Eligible clients for center $value: ${results[0]}');
+      debugPrint('[RenewalLoanController] Unindexed loans for center $value: ${results[1]}');
       eligibleClients.assignAll(results[0]);
       unindexedLoans.assignAll(results[1]);
     } catch (e) {
@@ -177,6 +179,8 @@ class RenewalLoanController extends GetxController {
         api.getOngoingLoans(value),
         api.getEligibleCoApplicants(value),
       ]);
+      debugPrint('[RenewalLoanController] Ongoing loans for client $value: ${results[0]}');
+      debugPrint('[RenewalLoanController] Eligible co-applicants for client $value: ${results[1]}');
       ongoingLoans.assignAll(results[0]);
       eligibleCoApplicants.assignAll(results[1]);
       if (ongoingLoans.isNotEmpty) {
