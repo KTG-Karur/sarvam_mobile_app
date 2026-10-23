@@ -735,12 +735,17 @@ class FaceBiometricService {
           scorePercent: scorePercent,
           message: message,
         );
-      } else if (response.statusCode == 409 || response.statusCode == 400 || response.statusCode == 401) {
+      } else if (response.statusCode == 409 ||
+          response.statusCode == 400 ||
+          response.statusCode == 401 ||
+          response.statusCode == 403) {
         final resData = jsonDecode(response.body);
         return FaceMatchResult(
           isMatch: false,
           scorePercent: 0.0,
-          message: resData['message'] ?? resData['error'] ?? 'Face verification failed.',
+          message: resData['message']?.toString() ??
+              resData['error']?.toString() ??
+              'Face verification failed.',
         );
       }
 

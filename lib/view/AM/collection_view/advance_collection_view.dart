@@ -3,6 +3,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:sarvam/controller/bulk_centre_collection_controller.dart';
+import 'package:sarvam/view/shared/call_button.dart';
 
 /// Read-only Advance Collection view for AM/BM — same data source as the
 /// FDO "Bulk center" mode in `SingleCollectionDetailsBulkCenterCollection`,
@@ -214,6 +215,10 @@ class _AdvanceCollectionViewState extends State<AdvanceCollectionView> {
 
   Widget _clientCard(Map<String, dynamic> item) {
     final name = item['clientName']?.toString() ?? 'Unknown';
+    final mobile = item['clientMobile']?.toString() ??
+        item['mobileNumber']?.toString() ??
+        item['mobile']?.toString() ??
+        '';
     final code = item['clientCode']?.toString() ?? '-';
     final loanNo = item['loanNumber']?.toString() ?? '-';
     final loanAmt = _asDouble(item['loanAmount']);
@@ -232,13 +237,25 @@ class _AdvanceCollectionViewState extends State<AdvanceCollectionView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            name,
-            style: TextStyle(
-              fontSize: 14.sp,
-              fontWeight: FontWeight.w800,
-              color: const Color(0xFF10472A),
-            ),
+          Row(
+            children: [
+              Text(
+                name,
+                style: TextStyle(
+                  fontSize: 14.sp,
+                  fontWeight: FontWeight.w800,
+                  color: const Color(0xFF10472A),
+                ),
+              ),
+              if (mobile.isNotEmpty) ...[
+                SizedBox(width: 8.w),
+                CallButton(
+                  phoneNumber: mobile,
+                  size: 14.sp,
+                  padding: EdgeInsets.all(4.w),
+                ),
+              ],
+            ],
           ),
           Text(
             '$code  •  $loanNo',

@@ -3,6 +3,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:sarvam/services/loan_advance_config.dart';
+import 'package:sarvam/view/shared/call_button.dart';
 
 class ArrearCollectionClientDetails extends StatefulWidget {
   final dynamic clientData;
@@ -626,13 +627,24 @@ class _ArrearCollectionClientDetailsState
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              clientName,
-                              style: TextStyle(
-                                fontSize: 20.sp,
-                                fontWeight: FontWeight.w800,
-                                color: const Color(0xFF0F3E28),
-                              ),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    clientName,
+                                    style: TextStyle(
+                                      fontSize: 20.sp,
+                                      fontWeight: FontWeight.w800,
+                                      color: const Color(0xFF0F3E28),
+                                    ),
+                                  ),
+                                ),
+                                if ((data['clientMobile'] ?? '').toString().isNotEmpty)
+                                  CallButton(
+                                    phoneNumber: data['clientMobile'].toString(),
+                                    size: 24.sp,
+                                  ),
+                              ],
                             ),
                             SizedBox(height: 6.h),
                             Text(

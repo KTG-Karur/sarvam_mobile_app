@@ -1,0 +1,466 @@
+// ============================================================
+// ENTERPRISE RBAC + ABAC SCHEMA ADDITIONS
+// Add these models to your existing schema.prisma
+// ============================================================
+// STEP 1: Keep existing User model as-is during migration
+// STEP 2: Remove 'role UserRole' field AFTER migration is complete
+// STEP 3: Remove UserRole enum AFTER all code is migrated
+// ============================================================
+
+// ─────────────────────────────────────────────
+// MODULE — Dynamic feature areas (Loan, Savings, Gold Loan, etc.)
+// ─────────────────────────────────────────────
+model Module {
+  id          String   @id @default(cuid())
+  name        String   @unique        // "Loan", "Collection", "Gold Loan"
+  slug        String   @unique        // "loan", "collection", "gold-loan"
+  description String?
+  icon        String?                 // Icon name for sidebar (e.g., "CreditCard")
+  sortOrder   Int      @default(0)    // Sidebar display order
+  isActive    Boolean  @default(true)
+  isSystem    Boolean  @default(false) // Cannot be deleted if true
+  parentId    String?                 // For sub-modules
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  parent      Module?  @relation("ModuleHierarchy", fields: [parentId], references: [id])
+  children    Module[] @relation("ModuleHierarchy")
+  actions     ModuleAction[]
+  permissions Permission[]
+  fieldPermissions  FieldPermission[]
+  reportPermissions ReportPermission[]
+
+  @@map("modules")
+}
+
+// ─────────────────────────────────────────────
+// MODULE ACTION — Granular actions per module
+// ─────────────────────────────────────────────
+model ModuleAction {
+  id          String   @id @default(cuid())
+  moduleId    String
+  name        String                  // "Create", "Approve", "Disburse"
+  slug        String                  // "create", "approve", "disburse"
+  description String?
+  isActive    Boolean  @default(true)
+  isSystem    Boolean  @default(false) // Core actions cannot be deleted
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  module      Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  permissions Permission[]
+
+  @@unique([moduleId, slug])
+  @@index([moduleId])
+  @@map("module_actions")
+}
+
+// ─────────────────────────────────────────────
+// ROLE — Dynamic roles replacing UserRole enum
+// ─────────────────────────────────────────────
+model Role {
+  id           String   @id @default(cuid())
+  name         String   @unique        // "Branch Manager", "Gold Loan Officer"
+  slug         String   @unique        // "branch-manager", "gold-loan-officer"
+  description  String?
+  color        String?                 // UI badge color (#22c55e)
+  priority     Int      @default(0)    // Higher = more privileged for conflict resolution
+  isActive     Boolean  @default(true)
+  isSystem     Boolean  @default(false) // Protected roles cannot be deleted (ADMIN equivalent)
+  parentRoleId String?                 // Role hierarchy — parent role
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  parentRole   Role?    @relation("RoleHierarchy", fields: [parentRoleId], references: [id])
+  childRoles   Role[]   @relation("RoleHierarchy")
+  permissions  RolePermission[]
+  userRoles    UserRole[]
+
+  @@map("roles")
+}
+
+// ─────────────────────────────────────────────
+// PERMISSION — Module + Action combination
+// ─────────────────────────────────────────────
+model Permission {
+  id           String   @id @default(cuid())
+  moduleId     String
+  actionId     String
+  name         String                  // "Loan.Approve", "Collection.Export"
+  description  String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  module       Module       @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  action       ModuleAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  rolePermissions RolePermission[]
+
+  @@unique([moduleId, actionId])
+  @@index([moduleId])
+  @@index([actionId])
+  @@map("permissions")
+}
+
+// ─────────────────────────────────────────────
+// ROLE PERMISSION — Role to Permission mapping
+// ─────────────────────────────────────────────
+model RolePermission {
+  id           String   @id @default(cuid())
+  roleId       String
+  permissionId String
+  // ABAC Conditions (JSON)
+  conditions   Json?    // {"branchScope": "own", "recordOwnership": "self", "timeRestriction": "business_hours"}
+  effect       PermissionEffect @default(ALLOW) // ALLOW or DENY (DENY wins)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+enum PermissionEffect {
+  ALLOW
+  DENY
+}
+
+// ─────────────────────────────────────────────
+// USER ROLE — User to Role mapping (replaces User.role scalar)
+// A user can have MULTIPLE roles
+// ─────────────────────────────────────────────
+model UserRole {
+  id        String   @id @default(cuid())
+  userId    String
+  roleId    String
+  // Optional: role is only active for a specific branch
+  branchId  String?
+  // Optional: role expires on a date
+  expiresAt DateTime?
+  isActive  Boolean  @default(true)
+  assignedBy String? // userId of admin who assigned this role
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation("UserRoles", fields: [userId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  branch    Branch?  @relation(fields: [branchId], references: [id])
+
+  @@unique([userId, roleId, branchId])
+  @@index([userId])
+  @@index([roleId])
+  @@index([branchId])
+  @@map("user_roles")
+}
+
+// ─────────────────────────────────────────────
+// USER BRANCH ACCESS — Multi-branch access control
+// Replaces AreaManagerBranch (which was role-specific)
+// Now branch access is role-agnostic
+// ─────────────────────────────────────────────
+model UserBranchAccess {
+  id          String   @id @default(cuid())
+  userId      String
+  branchId    String
+  accessType  BranchAccessType @default(OPERATIONAL) // FULL, OPERATIONAL, READONLY, REPORTING
+  isPrimary   Boolean  @default(false)   // Default branch on login
+  isActive    Boolean  @default(true)
+  grantedBy   String?
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation("UserBranchAccess", fields: [userId], references: [id], onDelete: Cascade)
+  branch      Branch   @relation("UserBranchAccess", fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, branchId])
+  @@index([userId])
+  @@index([branchId])
+  @@map("user_branch_access")
+}
+
+enum BranchAccessType {
+  FULL         // All operations
+  OPERATIONAL  // Day-to-day operations
+  READONLY     // View only
+  REPORTING    // Reports and exports only
+}
+
+// ─────────────────────────────────────────────
+// FIELD PERMISSION — Field-level access control
+// ─────────────────────────────────────────────
+model FieldPermission {
+  id          String   @id @default(cuid())
+  roleId      String
+  moduleId    String
+  fieldName   String                    // "aadhaarNumber", "salary", "loanAmount"
+  fieldLabel  String?                   // Human readable label
+  access      FieldAccessType @default(HIDDEN)
+  // Conditions for conditional field access
+  conditions  Json?   // {"stage": "PRE_APPROVAL", "branchType": "HO"}
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  role        Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  module      Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, moduleId, fieldName])
+  @@index([roleId])
+  @@index([moduleId])
+  @@map("field_permissions")
+}
+
+enum FieldAccessType {
+  VISIBLE    // Can see and edit
+  READONLY   // Can see but not edit
+  HIDDEN     // Cannot see at all
+  MASKED     // Partially hidden (e.g., AADHAAR: XXXX-XXXX-1234)
+}
+
+// ─────────────────────────────────────────────
+// REPORT PERMISSION — Report-specific access control
+// ─────────────────────────────────────────────
+model ReportPermission {
+  id           String   @id @default(cuid())
+  roleId       String
+  moduleId     String
+  reportSlug   String                   // "mis-report", "daily-collection", "gold-loan-report"
+  reportName   String
+  canView      Boolean  @default(false)
+  canExport    Boolean  @default(false)
+  canPrint     Boolean  @default(false)
+  // Data scope restriction
+  branchScope  ReportBranchScope @default(OWN_BRANCH)
+  maskFinancial Boolean @default(false) // Mask amounts/financial data
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  role         Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  module       Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, reportSlug])
+  @@index([roleId])
+  @@index([moduleId])
+  @@map("report_permissions")
+}
+
+enum ReportBranchScope {
+  OWN_BRANCH    // Only own branch data
+  ASSIGNED      // Own + assigned branches (Area Manager style)
+  ALL           // All branches (HO level)
+  REGIONAL      // Branches in own region
+}
+
+// ─────────────────────────────────────────────
+// APPROVAL WORKFLOW — Configurable multi-stage approval
+// ─────────────────────────────────────────────
+model ApprovalWorkflow {
+  id          String   @id @default(cuid())
+  moduleId    String
+  name        String                    // "Loan Disbursement Flow", "Gold Loan Flow"
+  description String?
+  isActive    Boolean  @default(true)
+  isDefault   Boolean  @default(false) // Default workflow for this module
+  // Condition to trigger this workflow
+  conditions  Json?   // {"loanAmount": ">50000", "loanType": "GOLD"}
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  module      Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  stages      ApprovalStage[]
+  instances   ApprovalInstance[]
+
+  @@index([moduleId])
+  @@map("approval_workflows")
+}
+
+// ─────────────────────────────────────────────
+// APPROVAL STAGE — Each step in workflow
+// ─────────────────────────────────────────────
+model ApprovalStage {
+  id              String   @id @default(cuid())
+  workflowId      String
+  name            String                // "FDO Review", "BM Approval", "AM Final"
+  stageOrder      Int                   // 1, 2, 3...
+  // Who can act on this stage (by role slug)
+  approverRoleSlug String              // "branch-manager", "area-manager"
+  // Actions allowed at this stage
+  allowedActions  String[]             // ["approve", "reject", "send_back", "request_info"]
+  // Auto-approve if approver is same as submitter (useful for testing)
+  autoApprove     Boolean  @default(false)
+  // SLA in hours
+  slaHours        Int?                 // 24 = must act within 24 hours
+  // Escalation role if SLA breached
+  escalateToRoleSlug String?
+  // Can approve skip this stage?
+  isOptional      Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workflow        ApprovalWorkflow  @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  instanceStages  ApprovalInstanceStage[]
+
+  @@index([workflowId])
+  @@map("approval_stages")
+}
+
+// ─────────────────────────────────────────────
+// APPROVAL INSTANCE — A specific record going through approval
+// e.g., Loan #123 going through the Loan Disbursement Flow
+// ─────────────────────────────────────────────
+model ApprovalInstance {
+  id              String   @id @default(cuid())
+  workflowId      String
+  // The record being approved
+  recordType      String                // "LOAN", "GOLD_LOAN", "FINANCIAL_TRANSACTION"
+  recordId        String                // ID of the record
+  // Current state
+  status          ApprovalStatus @default(PENDING)
+  currentStageId  String?
+  // Branch context
+  branchId        String
+  // Submitter
+  submittedBy     String               // userId
+  submittedAt     DateTime @default(now())
+  // Completion
+  completedAt     DateTime?
+  rejectionReason String?
+  metadata        Json?                // Extra context data
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workflow        ApprovalWorkflow      @relation(fields: [workflowId], references: [id])
+  stageInstances  ApprovalInstanceStage[]
+  logs            ApprovalLog[]
+
+  @@index([workflowId])
+  @@index([recordType, recordId])
+  @@index([status])
+  @@index([branchId])
+  @@map("approval_instances")
+}
+
+enum ApprovalStatus {
+  PENDING      // Waiting for action
+  IN_PROGRESS  // At least one stage approved
+  APPROVED     // All stages approved
+  REJECTED     // Rejected at any stage
+  SENT_BACK    // Sent back to submitter for correction
+  CANCELLED    // Withdrawn by submitter
+  EXPIRED      // SLA expired
+}
+
+// ─────────────────────────────────────────────
+// APPROVAL INSTANCE STAGE — Status of each stage for an instance
+// ─────────────────────────────────────────────
+model ApprovalInstanceStage {
+  id           String   @id @default(cuid())
+  instanceId   String
+  stageId      String
+  status       ApprovalStageStatus @default(PENDING)
+  actedBy      String?             // userId of approver
+  actedAt      DateTime?
+  action       String?             // "approved", "rejected", "sent_back"
+  remarks      String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  instance     ApprovalInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  stage        ApprovalStage    @relation(fields: [stageId], references: [id])
+
+  @@unique([instanceId, stageId])
+  @@index([instanceId])
+  @@index([stageId])
+  @@map("approval_instance_stages")
+}
+
+enum ApprovalStageStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SENT_BACK
+  SKIPPED
+}
+
+// ─────────────────────────────────────────────
+// APPROVAL LOG — Full audit trail
+// ─────────────────────────────────────────────
+model ApprovalLog {
+  id           String   @id @default(cuid())
+  instanceId   String
+  actedBy      String                   // userId
+  action       String                   // "submitted", "approved", "rejected", "sent_back", "reopened"
+  stageId      String?
+  stageName    String?
+  remarks      String?
+  metadata     Json?
+  ipAddress    String?
+  createdAt    DateTime @default(now())
+
+  instance     ApprovalInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  @@index([instanceId])
+  @@index([actedBy])
+  @@map("approval_logs")
+}
+
+// ─────────────────────────────────────────────
+// MENU ITEM — Dynamic sidebar menu configuration
+// ─────────────────────────────────────────────
+model MenuItem {
+  id            String   @id @default(cuid())
+  label         String                   // "Loan Module", "Collections"
+  path          String?                  // "/dashboard/loan-module"
+  icon          String?                  // Icon component name
+  sortOrder     Int      @default(0)
+  parentId      String?
+  // Which permission is required to see this menu item?
+  moduleId      String?
+  actionSlug    String?                  // If null, just needs module view permission
+  isActive      Boolean  @default(true)
+  openInNewTab  Boolean  @default(false)
+  badge         String?                  // Optional badge text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  parent        MenuItem?  @relation("MenuHierarchy", fields: [parentId], references: [id])
+  children      MenuItem[] @relation("MenuHierarchy")
+
+  @@map("menu_items")
+}
+
+// ─────────────────────────────────────────────
+// PERMISSION CACHE — Tracks cache version for invalidation
+// When a role/permission changes, bump the version
+// ─────────────────────────────────────────────
+model PermissionCacheVersion {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  version   Int      @default(1)  // Bump on role/permission changes
+  updatedAt DateTime @updatedAt
+
+  @@map("permission_cache_versions")
+}
+
+// ─────────────────────────────────────────────
+// ROLE AUDIT LOG — Track role/permission changes
+// ─────────────────────────────────────────────
+model RoleAuditLog {
+  id         String   @id @default(cuid())
+  actedBy    String                     // userId who made the change
+  action     String                     // "role_created", "permission_granted", "permission_revoked"
+  targetType String                     // "role", "user_role", "permission"
+  targetId   String
+  before     Json?                      // Previous state
+  after      Json?                      // New state
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([actedBy])
+  @@index([targetType, targetId])
+  @@map("role_audit_logs")
+}

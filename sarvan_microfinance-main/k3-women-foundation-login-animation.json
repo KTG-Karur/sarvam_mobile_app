@@ -1,0 +1,274 @@
+{
+  "schemaVersion": "1.0",
+  "id": "k3-women-foundation-transition",
+  "name": "K3 Women Foundation Transition",
+  "version": "1.0.0",
+  "description": "Official K3 Women Foundation login transition animation reproducing vector assembly of the emblem, wordmark reveals, signature pink bar, and polish sheen sweep.",
+  "author": "K3 Women Foundation Engineering",
+  "durationMs": 1500,
+  "reducedMotionDurationMs": 450,
+  "canvas": {
+    "width": 434,
+    "height": 238,
+    "background": "#FFFFFF"
+  },
+  "layers": [
+    {
+      "id": "k-stem-top-cap",
+      "type": "svg-path",
+      "d": "M 4 21 L 28 21 L 28 30 L 4 30 Z",
+      "fill": "#092e4b",
+      "from": {
+        "x": -75,
+        "y": -45,
+        "rotation": -12,
+        "opacity": 0.85
+      },
+      "to": {
+        "x": 0,
+        "y": 0,
+        "rotation": 0,
+        "opacity": 1
+      },
+      "delayMs": 0,
+      "durationMs": 360,
+      "easing": [
+        0.22,
+        1,
+        0.36,
+        1
+      ]
+    },
+    {
+      "id": "k-stem-main",
+      "type": "svg-path",
+      "d": "M 4 41 L 4 180 L 28 180 L 28 126 L 77.432 174 L 108 173.534 L 55.241 120.413 L 110.498 59.917 L 78.078 60.179 L 28 115 L 28 41 Z",
+      "fill": "#092e4b",
+      "from": {
+        "x": -75,
+        "y": -45,
+        "rotation": -12,
+        "opacity": 0.85
+      },
+      "to": {
+        "x": 0,
+        "y": 0,
+        "rotation": 0,
+        "opacity": 1
+      },
+      "delayMs": 0,
+      "durationMs": 360,
+      "easing": [
+        0.22,
+        1,
+        0.36,
+        1
+      ]
+    },
+    {
+      "id": "k-stem-pink-notch",
+      "type": "svg-path",
+      "d": "M 4 31 L 28 31 L 28 40 L 4 40 Z",
+      "fill": "#ec1c8a",
+      "from": {
+        "x": -85,
+        "y": -55,
+        "rotation": -16,
+        "opacity": 0.85
+      },
+      "to": {
+        "x": 0,
+        "y": 0,
+        "rotation": 0,
+        "opacity": 1
+      },
+      "delayMs": 40,
+      "durationMs": 360,
+      "easing": [
+        0.22,
+        1,
+        0.36,
+        1
+      ]
+    },
+    {
+      "id": "k-upper-chevron",
+      "type": "svg-path",
+      "d": "M 92 5.505 L 144.063 57.187 L 141.107 63.376 L 90 119.456 L 122.75 119.167 L 175.21 58.28 L 122.5 4.977 Z",
+      "fill": "#092e4b",
+      "from": {
+        "x": 65,
+        "y": -70,
+        "rotation": 18,
+        "opacity": 0.85
+      },
+      "to": {
+        "x": 0,
+        "y": 0,
+        "rotation": 0,
+        "opacity": 1
+      },
+      "delayMs": 80,
+      "durationMs": 360,
+      "easing": [
+        0.22,
+        1,
+        0.36,
+        1
+      ]
+    },
+    {
+      "id": "k-lower-chevron",
+      "type": "svg-path",
+      "d": "M 90 121.544 L 122.75 121.833 L 175.21 182.72 L 122.5 236.023 L 92 235.495 L 144.063 183.813 L 141.107 177.624 Z",
+      "fill": "#ec1c8a",
+      "from": {
+        "x": 70,
+        "y": 65,
+        "rotation": -15,
+        "opacity": 0.85
+      },
+      "to": {
+        "x": 0,
+        "y": 0,
+        "rotation": 0,
+        "opacity": 1
+      },
+      "delayMs": 120,
+      "durationMs": 360,
+      "easing": [
+        0.22,
+        1,
+        0.36,
+        1
+      ]
+    },
+    {
+      "id": "woman-silhouette",
+      "type": "svg-path",
+      "d": "M 156.042 92.25 C 155.539 93.488 154.856 96.174 154.524 98.221 C 154.192 100.267 152.748 103.335 151.314 105.039 C 148.946 107.853 148.851 108.28 150.277 109.705 C 151.523 110.952 151.607 111.657 150.682 113.137 C 149.778 114.585 149.826 115.492 150.896 117.205 C 151.913 118.834 151.965 119.512 151.095 119.802 C 150.197 120.101 150.194 120.529 151.081 121.597 C 151.807 122.472 154.203 123 157.448 123 C 161.701 123 163.079 123.455 164.992 125.492 C 168.347 129.063 168.169 135.169 164.538 141.006 L 161.743 145.5 164.874 142.56 C 174.183 133.821 174.305 119.493 165.163 108.5 C 162.345 105.111 160.9 101.971 161.621 100.805 C 162.012 100.172 161.859 99.969 161.267 100.335 C 160.273 100.949 159.124 97.342 158.691 92.25 C 158.586 91.012 158.153 90 157.729 90 C 157.304 90 156.545 91.012 156.042 92.25",
+      "fill": "#ec1c8a",
+      "from": {
+        "x": 80,
+        "y": 5,
+        "rotation": 12,
+        "opacity": 0.85
+      },
+      "to": {
+        "x": 0,
+        "y": 0,
+        "rotation": 0,
+        "opacity": 1
+      },
+      "delayMs": 160,
+      "durationMs": 360,
+      "easing": [
+        0.22,
+        1,
+        0.36,
+        1
+      ]
+    },
+    {
+      "id": "k3-wordmark-women",
+      "type": "text",
+      "text": "women",
+      "x": 180,
+      "y": 118,
+      "fontSize": 46,
+      "fontFamily": "Georgia, 'Times New Roman', serif",
+      "fontWeight": 600,
+      "textAnchor": "start",
+      "fill": "#092e4b",
+      "from": {
+        "x": 20,
+        "y": 0,
+        "opacity": 0
+      },
+      "to": {
+        "x": 0,
+        "y": 0,
+        "opacity": 1
+      },
+      "delayMs": 640,
+      "durationMs": 240,
+      "easing": [
+        0.25,
+        1,
+        0.5,
+        1
+      ]
+    },
+    {
+      "id": "k3-wordmark-foundation",
+      "type": "text",
+      "text": "foundation",
+      "x": 181,
+      "y": 153,
+      "fontSize": 23,
+      "fontFamily": "Georgia, 'Times New Roman', serif",
+      "fontWeight": 500,
+      "textAnchor": "start",
+      "fill": "#092e4b",
+      "from": {
+        "x": 0,
+        "y": 8,
+        "opacity": 0
+      },
+      "to": {
+        "x": 0,
+        "y": 0,
+        "opacity": 1
+      },
+      "delayMs": 700,
+      "durationMs": 200,
+      "easing": "easeOut"
+    },
+    {
+      "id": "k3-pink-accent-bar",
+      "type": "svg-path",
+      "d": "M 318 137 L 318 156 388 156 L 388 156 388 137 L 388 137 318 137 318 137",
+      "fill": "#ec1c8a",
+      "from": {
+        "scaleX": 0,
+        "opacity": 0
+      },
+      "to": {
+        "scaleX": 1,
+        "opacity": 1
+      },
+      "delayMs": 740,
+      "durationMs": 220,
+      "easing": "easeOut"
+    },
+    {
+      "id": "k3-light-sweep",
+      "type": "svg-rect",
+      "x": 0,
+      "y": -20,
+      "width": 90,
+      "height": 280,
+      "fill": "#ffffff",
+      "from": {
+        "x": -120,
+        "y": 0,
+        "opacity": 0.35,
+        "rotation": 15
+      },
+      "to": {
+        "x": 520,
+        "y": 0,
+        "opacity": 0,
+        "rotation": 15
+      },
+      "delayMs": 990,
+      "durationMs": 380,
+      "easing": [
+        0.42,
+        0,
+        0.58,
+        1
+      ]
+    }
+  ]
+}

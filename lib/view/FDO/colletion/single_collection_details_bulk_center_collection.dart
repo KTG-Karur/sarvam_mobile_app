@@ -3,6 +3,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/bulk_centre_collection_controller.dart';
 import 'package:sarvam/controller/live_collection_controller.dart';
@@ -11,6 +12,7 @@ import 'package:sarvam/view/FDO/colletion/collection_submission_flow.dart';
 import 'package:sarvam/view/FDO/colletion/demand_collection.dart'
     show ClientCollectionDetailsPage;
 import 'package:sarvam/view/FDO/colletion/single_collection_controller.dart';
+import 'package:sarvam/view/shared/call_button.dart';
 import 'package:sarvam/utils/center_formatter.dart';
 import 'package:sarvam/view/shared/eod_pending_banner.dart';
 
@@ -184,6 +186,7 @@ class _SingleCollectionDetailsBulkCenterCollectionState
       }
     }
   }
+
 
   @override
   Widget build(BuildContext context) => Theme(
@@ -489,6 +492,7 @@ class _SingleCollectionDetailsBulkCenterCollectionState
                 final loanNo = data['loanNumber'] ?? '--';
                 final disbDate = data['disbursementDate'] ?? '--';
                 final funder = data['productName'] ?? '--';
+                final mobile = data['clientMobile']?.toString() ?? '';
                 final loadFailed = data['loadFailed'] == true;
                 final locked = _isSingleCollected;
 
@@ -496,6 +500,7 @@ class _SingleCollectionDetailsBulkCenterCollectionState
                   children: [
                     if (loadFailed) _loadFailedBanner(),
                     if (locked) _lockedCollectionBanner(),
+                    if (mobile.isNotEmpty) _mobileField('Mobile Number', mobile),
                     _readField('Loan A/c No.', loanNo),
                     _readField(
                       'Disbursal Date',
@@ -909,6 +914,47 @@ class _SingleCollectionDetailsBulkCenterCollectionState
   Widget _readField(String label, String value, {IconData? icon}) =>
       _field(label, value, icon);
 
+  Widget _mobileField(String label, String value) => Padding(
+    padding: EdgeInsets.only(bottom: 13.h),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12.sp,
+            fontWeight: FontWeight.w600,
+            color: const Color(0xFF1E293B),
+          ),
+        ),
+        SizedBox(height: 6.h),
+        Container(
+          height: 46.h,
+          padding: EdgeInsets.symmetric(horizontal: 12.w),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF4FAF6),
+            border: Border.all(color: const Color(0xFFD2E9DB)),
+            borderRadius: BorderRadius.circular(8.r),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 13.sp,
+                    color: const Color(0xFF64748B),
+                  ),
+                ),
+              ),
+              CallButton(phoneNumber: value),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+
   Widget _field(String label, String value, IconData? icon) => Padding(
     padding: EdgeInsets.only(bottom: 13.h),
     child: Column(
@@ -1059,6 +1105,7 @@ class _SingleCollectionDetailsBulkCenterCollectionState
     required TextEditingController advanceController,
   }) {
     final String name = item['clientName'] ?? '';
+    final String mobile = item['clientMobile']?.toString() ?? '';
     final String code = item['clientCode'] ?? '';
     final String loanNo = item['loanNumber'] ?? '--';
     final String prod = item['productName'] ?? '--';
@@ -1113,6 +1160,10 @@ class _SingleCollectionDetailsBulkCenterCollectionState
                                   color: const Color(0xFF10472A),
                                 ),
                               ),
+                              if (mobile.isNotEmpty) ...[
+                                SizedBox(height: 4.h),
+                                CallButton(phoneNumber: mobile),
+                              ],
                               Text(
                                 code,
                                 style: TextStyle(

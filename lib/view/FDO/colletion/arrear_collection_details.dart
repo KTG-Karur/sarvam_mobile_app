@@ -11,6 +11,7 @@ import 'package:sarvam/services/loan_advance_config.dart';
 import 'package:sarvam/view/FDO/colletion/arrear_collection_client_details.dart';
 import 'package:sarvam/view/FDO/colletion/collection_submission_flow.dart';
 import 'package:sarvam/utils/center_formatter.dart';
+import 'package:sarvam/view/shared/call_button.dart';
 import 'package:sarvam/view/shared/eod_pending_banner.dart';
 
 class ArrearCollectionDetails extends StatefulWidget {
@@ -983,6 +984,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
   Widget _clientNameCell(Map<String, dynamic> item) {
     final name = item['clientName']?.toString() ?? 'Unknown';
     final code = item['clientCode']?.toString() ?? '';
+    final mobile = item['clientMobile']?.toString() ?? '';
     final isGold =
         (item['loanProductTypeName']?.toString() ?? '') == 'Gold Loan';
     return InkWell(
@@ -996,16 +998,23 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12.sp,
-                fontWeight: FontWeight.w700,
-                decoration: TextDecoration.underline,
-                color: const Color(0xFF0D6842),
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12.sp,
+                      fontWeight: FontWeight.w700,
+                      decoration: TextDecoration.underline,
+                      color: const Color(0xFF0D6842),
+                    ),
+                  ),
+                ),
+                if (mobile.isNotEmpty) CallButton(phoneNumber: mobile, size: 14.sp),
+              ],
             ),
             if (code.isNotEmpty)
               Text(

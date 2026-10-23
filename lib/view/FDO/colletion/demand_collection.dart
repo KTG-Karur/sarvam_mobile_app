@@ -9,6 +9,8 @@ import 'package:sarvam/services/loan_advance_config.dart';
 import 'package:sarvam/view/FDO/colletion/collection_submission_flow.dart';
 import 'package:sarvam/utils/center_formatter.dart';
 import 'package:sarvam/view/shared/eod_pending_banner.dart';
+import 'package:sarvam/view/shared/call_button.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class DemandCollection extends StatefulWidget {
   const DemandCollection({super.key, this.initialDate});
@@ -28,7 +30,9 @@ class ClientCollectionDetailsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    debugPrint('Client Details Data: $client');
     final clientName = _text('clientName', fallback: 'Unknown client');
+    final mobileNumber = _text('clientMobile', fallback: _text('mobileNumber', fallback: ''));
     final status = _text('status', fallback: 'PENDING').toUpperCase();
     final fields = <_ClientDetailField>[
       _ClientDetailField('Client Name', clientName),
@@ -179,13 +183,26 @@ class ClientCollectionDetailsPage extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            clientName,
-                            style: TextStyle(
-                              fontSize: 16.sp,
-                              fontWeight: FontWeight.w800,
-                              color: const Color(0xFF10472A),
-                            ),
+                          Row(
+                            children: [
+                              Text(
+                                clientName,
+                                style: TextStyle(
+                                  fontSize: 16.sp,
+                                  fontWeight: FontWeight.w800,
+                                  color: const Color(0xFF10472A),
+                                ),
+                              ),
+                              if (mobileNumber.isNotEmpty &&
+                                  mobileNumber != '-') ...[
+                                SizedBox(width: 8.w),
+                                CallButton(
+                                  phoneNumber: mobileNumber,
+                                  size: 18.sp,
+                                  padding: EdgeInsets.all(4.w),
+                                ),
+                              ],
+                            ],
                           ),
                           SizedBox(height: 3.h),
                           Text(
@@ -1472,6 +1489,7 @@ class _DemandCollectionState extends State<DemandCollection> {
     required ValueChanged<bool> onSelected,
   }) {
     final clientName = item['clientName'] ?? 'Unknown';
+    final mobile = item['clientMobile']?.toString() ?? '';
     final clientCode = item['clientCode'] ?? '';
     final loanNumber = item['loanNumber'] ?? '';
     final loanProduct = item['loanProductTypeName'] ?? 'JLG';
@@ -1519,13 +1537,25 @@ class _DemandCollectionState extends State<DemandCollection> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          clientName,
-                          style: TextStyle(
-                            fontSize: 14.sp,
-                            fontWeight: FontWeight.w700,
-                            color: const Color(0xFF10472A),
-                          ),
+                        Row(
+                          children: [
+                            Text(
+                              clientName,
+                              style: TextStyle(
+                                fontSize: 14.sp,
+                                fontWeight: FontWeight.w700,
+                                color: const Color(0xFF10472A),
+                              ),
+                            ),
+                            if (mobile.isNotEmpty) ...[
+                              SizedBox(width: 8.w),
+                              CallButton(
+                                phoneNumber: mobile,
+                                size: 14.sp,
+                                padding: EdgeInsets.all(4.w),
+                              ),
+                            ],
+                          ],
                         ),
                         SizedBox(height: 2.h),
                         Text(

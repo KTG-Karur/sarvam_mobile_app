@@ -1,0 +1,366 @@
+================================================================================
+            EXCEL FILE AUDIT SUMMARY - Theni 060626.xlsx
+================================================================================
+
+FILE INFORMATION
+================================================================================
+File Name:           Theni 060626.xlsx
+Total Columns:       112
+Total Rows:          30
+Analysis Date:       2026-06-10
+Project:             Sarvam Charitable Trust Management System
+Database:            PostgreSQL with Prisma ORM 6.x
+
+================================================================================
+COVERAGE ANALYSIS
+================================================================================
+
+✅ FOUND (Exact Match):                     55 columns (49.1%)
+⚠️  SAME FIELD DIFFERENT NAME:              8 columns (7.1%)
+❌ NOT FOUND (Missing):                     32 columns (28.6%)
+📊 CALCULATED/REPORT FIELDS:                17 columns (15.2%)
+
+IMPORTABLE COLUMNS:                         70 columns (62.5%)
+NON-IMPORTABLE COLUMNS:                     42 columns (37.5%)
+
+================================================================================
+BREAKDOWN BY MODULE
+================================================================================
+
+CLIENT MODULE
+  ✅ Fields Found:           23/35 (65.7%)
+  ⚠️  Field Name Changes:     4/35 (11.4%)
+  ❌ Missing Fields:          8/35 (22.9%)
+  Examples: clientId, firstName, lastName, phone, email, age, gender, address
+
+LOAN APPLICATION MODULE
+  ✅ Fields Found:           10/18 (55.6%)
+  ⚠️  Field Name Changes:     3/18 (16.7%)
+  ❌ Missing Fields:          5/18 (27.7%)
+  Examples: loanNumber, amount, interestRate, tenureMonths, status
+
+CO-APPLICANT / NOMINEE MODULE
+  ✅ Fields Found:           5/8 (62.5%)
+  ⚠️  Field Name Changes:     1/8 (12.5%)
+  ❌ Missing Fields:          2/8 (25%)
+  Examples: nomineeName, nomineeAge, nomineePhone, nomineeRelation
+
+KYC MODULE
+  ✅ Fields Found:           4/6 (66.7%)
+  ⚠️  Field Name Changes:     0/6
+  ❌ Missing Fields:          2/6 (33.3%)
+  Examples: otherIdNo (Aadhaar), pancardNo, documentType, documentNumber
+
+CENTER / GROUP MODULE
+  ✅ Fields Found:           8/9 (88.9%)
+  ⚠️  Field Name Changes:     0/9
+  ❌ Missing Fields:          1/9 (11.1%)
+  Examples: branch, center, group, meetingDay, meetingTime, address
+
+BRANCH MODULE
+  ✅ Fields Found:           1/1 (100%)
+  Examples: branch name
+
+COLLECTION MODULE
+  ✅ Fields Found:           9/12 (75%)
+  ⚠️  Field Name Changes:     0/12
+  ❌ Missing Fields:          3/12 (25%)
+  Examples: lastPaymentDate, principalAmount, interestAmount, collectedBy
+
+BANK DETAILS MODULE
+  ✅ Fields Found:           5/6 (83.3%)
+  ⚠️  Field Name Changes:     0/6
+  ❌ Missing Fields:          1/6 (16.7%)
+  Examples: bankAcNo, bankName, ifscCode, bankBranch
+
+================================================================================
+TOP MISSING FIELDS (Most Important for Import)
+================================================================================
+
+1. Loan Cycle             - Loan number/count (can be derived)
+2. Moratorium Amount      - Not tracked (schema extension needed)
+3. Moratorium Paid        - Not tracked (schema extension needed)
+4. Moratorium Outstanding - Not tracked (schema extension needed)
+5. Thrift 1/2             - Savings not tracked (schema extension needed)
+6. Is PreClosed           - Not tracked (schema extension needed)
+7. Spouse DOB             - Not tracked (schema extension needed)
+8. Citizen Information    - Citizenship not tracked
+9. Place of Birth         - Not tracked (schema extension needed)
+10. RBI Status            - Not tracked (external reference)
+
+================================================================================
+CALCULATED FIELDS (Should Be Regenerated From Transactions)
+================================================================================
+
+Outstanding Balance Fields (7):
+  • Loan Interest (derive from LoanSchedule sum)
+  • Total Amount (sum principal + interest)
+  • Actual OutStanding Principal (amount - principalPaid)
+  • Actual OutStanding Interest (from LoanSchedule)
+  • Actual OutStanding Total Amount (sum outstanding)
+  • Outstanding Principal (amount - principalPaid)
+  • Outstanding Interest (from LoanSchedule)
+
+Arrear Collection Fields (3):
+  • Arrear Collection Principal (sum overdue transactions)
+  • Arrear Collection Interest (sum overdue transactions)
+  • Arrear Collection As On 07-06-2026 (snapshot)
+
+Last Payment Fields (3):
+  • LastRepay Principal (from last transaction)
+  • LastRepay Interest (from last transaction)
+  • LastRepay DueAmount (from last transaction)
+
+Point-in-Time Snapshots (4):
+  • OutStanding As On 07-06-2026
+  • Moratorium Outstanding (if implemented)
+  • Arrear Collection As On 07-06-2026
+  • Last RepayDate (from transaction)
+
+================================================================================
+DATABASE MODEL UTILIZATION
+================================================================================
+
+CLIENT MODEL
+  Status:        WELL-SUPPORTED (43/112 columns = 38.4%)
+  Coverage:      Personal details, family, address, banking, KYC
+  Fields Used:   clientId, name, phone, email, DOB, age, gender, address,
+                 pincode, district, country, bankAcNo, ifscCode, bankName,
+                 pancardNo, nomineeDetails, caste, familyInfo, economicActivity
+
+CENTER MODEL
+  Status:        WELL-SUPPORTED (8/112 columns = 7.1%)
+  Coverage:      Organization, location, meeting schedule
+  Fields Used:   name, address, latitude, longitude, meetingDay, meetingTime
+
+BRANCH MODEL
+  Status:        BASIC (1/112 columns = 0.9%)
+  Coverage:      Identifier only
+  Fields Used:   name
+
+LOAN MODEL
+  Status:        GOOD (18/112 columns = 16.1%)
+  Coverage:      Core loan details, amounts, dates, status
+  Fields Used:   loanNumber, amount, interestRate, tenureMonths, status,
+                 disbursementDate, startDate, endDate, closedDate
+
+LOAN TRANSACTION MODEL
+  Status:        ADEQUATE (6/112 columns = 5.4%)
+  Coverage:      Collection tracking, payments, approvals
+  Fields Used:   amount, principalAmount, interestAmount, collectedBy,
+                 approvedBy, paymentDate
+
+LOAN SCHEDULE MODEL
+  Status:        ADEQUATE FOR CALCULATIONS
+  Coverage:      Installment tracking, outstanding balance calculation
+  Fields Used:   InstallmentNo, principalDue, interestDue, principalPaid,
+                 interestPaid, totalPaid, status
+
+GROUP MODEL
+  Status:        BASIC (2/112 columns = 1.8%)
+  Coverage:      Group identification
+  Fields Used:   name, address
+
+ECONOMIC ACTIVITY MODEL
+  Status:        FOUND (1/112 columns = 0.9%)
+  Coverage:      Economic activity classification
+  Fields Used:   name
+
+KYC MODEL
+  Status:        FOUND (4/112 columns = 3.6%)
+  Coverage:      Document tracking
+  Fields Used:   documentType, documentNumber, fileUrl
+
+FUNDER MODEL
+  Status:        FOUND (1/112 columns = 0.9%)
+  Coverage:      Funding source
+  Fields Used:   funderName
+
+USER MODEL
+  Status:        FOUND (multiple fields)
+  Coverage:      Audit trail - creator, approver, collector
+  Fields Used:   firstName, lastName, userId
+
+================================================================================
+DATA QUALITY CONSIDERATIONS
+================================================================================
+
+VALIDATION RULES THAT MUST BE APPLIED:
+  • Phone: 10 digits (with optional +91, 91, or 0 prefix)
+  • Aadhaar: Exactly 12 digits
+  • PAN: Format ABCDE1234F (5 letters, 4 digits, 1 letter)
+  • IFSC: Format SBIN0001234 (4 letters, 0, 6 alphanumeric)
+  • Bank Account: 9-18 digits
+  • Pincode: Exactly 6 digits
+  • Age: 18-100 for clients
+  • Loan Amount: Minimum ₹1,000
+  • Interest Rate: 0-100%
+  • Tenure: 1-120 months
+
+FIELDS WITH DEPENDENCIES:
+  • Loan details depend on LoanProduct + LoanPurpose lookups
+  • Client depends on Center, Branch existence
+  • Loan depends on Client, Center, Branch, Product, Purpose
+  • Transactions depend on Loan existence
+  • Outstanding balances depend on LoanSchedule + Transactions
+
+================================================================================
+SCHEMA EXTENSION REQUIREMENTS
+================================================================================
+
+To capture all 112 columns, consider adding:
+
+CLIENT TABLE EXTENSIONS:
+  • placeOfBirth (VARCHAR)
+  • citizenship (VARCHAR)
+  • spouseDateOfBirth (DATETIME)
+  • assetType (VARCHAR)
+  • careOf (VARCHAR) [if unclear purpose, might skip]
+
+LOAN TABLE EXTENSIONS:
+  • moratoriumAmount (DECIMAL)
+  • moratoriumPaid (DECIMAL)
+  • moratoriumOutstanding (DECIMAL)
+  • isPreClosed (BOOLEAN)
+  • loanCycle (INT) [or derive from loan count per client]
+  • memberRemark (TEXT)
+
+SAVINGS TABLE (NEW):
+  • thrift1Amount (DECIMAL)
+  • thrift2Amount (DECIMAL)
+  • thrift1Outstanding (DECIMAL)
+  • thrift2Outstanding (DECIMAL)
+
+CO-APPLICANT EXTENSIONS:
+  • voterIdNo (VARCHAR) [for nominee specifically]
+
+STATUS TRACKING (NEW/EXTENDED):
+  • Dead Member: Use existing inactiveDate + dropoutReason
+  • RBI Status: External lookup (not store in DB)
+  • Account Type: Not critical for current design
+  • Loan Activity: Clarify business meaning before adding
+
+================================================================================
+IMPORT STRATEGY RECOMMENDATIONS
+================================================================================
+
+PHASE 1: IMMEDIATE IMPORT (70 columns)
+  Action: Import all FOUND and SAME-NAME fields
+  Tools: SQL script or bulk import tool
+  Validation: Use Zod schemas already in code
+  Time: Low complexity
+
+PHASE 2: CALCULATED FIELDS (17 columns)
+  Action: Generate from LoanSchedule + LoanTransaction
+  Tools: Database views or application layer calculation
+  Validation: Cross-check sums with Excel
+  Time: Medium complexity
+
+PHASE 3: OPTIONAL SCHEMA EXTENSIONS (15 columns)
+  Action: Add missing columns if business requires
+  Tools: Prisma migration
+  Validation: Backfill from Excel legacy data
+  Time: High complexity (requires testing)
+
+PHASE 4: IMPOSSIBLE FIELDS (10 columns)
+  Action: Skip or clarify business meaning
+  Tools: N/A
+  Validation: Document decision with stakeholders
+  Time: Planning phase
+
+================================================================================
+QUALITY ASSURANCE CHECKLIST
+================================================================================
+
+Before importing:
+  ☐ Validate all phone numbers against regex
+  ☐ Validate all Aadhaar numbers (12 digits)
+  ☐ Validate all PAN cards (format)
+  ☐ Validate all IFSC codes (format)
+  ☐ Validate all bank account numbers (9-18 digits)
+  ☐ Validate all pincodes (6 digits)
+  ☐ Validate all ages (18-100)
+  ☐ Validate all loan amounts (minimum ₹1,000)
+  ☐ Validate all interest rates (0-100%)
+  ☐ Validate all tenures (1-120 months)
+  ☐ Check for duplicate clientIds
+  ☐ Check for duplicate loanNumbers
+  ☐ Verify all Centers exist
+  ☐ Verify all Branches exist
+  ☐ Verify all Groups exist
+  ☐ Verify all LoanProducts exist
+  ☐ Verify all LoanPurposes exist
+  ☐ Verify all Users exist (collectors, approvers)
+
+After importing:
+  ☐ Calculate totals match Excel (with rounding tolerance)
+  ☐ Outstanding balances reconcile
+  ☐ Arrear calculations reconcile
+  ☐ All foreign keys valid
+  ☐ Audit trail complete
+  ☐ Spot check 10 random records
+
+================================================================================
+FILES GENERATED
+================================================================================
+
+1. EXCEL_AUDIT_REPORT.md
+   - Detailed analysis of all 112 columns
+   - Field mapping reference
+   - Recommendations for import
+
+2. EXCEL_TO_DATABASE_MAPPING.csv
+   - Machine-readable mapping for all columns
+   - Field names, table references, validation rules
+   - Status and notes for each column
+
+3. AUDIT_SUMMARY.txt (this file)
+   - Quick reference overview
+   - Statistics and breakdowns
+   - Action items and checklists
+
+================================================================================
+NEXT STEPS
+================================================================================
+
+1. DECISION POINT: Schema Extensions
+   → Decide which missing 15 columns warrant addition
+   → Document business cases for each
+
+2. DATA VALIDATION
+   → Run validation scripts on all 112 columns
+   → Document any data quality issues
+   → Create error report for problematic rows
+
+3. MIGRATION SCRIPT
+   → Build import script using mapping CSV
+   → Implement field transformations (e.g., annual→monthly income)
+   → Add relationship lookups for foreign keys
+
+4. TESTING
+   → Import to test database
+   → Run reconciliation checks
+   → Verify calculated fields
+   → Spot check records
+
+5. GO LIVE
+   → Back up production database
+   → Run migration on production
+   → Monitor for data issues
+   → Provide rollback procedure
+
+================================================================================
+CONTACT & SUPPORT
+================================================================================
+
+For questions about this audit:
+  • Review EXCEL_AUDIT_REPORT.md for detailed analysis
+  • Check EXCEL_TO_DATABASE_MAPPING.csv for field mappings
+  • Refer to project CLAUDE.md for architecture details
+
+Database: PostgreSQL with Prisma ORM
+Project: Sarvam Charitable Trust Management System
+
+================================================================================
+END OF AUDIT SUMMARY
+================================================================================

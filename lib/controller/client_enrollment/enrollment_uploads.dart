@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:io' as io;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:image/image.dart' as img;
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:sarvam/controller/client_enrollment/enrollment_options.dart';
 import 'package:sarvam/services/enrollment_api_service.dart';
@@ -90,7 +92,9 @@ mixin EnrollmentUploadsMixin on GetxController {
           imageQuality: 80,
         );
         if (picked == null) return;
-        bytes = await picked.readAsBytes();
+        final rawBytes = await picked.readAsBytes();
+        bytes = await _rotateImageIfNecessary(rawBytes);
+        if (bytes == null) return;
         filename = picked.name;
         contentType = 'image/jpeg';
       } else if (source == ImageSource.gallery) {
@@ -101,7 +105,9 @@ mixin EnrollmentUploadsMixin on GetxController {
           imageQuality: 80,
         );
         if (picked == null) return;
-        bytes = await picked.readAsBytes();
+        final rawBytes = await picked.readAsBytes();
+        bytes = await _rotateImageIfNecessary(rawBytes);
+        if (bytes == null) return;
         filename = picked.name;
         contentType = 'image/jpeg';
       } else if (allowPdf) {
@@ -124,6 +130,11 @@ mixin EnrollmentUploadsMixin on GetxController {
         filename = picked.name;
         final ext = (picked.extension ?? '').toLowerCase();
         contentType = ext == 'pdf' ? 'application/pdf' : 'image/${ext.isEmpty ? 'jpeg' : ext}';
+
+        if (contentType.startsWith('image/')) {
+          bytes = await _rotateImageIfNecessary(bytes!);
+          if (bytes == null) return;
+        }
       } else {
         final picked = await _picker.pickImage(
           source: ImageSource.camera,
@@ -132,7 +143,9 @@ mixin EnrollmentUploadsMixin on GetxController {
           imageQuality: 80,
         );
         if (picked == null) return;
-        bytes = await picked.readAsBytes();
+        final rawBytes = await picked.readAsBytes();
+        bytes = await _rotateImageIfNecessary(rawBytes);
+        if (bytes == null) return;
         filename = picked.name;
         contentType = 'image/jpeg';
       }
@@ -233,5 +246,105 @@ mixin EnrollmentUploadsMixin on GetxController {
         debugPrint('Location QR generation/upload failed: $e');
       }
     });
+  }
+
+  /// Opens a review dialog allowing the user to rotate the image (0, 90, 180,
+  /// 270 deg) before finalized upload. Returns null if the user cancels.
+  Future<List<int>?> _rotateImageIfNecessary(List<int> bytes) async {
+    final rxRotation = 0.obs; // quarter turns
+    final list = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
+
+    final result = await Get.dialog<List<int>?>(
+      Dialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+              child: Row(
+                children: [
+                  Icon(Icons.rotate_right_rounded, color: Color(0xFF00843D)),
+                  SizedBox(width: 10),
+                  Text(
+                    'Review & Rotate',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF073E23)),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              height: 300,
+              width: double.infinity,
+              color: const Color(0xFFF8FBF9),
+              child: Obx(() => RotatedBox(
+                    quarterTurns: rxRotation.value,
+                    child: Image.memory(list, fit: BoxFit.contain),
+                  )),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  IconButton.filledTonal(
+                    onPressed: () => rxRotation.value = (rxRotation.value + 1) % 4,
+                    icon: const Icon(Icons.rotate_right_rounded, color: Color(0xFF00843D)),
+                    style: IconButton.styleFrom(
+                      backgroundColor: const Color(0xFFF0FAF4),
+                      foregroundColor: const Color(0xFF00843D),
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => Get.back(result: null),
+                    child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B))),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: () async {
+                      if (rxRotation.value == 0) {
+                        Get.back(result: bytes);
+                        return;
+                      }
+                      Get.dialog(
+                        const Center(child: CircularProgressIndicator(color: Color(0xFF00843D))),
+                        barrierDismissible: false,
+                      );
+                      try {
+                        final image = img.decodeImage(list);
+                        if (image == null) {
+                          Get.back();
+                          Get.back(result: bytes);
+                          return;
+                        }
+                        // img.copyRotate uses degrees, we have quarter turns clockwise.
+                        // Quarter turns 0=0, 1=90, 2=180, 3=270.
+                        final rotated = img.copyRotate(image, angle: rxRotation.value * 90);
+                        final resultBytes = img.encodeJpg(rotated, quality: 85);
+                        Get.back(); // close loader
+                        Get.back(result: resultBytes);
+                      } catch (e) {
+                        Get.back(); // close loader
+                        Get.back(result: bytes);
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF00843D),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: const Text('Upload'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      barrierDismissible: false,
+    );
+    return result;
   }
 }
