@@ -1,5 +1,0 @@
-export const LOAN_FEES = {
-    ADMISSION_FEE: 100,
-    DOCUMENT_CHARGES_PERCENT: 1, // 1%
-    INSURANCE_FEE_PERCENT: 2,    // 2%
-};
