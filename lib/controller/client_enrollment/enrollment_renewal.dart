@@ -130,6 +130,16 @@ mixin EnrollmentRenewalMixin on GetxController {
 
   final rnSubmitting = false.obs;
 
+  /// Tracks which fields were empty in the prefill data, allowing them to
+  /// be editable even in renewal mode.
+  final rnEmptyFields = <String, bool>{}.obs;
+
+  bool isFieldLocked(String fieldName) {
+    if (!renewalMode || !rnPrefilled.value) return false;
+    // If the field was empty in the fetched record, it's not locked.
+    return !(rnEmptyFields[fieldName] ?? false);
+  }
+
   /// Groups derived client-side from the eligible-members list for the
   /// picked center — mirrors web's `rnGroupOptions` (there is no separate
   /// "groups for renewal" endpoint).
@@ -329,6 +339,7 @@ mixin EnrollmentRenewalMixin on GetxController {
 
       rnMemberId.value = clientId;
       rnPrefilled.value = true;
+      _updateEmptyFields(d);
 
       // Co-applicant list is best-effort — a failure must not leave the
       // form stuck on an otherwise-usable prefill.
@@ -368,6 +379,30 @@ mixin EnrollmentRenewalMixin on GetxController {
     } finally {
       rnLoadingPrefill.value = false;
     }
+  }
+
+  void _updateEmptyFields(Map<String, dynamic> d) {
+    rnEmptyFields.clear();
+    final fields = {
+      'mobileNumber': _s(d['phone']) ?? _s(d['mobileNumber']),
+      'otherIdNo': _s(d['otherIdNo']),
+      'clientName': _s(d['firstName']),
+      'lastName': _s(d['lastName']),
+      'pancardNo': _s(d['pancardNo']),
+      'votersIdNo': _s(d['votersIdNo']),
+      'dateOfBirth': _fmtDate(d['dateOfBirth']),
+      'fatherName': _s(d['fatherName']),
+      'gender': _s(d['gender']),
+      'permanentAddress': _s(d['permanentAddress']),
+      'pincode': _s(d['pincode']),
+      'postOffice': _s(d['postOffice']),
+      'state': _s(d['state']),
+      'district': _s(d['district']),
+      'country': _s(d['country']),
+    };
+    fields.forEach((key, value) {
+      rnEmptyFields[key] = (value == null || value.toString().trim().isEmpty);
+    });
   }
 
   void _clearCoApplicantFields() {

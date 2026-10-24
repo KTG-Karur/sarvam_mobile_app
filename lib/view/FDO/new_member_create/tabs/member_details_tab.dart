@@ -14,21 +14,16 @@ class MemberDetailsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Obx(() {
-    // On a renewal, only the address block below stays editable — identity
-    // fields are frozen from the approved member's record (mirrors web's
-    // RENEWAL_EDITABLE_KEYS: everything on this tab except
-    // permanentAddress/pincode/postOffice/district/state/country).
-    final locked = controller.renewalMode && controller.rnPrefilled.value;
     return EnrollmentSectionShell(
       title: 'Member Details',
       subtitle: 'Primary identity and contact details',
       icon: Icons.shield_outlined,
       children: [
-        RenewalLock(
-          locked: locked,
-          child: Column(
-            children: [
-              EnrollmentTextField(
+        Column(
+          children: [
+            RenewalLock(
+              locked: controller.isFieldLocked('mobileNumber'),
+              child: EnrollmentTextField(
                 label: 'Phone Number',
                 hint: 'Enter 10-digit mobile number',
                 controller: controller.mobileNumberCtrl,
@@ -40,7 +35,10 @@ class MemberDetailsTab extends StatelessWidget {
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 errorText: controller.mobileNumberError.value,
               ),
-              EnrollmentTextField(
+            ),
+            RenewalLock(
+              locked: controller.isFieldLocked('otherIdNo'),
+              child: EnrollmentTextField(
                 label: 'Aadhaar Number',
                 hint: '12-digit Aadhaar number',
                 controller: controller.otherIdNoCtrl,
@@ -61,19 +59,28 @@ class MemberDetailsTab extends StatelessWidget {
                   ),
                 ),
               ),
-              EnrollmentTextField(
+            ),
+            RenewalLock(
+              locked: controller.isFieldLocked('clientName'),
+              child: EnrollmentTextField(
                 label: 'First Name',
                 hint: 'Enter first name',
                 controller: controller.clientNameCtrl,
                 required: controller.isRequired('clientName', defaultValue: true),
               ),
-              EnrollmentTextField(
+            ),
+            RenewalLock(
+              locked: controller.isFieldLocked('lastName'),
+              child: EnrollmentTextField(
                 label: 'Last Name',
                 hint: 'Enter last name',
                 controller: controller.lastNameCtrl,
                 required: controller.isRequired('lastName'),
               ),
-              EnrollmentTextField(
+            ),
+            RenewalLock(
+              locked: controller.isFieldLocked('pancardNo'),
+              child: EnrollmentTextField(
                 label: 'PAN Card Number',
                 hint: 'ABCDE1234F',
                 controller: controller.pancardNoCtrl,
@@ -94,7 +101,10 @@ class MemberDetailsTab extends StatelessWidget {
                   ),
                 ),
               ),
-              EnrollmentTextField(
+            ),
+            RenewalLock(
+              locked: controller.isFieldLocked('votersIdNo'),
+              child: EnrollmentTextField(
                 label: 'Voter ID Number',
                 hint: 'ABC1234567',
                 controller: controller.votersIdNoCtrl,
@@ -115,91 +125,118 @@ class MemberDetailsTab extends StatelessWidget {
                   ),
                 ),
               ),
-              EnrollmentDateField(
+            ),
+            RenewalLock(
+              locked: controller.isFieldLocked('dateOfBirth'),
+              child: EnrollmentDateField(
                 label: 'Date of Birth',
                 controller: controller.dobCtrl,
                 required: controller.isRequired('dateOfBirth'),
                 lastDate: DateTime.now(),
               ),
-              EnrollmentTextField(
+            ),
+            RenewalLock(
+              locked: controller.isFieldLocked('fatherName'),
+              child: EnrollmentTextField(
                 label: "Father Name",
                 hint: "Enter father's name",
                 controller: controller.fatherNameCtrl,
                 required: controller.isRequired('fatherName'),
               ),
-              EnrollmentSelectField(
+            ),
+            RenewalLock(
+              locked: controller.isFieldLocked('gender'),
+              child: EnrollmentSelectField(
                 label: 'Gender',
                 value: controller.gender.value,
                 options: EnrollmentOptions.genders,
                 onChanged: (v) => controller.gender.value = v,
                 required: controller.isRequired('gender'),
               ),
-            ],
-          ),
-        ),
-        EnrollmentTextField(
-          label: 'Permanent Address',
-          hint: 'Enter permanent address',
-          controller: controller.permanentAddressCtrl,
-          required: controller.isRequired('permanentAddress'),
-          icon: Icons.location_on_outlined,
-        ),
-        Obx(
-          () => Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              EnrollmentTextField(
-                label: 'Pincode',
-                hint: '6-digit pincode',
-                controller: controller.pincodeCtrl,
-                required: controller.isRequired('pincode'),
-                keyboardType: TextInputType.number,
-                maxLength: 6,
+            ),
+            RenewalLock(
+              locked: controller.isFieldLocked('permanentAddress'),
+              child: EnrollmentTextField(
+                label: 'Permanent Address',
+                hint: 'Enter permanent address',
+                controller: controller.permanentAddressCtrl,
+                required: controller.isRequired('permanentAddress'),
+                icon: Icons.location_on_outlined,
               ),
-              if (controller.isFetchingPincode.value)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    children: const [
-                      SizedBox(
-                        width: 12,
-                        height: 12,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      SizedBox(width: 6),
-                      Text(
-                        'Fetching location...',
-                        style: TextStyle(fontSize: 11, color: enrollmentGreen),
-                      ),
-                    ],
+            ),
+            Obx(
+              () => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  RenewalLock(
+                    locked: controller.isFieldLocked('pincode'),
+                    child: EnrollmentTextField(
+                      label: 'Pincode',
+                      hint: '6-digit pincode',
+                      controller: controller.pincodeCtrl,
+                      required: controller.isRequired('pincode'),
+                      keyboardType: TextInputType.number,
+                      maxLength: 6,
+                    ),
                   ),
-                ),
-            ],
-          ),
-        ),
-        EnrollmentTextField(
-          label: 'Post Office',
-          hint: 'Enter post office',
-          controller: controller.postOfficeCtrl,
-          required: controller.isRequired('postOffice'),
-        ),
-        EnrollmentTextField(
-          label: 'State',
-          hint: 'Enter state',
-          controller: controller.stateCtrl,
-          required: controller.isRequired('state'),
-        ),
-        EnrollmentTextField(
-          label: 'City',
-          hint: 'Enter city',
-          controller: controller.districtCtrl,
-          required: controller.isRequired('district'),
-        ),
-        EnrollmentTextField(
-          label: 'Country',
-          hint: 'India',
-          controller: controller.countryCtrl,
-          required: controller.isRequired('country'),
+                  if (controller.isFetchingPincode.value)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        children: const [
+                          SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          SizedBox(width: 6),
+                          Text(
+                            'Fetching location...',
+                            style: TextStyle(fontSize: 11, color: enrollmentGreen),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            RenewalLock(
+              locked: controller.isFieldLocked('postOffice'),
+              child: EnrollmentTextField(
+                label: 'Post Office',
+                hint: 'Enter post office',
+                controller: controller.postOfficeCtrl,
+                required: controller.isRequired('postOffice'),
+              ),
+            ),
+            RenewalLock(
+              locked: controller.isFieldLocked('state'),
+              child: EnrollmentTextField(
+                label: 'State',
+                hint: 'Enter state',
+                controller: controller.stateCtrl,
+                required: controller.isRequired('state'),
+              ),
+            ),
+            RenewalLock(
+              locked: controller.isFieldLocked('district'),
+              child: EnrollmentTextField(
+                label: 'City',
+                hint: 'Enter city',
+                controller: controller.districtCtrl,
+                required: controller.isRequired('district'),
+              ),
+            ),
+            RenewalLock(
+              locked: controller.isFieldLocked('country'),
+              child: EnrollmentTextField(
+                label: 'Country',
+                hint: 'India',
+                controller: controller.countryCtrl,
+                required: controller.isRequired('country'),
+              ),
+            ),
+          ],
         ),
       ],
     );

@@ -374,7 +374,15 @@ mixin EnrollmentLookupsMixin on GetxController {
   }
 
   Future<void> onPincodeChanged(String pincode) async {
-    if (pincode.length != 6) return;
+    if (pincode.length != 6) {
+      if (pincode.isEmpty) {
+        postOfficeOptions.clear();
+        postOfficeCtrl.clear();
+        stateCtrl.clear();
+        districtCtrl.clear();
+      }
+      return;
+    }
     isFetchingPincode.value = true;
     try {
       final result = await api.lookupPincode(pincode);
@@ -388,10 +396,18 @@ mixin EnrollmentLookupsMixin on GetxController {
         postOfficeOptions.assignAll(
           offices.map((o) => (o as Map)['Name'].toString()),
         );
+        // Automatically set the first post office name when pincode is entered/changed.
         final first = offices.first as Map;
-        postOfficeCtrl.text = first['Name']?.toString() ?? '';
-        stateCtrl.text = first['State']?.toString() ?? '';
-        districtCtrl.text = first['District']?.toString() ?? '';
+        final name = first['Name']?.toString() ?? '';
+        final state = first['State']?.toString() ?? '';
+        final district = first['District']?.toString() ?? '';
+
+        postOfficeCtrl.text = name;
+        stateCtrl.text = state;
+        districtCtrl.text = district;
+        
+        // Force UI update
+        postOfficeCtrl.selection = TextSelection.fromPosition(TextPosition(offset: name.length));
       }
     } catch (e) {
       debugPrint('Pincode lookup failed: $e');

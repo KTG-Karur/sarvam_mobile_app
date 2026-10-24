@@ -129,7 +129,7 @@ class KycDetailsTab extends StatelessWidget {
         owner: 'client',
         subtitle: 'House Image 1, lat/long & QR required',
       ),
-      SizedBox(height: 4.h),
+      SizedBox(height: 16.h),
       Obx(
         () => Column(
           children: [

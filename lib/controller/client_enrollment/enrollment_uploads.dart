@@ -14,37 +14,50 @@ import 'package:sarvam/services/enrollment_api_service.dart';
 /// Local + remote state for one KYC/residence document tile.
 class EnrollmentDocState {
   EnrollmentDocState({
+    this.id,
     this.localPreviewPath,
     this.fileUrl,
     this.fileName,
     this.fileSize,
     this.mimeType,
     this.isUploading = false,
+    this.reviewDecision,
+    this.reviewRemark,
   });
 
+  final String? id;
   final String? localPreviewPath;
   final String? fileUrl;
   final String? fileName;
   final int? fileSize;
   final String? mimeType;
   final bool isUploading;
+  final String? reviewDecision;
+  final String? reviewRemark;
 
   bool get isUploaded => fileUrl != null && fileUrl!.isNotEmpty;
+  bool get isRetakeRequired => reviewDecision == 'RETAKE_REQUIRED';
 
   EnrollmentDocState copyWith({
+    String? id,
     String? localPreviewPath,
     String? fileUrl,
     String? fileName,
     int? fileSize,
     String? mimeType,
     bool? isUploading,
+    String? reviewDecision,
+    String? reviewRemark,
   }) => EnrollmentDocState(
+    id: id ?? this.id,
     localPreviewPath: localPreviewPath ?? this.localPreviewPath,
     fileUrl: fileUrl ?? this.fileUrl,
     fileName: fileName ?? this.fileName,
     fileSize: fileSize ?? this.fileSize,
     mimeType: mimeType ?? this.mimeType,
     isUploading: isUploading ?? this.isUploading,
+    reviewDecision: reviewDecision ?? this.reviewDecision,
+    reviewRemark: reviewRemark ?? this.reviewRemark,
   );
 }
 
@@ -73,11 +86,16 @@ mixin EnrollmentUploadsMixin on GetxController {
   /// Picks (image, or image-or-PDF for [allowPdf] fields) and immediately
   /// uploads via `POST /api/kyc/aadhaar/upload`, storing the returned
   /// `fileUrl`/`fileName`/`fileSize`/`mimeType` in [kycDocuments].
+  ///
+  /// Set [forceStandardUpload] to true to skip the restricted re-upload path
+  /// (used during standard Member Update when not in a Retake Required state).
   Future<void> pickAndUploadDocument(
     String documentType, {
     required String owner,
     bool allowPdf = false,
     ImageSource? source,
+    String? clientId,
+    bool forceStandardUpload = false,
   }) async {
     try {
       List<int>? bytes;
@@ -150,24 +168,42 @@ mixin EnrollmentUploadsMixin on GetxController {
         contentType = 'image/jpeg';
       }
 
+      final existingState = docState(documentType);
       _setDocState(
         documentType,
-        (docState(documentType) ?? EnrollmentDocState()).copyWith(
+        (existingState ?? EnrollmentDocState()).copyWith(
           isUploading: true,
         ),
       );
 
-      final result = await api.uploadKycDocument(
-        bytes: bytes,
-        filename: filename,
-        contentType: contentType,
-        documentType: documentType,
-        owner: owner,
-      );
+      Map<String, dynamic> result;
+      if (clientId != null && existingState?.id != null && !forceStandardUpload) {
+        // Re-upload flow for flagged documents
+        debugPrint('UPLOADS_DEBUG: Using reuploadKycDocument for $documentType (id: ${existingState!.id})');
+        result = await api.reuploadKycDocument(
+          clientId: clientId,
+          documentId: existingState!.id!,
+          bytes: bytes,
+          filename: filename,
+          contentType: contentType,
+        );
+      } else {
+        // Standard upload flow
+        debugPrint('UPLOADS_DEBUG: Using uploadKycDocument for $documentType (clientId: $clientId)');
+        result = await api.uploadKycDocument(
+          bytes: bytes,
+          filename: filename,
+          contentType: contentType,
+          documentType: documentType,
+          owner: owner,
+          clientId: clientId, // Passing clientId if available
+        );
+      }
 
       _setDocState(
         documentType,
         EnrollmentDocState(
+          id: result['id']?.toString() ?? existingState?.id,
           fileUrl: result['fileUrl']?.toString(),
           fileName: result['fileName']?.toString() ?? filename,
           fileSize: result['fileSize'] is int

@@ -97,8 +97,36 @@ class EnrollmentApiService {
     }
   }
 
+  /// `GET /api/clients/{clientId}/ongoing-loans` — active loans the selected
+  /// client already has, surfaced as a warning before a renewal is created.
+  Future<List<dynamic>> getOngoingLoans(String clientId) =>
+      _getList("${Api.clientsUrl}/$clientId/ongoing-loans");
+
+  /// `GET /api/clients/{clientId}/loans` — comprehensive loan information
+  /// including granular arrear and balance details (parity with web dashboard).
+  Future<List<dynamic>> getLoans(String clientId) async {
+    try {
+      final token = await _authToken();
+      _client.timeout = const Duration(seconds: 20);
+      final response = await _client.get(
+        "${Api.clientsUrl}/$clientId/loans",
+        headers: _authHeaders(token),
+      );
+      if (response.statusCode == 404) return <dynamic>[];
+      final data = _unwrap(response);
+      if (data is Map && data['loans'] is List) {
+        return data['loans'];
+      }
+      return data is List ? data : <dynamic>[];
+    } catch (e) {
+      debugPrint("EnrollmentApiService getLoans error ($clientId): $e");
+      return <dynamic>[];
+    }
+  }
+
   Future<List<dynamic>> _getList(String url) async {
     try {
+      debugPrint("GET (List): $url");
       final token = await _authToken();
       _client.timeout = const Duration(seconds: 20);
       final response = await _client.get(url, headers: _authHeaders(token));
@@ -113,10 +141,15 @@ class EnrollmentApiService {
 
   Future<Map<String, dynamic>?> _getMap(String url) async {
     try {
+      debugPrint("EnrollmentApiService GET (Map): $url");
       final token = await _authToken();
       _client.timeout = const Duration(seconds: 20);
       final response = await _client.get(url, headers: _authHeaders(token));
-      if (response.statusCode == 404) return null;
+      debugPrint("EnrollmentApiService Response (${response.statusCode}): ${response.body.length > 200 ? response.body.substring(0, 200) + '...' : response.body}");
+      if (response.statusCode == 404) {
+        debugPrint("GET (Map) 404 Not Found: $url");
+        return null;
+      }
       final data = _unwrap(response);
       return data is Map ? Map<String, dynamic>.from(data) : null;
     } catch (e) {
@@ -129,22 +162,26 @@ class EnrollmentApiService {
   // Lookups
   // ---------------------------------------------------------------------
 
-  Future<List<dynamic>> getApprovedCenters() => _getList(
-    "${Api.centersUrl}?status=APPROVED&includeInactive=false",
-  );
+  Future<List<dynamic>> getApprovedCenters() {
+    final url = "${Api.centersUrl}?status=APPROVED&includeInactive=false";
+    debugPrint("Member Group Status (Centers) URL: $url");
+    return _getList(url);
+  }
 
   Future<List<dynamic>> getGroupsForCenter(
     String centerId, {
     bool availableOnly = true,
   }) async {
     if (centerId.isEmpty) return <dynamic>[];
-    final availableGroups = await _getList(
-      "${Api.groupsUrl}?centerId=$centerId&includeInactive=false"
-      "${availableOnly ? '&availableOnly=true' : ''}",
-    );
+    final url = "${Api.groupsUrl}?centerId=$centerId&includeInactive=false"
+        "${availableOnly ? '&availableOnly=true' : ''}";
+    debugPrint("Member Group Status (Groups) URL: $url");
+    final availableGroups = await _getList(url);
     if (availableGroups.isNotEmpty || !availableOnly) return availableGroups;
     // Fallback: fetch all active groups in center regardless of spare capacity
-    return _getList("${Api.groupsUrl}?centerId=$centerId&includeInactive=false");
+    final fallbackUrl = "${Api.groupsUrl}?centerId=$centerId&includeInactive=false";
+    debugPrint("Member Group Status (Groups Fallback) URL: $fallbackUrl");
+    return _getList(fallbackUrl);
   }
 
   /// `GET /api/clients` — pass [noCenter] for Tab 1's "awaiting center
@@ -210,8 +247,10 @@ class EnrollmentApiService {
   /// routed through [ApiClient] so our bearer token is never sent to a
   /// third-party host.
   Future<Map<String, dynamic>?> lookupPincode(String pincode) async {
+    final url = "${Api.pincodeLookupUrl}/$pincode";
+    debugPrint("Pincode Lookup URL: $url");
     final plain = GetConnect(timeout: const Duration(seconds: 15));
-    final response = await plain.get("${Api.pincodeLookupUrl}/$pincode");
+    final response = await plain.get(url);
     final body = response.body;
     if (body is List && body.isNotEmpty && body.first is Map) {
       return Map<String, dynamic>.from(body.first as Map);
@@ -287,6 +326,7 @@ class EnrollmentApiService {
     required String contentType,
     required String documentType,
     required String owner,
+    String? clientId,
   }) async {
     final token = await _authToken();
     final formData = FormData({
@@ -295,11 +335,12 @@ class EnrollmentApiService {
         filename: filename,
         contentType: contentType,
       ),
-      'clientId': 'pending-client',
+      'clientId': clientId ?? 'pending-client',
       'documentType': documentType,
-      'isEnrollment': 'true',
+      'isEnrollment': clientId == null ? 'true' : 'false',
       'owner': owner,
     });
+    debugPrint('API_DEBUG: uploadKycDocument formData: clientId=${clientId ?? 'pending-client'}, documentType=$documentType, owner=$owner');
     _client.timeout = const Duration(seconds: 60);
     final response = await _client.post(
       Api.kycUploadUrl,
@@ -307,6 +348,7 @@ class EnrollmentApiService {
       headers: {'Authorization': 'Bearer $token'},
     );
     final data = _unwrap(response);
+    debugPrint('API_DEBUG: uploadKycDocument response data: $data');
     return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
   }
 
@@ -342,6 +384,22 @@ class EnrollmentApiService {
     );
     final data = _unwrap(response);
     return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+  }
+
+  /// `DELETE /api/clients/{clientId}/kyc-documents?documentId={documentId}`
+  /// — Deletes a KYC document from the client's record. Used in Member Updates
+  /// to provide parity with the web app's explicit document removal.
+  Future<void> deleteKycDocument({
+    required String clientId,
+    required String documentId,
+  }) async {
+    final token = await _authToken();
+    _client.timeout = const Duration(seconds: 20);
+    final response = await _client.delete(
+      "${Api.clientsUrl}/$clientId/kyc-documents?documentId=$documentId",
+      headers: _authHeaders(token),
+    );
+    _unwrap(response);
   }
 
   // ---------------------------------------------------------------------
@@ -430,6 +488,53 @@ class EnrollmentApiService {
       debugPrint("EnrollmentApiService getApprovalQueue error: $e");
       return <dynamic>[];
     }
+  }
+
+  /// `GET /api/clients/{clientId}` — get full details for a client.
+  Future<Map<String, dynamic>?> getClientDetail(String clientId) {
+    final url = "${Api.clientsUrl}/$clientId";
+    debugPrint("Member Group Status (Client Detail) URL: $url");
+    return _getMap(url);
+  }
+
+  /// `GET /api/clients/{clientId}/kyc-documents?scope=all` — fetch all KYC documents.
+  Future<List<dynamic>> getKycDocuments(String clientId) async {
+    try {
+      final url = "${Api.clientsUrl}/$clientId/kyc-documents?scope=all";
+      debugPrint("GET KYC Documents: $url");
+      final token = await _authToken();
+      _client.timeout = const Duration(seconds: 20);
+      final response = await _client.get(url, headers: _authHeaders(token));
+      final data = _unwrap(response);
+      if (data is Map && data['documents'] is List) {
+        return data['documents'];
+      }
+      return <dynamic>[];
+    } catch (e) {
+      debugPrint("EnrollmentApiService getKycDocuments error ($clientId): $e");
+      return <dynamic>[];
+    }
+  }
+
+  /// `PATCH /api/clients/{clientId}` — update client details.
+  /// If [restartApprovalOnEdit] is true, it restarts the approval workflow.
+  Future<Map<String, dynamic>> patchClientDetail(
+    String clientId,
+    Map<String, dynamic> body, {
+    bool restartApprovalOnEdit = false,
+  }) async {
+    final token = await _authToken();
+    _client.timeout = const Duration(seconds: 45);
+    final url =
+        "${Api.clientsUrl}/$clientId${restartApprovalOnEdit ? '?restartApprovalOnEdit=true' : ''}";
+    debugPrint("PATCH: $url");
+    final response = await _client.patch(
+      url,
+      body,
+      headers: _authHeaders(token),
+    );
+    final data = _unwrap(response);
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
   }
 
   /// `GET /api/approval/clients/{clientId}` — `clientId` here is the

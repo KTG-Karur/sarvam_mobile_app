@@ -11,6 +11,7 @@ import 'package:sarvam/view/BM/collection_approval/collection_approval.dart';
 import 'package:sarvam/view/BM/final_disbursement/final_disbursement.dart';
 import 'package:sarvam/view/FDO/loan_disbursement/center_list.dart';
 import 'package:sarvam/view/FDO/new_member_create/new_member_create.dart';
+import 'package:sarvam/view/FDO/member_update/member_update_selection.dart';
 // Renewal Loan is no longer a separate entry point — it's the "Loan Type"
 // toggle inside NewMemberCreate (Member Enrollment), matching web's single
 // Member Enrollment screen. `renewal_loan/` files are kept on disk (still
@@ -194,6 +195,15 @@ class _MyFileState extends State<MyFile> {
                 const Color(0xFF008A3D),
                 const Color(0xFFE5F6EC),
               ),
+              SizedBox(height: 12.h),
+              _menuItem(
+                context,
+                'Member Update',
+                'Update existing member details',
+                'assets/images/new_member_create.png',
+                const Color(0xFF008A3D),
+                const Color(0xFFE5F6EC),
+              ),
             ],
           ],
         ),
@@ -265,6 +275,12 @@ class _MyFileState extends State<MyFile> {
           Navigator.of(
             context,
           ).push(MaterialPageRoute(builder: (_) => const NewMemberCreate()));
+          return;
+        }
+        if (title == 'Member Update') {
+          Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => const MemberUpdateSelection()));
           return;
         }
         ScaffoldMessenger.of(
