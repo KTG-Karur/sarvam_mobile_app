@@ -552,8 +552,6 @@ class MemberUpdateController extends GetxController
         EnrollmentOptions.docCoApplicantAadhaarBack,
         EnrollmentOptions.docCoApplicantVoterId,
         EnrollmentOptions.docCoApplicantVoterIdBack,
-        EnrollmentOptions.docCoApplicantOtherIdFront,
-        EnrollmentOptions.docCoApplicantOtherIdBack,
         EnrollmentOptions.docHouseImage1,
         EnrollmentOptions.docGasBill, // NOC (Gas Bill)
         EnrollmentOptions.docLocationQr,
