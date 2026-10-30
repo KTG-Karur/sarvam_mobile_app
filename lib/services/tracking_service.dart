@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'dart:ui';
 
 import 'package:battery_plus/battery_plus.dart';
@@ -11,6 +12,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/constant/api.dart';
+import 'package:sarvam/services/tracking_outbox.dart';
+import 'package:sarvam/services/tracking_watchdog.dart';
 
 /// Background-service entry point. Must be a top-level function so the
 /// plugin can resolve it from a callback handle inside the service isolate;
@@ -19,23 +22,43 @@ import 'package:sarvam/constant/api.dart';
 void trackingServiceEntryPoint(ServiceInstance service) =>
     TrackingService._onStart(service);
 
-/// Live Tracking — POSTs one GPS + battery ping to `/api/hr/tracking/ping`
-/// every [_pingInterval] while an employee is punched in, continuing in the
-/// background (Android foreground service; best-effort on iOS). Started/
+enum _UploadOutcome { done, retryLater }
+
+/// Live Tracking — records GPS + battery fixes while an employee is punched in,
+/// continuing in the background (Android foreground service; best-effort on
+/// iOS), and uploads them to `/api/hr/tracking/ping` in batches. Started/
 /// stopped from [reconcilePunchPrefs] so it always mirrors the server's
 /// punched-in/out truth rather than a single screen's lifecycle.
 ///
+/// Every fix is written to the local SQLite [TrackingOutbox] first and removed
+/// only after the server has answered for it, so a killed app, a dead network or
+/// a restart loses nothing. A watchdog ([TrackingWatchdog]) restarts the service
+/// if the phone's battery manager kills it while the employee is still on shift.
+///
 /// Fire-and-forget by design (matches the web/mobile contract): a failed
-/// ping is dropped, never surfaced to the user, and never blocks a punch.
+/// upload is retried later, never surfaced to the user, and never blocks a punch.
+/// See docs/live_tracking_mobile_spec.md.
 class TrackingService {
   TrackingService._();
 
   static const _notificationId = 8420;
-  static const _offlineQueueKey = 'pending_live_tracking_pings_v1';
-  static const _maxOfflineQueueSize = 1000;
+
+  /// Pre-outbox queue (a JSON list in SharedPreferences). Imported once, then removed.
+  static const _legacyQueueKey = 'pending_live_tracking_pings_v1';
   static const _permissionChannel = MethodChannel(
     'com.ktg.sarvam/tracking_permissions',
   );
+
+  /// Written when tracking starts (today's date) and cleared when it stops. The
+  /// watchdog only restarts the service while this says "tracking is meant to run today".
+  static const _shouldRunKey = 'tracking_should_run_date';
+
+  /// Last time the service isolate proved it is alive (a fix or a heartbeat tick).
+  static const _lastAliveKey = 'tracking_last_alive_ms';
+
+  /// The watchdog restarts the service when it has been silent for this long.
+  /// The heartbeat fires every 90-180 s, so this is several missed heartbeats.
+  static const Duration _watchdogSilence = Duration(minutes: 5);
 
   /// A new route point is uploaded only after this much real-world movement.
   /// This prevents a stationary employee's current GPS coordinate from being
@@ -47,6 +70,29 @@ class TrackingService {
   /// dropped (the punch-in point is exempt so a route always has a start).
   static const int _maxAccuracyMeters = 25;
 
+  /// When nothing has been captured for this long (a phone sitting still sends
+  /// nothing under the 30 m rule), one fresh fix is recorded as an `IDLE_PING`.
+  /// It tells the server the app is alive and where the employee is, so a quiet
+  /// stretch can be told apart from tracking that died.
+  static const Duration _heartbeatInterval = Duration(seconds: 90);
+
+  /// Fixes are uploaded together: at least this often while any are waiting...
+  static const Duration _flushInterval = Duration(seconds: 30);
+
+  /// ...immediately once this many are waiting...
+  static const int _flushThreshold = 50;
+
+  /// ...and never more than this many in one request (the server allows 500).
+  static const int _batchSize = 100;
+
+  static final Random _random = Random();
+
+  /// Unique per fix and kept with it in the outbox, so a retried upload
+  /// (lost response, replay) is recognised by the server and stored once.
+  static String _newPingId() =>
+      '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}-'
+      '${_random.nextInt(0x7fffffff).toRadixString(36)}';
+
   static bool _configured = false;
   static bool _debugRestartDone = false;
 
@@ -56,23 +102,122 @@ class TrackingService {
   // ignore: avoid_print
   static void _log(String message) => print('Tracking: $message');
 
-  /// Uploads every stored point in capture order. A failed request deliberately
-  /// leaves that row (and all newer rows) in the queue, preventing a Wi-Fi ↔
-  /// mobile-data handoff from reordering the route on the server.
-  static Future<void> _syncOfflineQueue(
-    SharedPreferences prefs,
+  static String _todayKey() {
+    final now = DateTime.now();
+    final month = now.month.toString().padLeft(2, '0');
+    final day = now.day.toString().padLeft(2, '0');
+    return '${now.year}-$month-$day';
+  }
+
+  /// The moment the GPS fix was taken. Phones deliver buffered fixes in bursts,
+  /// so stamping with "now" gave dozens of fixes hundreds of metres apart the
+  /// same timestamp and the server threw them away as impossible jumps. A clock
+  /// that is clearly wrong falls back to now.
+  static DateTime _capturedAt(Position position) {
+    final now = DateTime.now().toUtc();
+    final fixTime = position.timestamp.toUtc();
+    final skew = fixTime.difference(now).abs();
+    return skew > const Duration(hours: 12) ? now : fixTime;
+  }
+
+  static Future<void> _markShouldRun(bool on) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (on) {
+        await prefs.setString(_shouldRunKey, _todayKey());
+      } else {
+        await prefs.remove(_shouldRunKey);
+      }
+    } catch (_) {
+      // Never let bookkeeping stop tracking.
+    }
+  }
+
+  /// Moves fixes left in the old SharedPreferences queue into the outbox, once.
+  static Future<void> _migrateLegacyQueue() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      final raw = prefs.getString(_legacyQueueKey);
+      if (raw == null || raw.isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        for (final entry in decoded.whereType<Map>()) {
+          final payload = Map<String, dynamic>.from(entry);
+          final id = (payload['clientPingId'] as String?) ?? _newPingId();
+          payload['clientPingId'] = id;
+          final captured = DateTime.tryParse(
+            (payload['capturedAt'] as String?) ?? '',
+          );
+          await TrackingOutbox.add(
+            clientPingId: id,
+            capturedAtMs: (captured ?? DateTime.now().toUtc())
+                .millisecondsSinceEpoch,
+            payload: jsonEncode(payload),
+          );
+        }
+      }
+      await prefs.remove(_legacyQueueKey);
+      _log('imported the old queue into the outbox');
+    } catch (e) {
+      _log('legacy queue import skipped: $e');
+    }
+  }
+
+  /// Uploads [rows] (oldest first) as one batch and removes the rows the server
+  /// has answered for. The server validates every item on its own and replies
+  /// per item (`accepted`, `duplicate` or `invalid`); all three mean "stop
+  /// sending this one", so they are all removed. Anything temporary (no network,
+  /// 401 expired token, 408, 429, 5xx) keeps the rows for the next attempt.
+  static Future<_UploadOutcome> _uploadBatch(
+    List<TrackingOutboxRow> rows,
     String token,
   ) async {
-    final raw = prefs.getString(_offlineQueueKey);
-    if (raw == null || raw.isEmpty) return;
+    final ids = rows.map((r) => r.id).toList();
     try {
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) return;
-      final queue = decoded.whereType<Map>().map((entry) {
-        return Map<String, dynamic>.from(entry);
-      }).toList();
-      var synced = 0;
-      for (final payload in queue) {
+      final response = await http
+          .post(
+            Uri.parse(Api.trackingPingUrl),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+            body: '[${rows.map((r) => r.payload).join(',')}]',
+          )
+          .timeout(const Duration(seconds: 20));
+      final code = response.statusCode;
+      if (code >= 200 && code < 300) {
+        _logBatchResult(response.body, rows.length);
+        await TrackingOutbox.delete(ids);
+        return _UploadOutcome.done;
+      }
+      if (code == 400 || code == 422) {
+        // The server refused the request. If it lists per-item results, every
+        // item was invalid and will never succeed; otherwise find the culprit
+        // by sending the fixes one at a time.
+        if (_bodyHasResults(response.body)) {
+          _log('batch of ${rows.length} rejected as invalid ($code): dropped');
+          await TrackingOutbox.delete(ids);
+          return _UploadOutcome.done;
+        }
+        return await _uploadOneByOne(rows, token);
+      }
+      _log('upload will retry (status $code)');
+      await TrackingOutbox.markAttempt(ids);
+      return _UploadOutcome.retryLater;
+    } catch (e) {
+      _log('upload will retry ($e)');
+      await TrackingOutbox.markAttempt(ids);
+      return _UploadOutcome.retryLater;
+    }
+  }
+
+  static Future<_UploadOutcome> _uploadOneByOne(
+    List<TrackingOutboxRow> rows,
+    String token,
+  ) async {
+    for (final row in rows) {
+      try {
         final response = await http
             .post(
               Uri.parse(Api.trackingPingUrl),
@@ -80,39 +225,48 @@ class TrackingService {
                 'Content-Type': 'application/json',
                 'Authorization': 'Bearer $token',
               },
-              body: jsonEncode(payload),
+              body: row.payload,
             )
             .timeout(const Duration(seconds: 15));
-        if (response.statusCode < 200 || response.statusCode >= 300) break;
-        synced++;
+        final code = response.statusCode;
+        if ((code >= 200 && code < 300) || code == 400 || code == 422) {
+          if (code >= 400) _log('one fix dropped (rejected $code)');
+          await TrackingOutbox.delete([row.id]);
+          continue;
+        }
+        await TrackingOutbox.markAttempt([row.id]);
+        return _UploadOutcome.retryLater;
+      } catch (_) {
+        await TrackingOutbox.markAttempt([row.id]);
+        return _UploadOutcome.retryLater;
       }
-      if (synced > 0) {
-        queue.removeRange(0, synced);
-        await prefs.setString(_offlineQueueKey, jsonEncode(queue));
-      }
+    }
+    return _UploadOutcome.done;
+  }
+
+  static bool _bodyHasResults(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      final data = decoded is Map ? decoded['data'] : null;
+      return data is Map && data['results'] is List;
     } catch (_) {
-      // Stay queued. The next periodic tick retries after any network switch.
+      return false;
     }
   }
 
-  static Future<void> _queueOfflinePing(
-    SharedPreferences prefs,
-    Map<String, dynamic> payload,
-  ) async {
+  static void _logBatchResult(String body, int sent) {
     try {
-      final raw = prefs.getString(_offlineQueueKey);
-      final decoded = raw == null ? null : jsonDecode(raw);
-      final queue = decoded is List
-          ? decoded.whereType<Map>().map(Map<String, dynamic>.from).toList()
-          : <Map<String, dynamic>>[];
-      queue.add(payload);
-      if (queue.length > _maxOfflineQueueSize) {
-        queue.removeRange(0, queue.length - _maxOfflineQueueSize);
+      final decoded = jsonDecode(body);
+      final data = decoded is Map ? decoded['data'] : null;
+      if (data is Map) {
+        _log(
+          'uploaded $sent (stored ${(data['pings'] ?? 0) + (data['events'] ?? 0)}, '
+          'duplicate ${data['duplicates'] ?? 0}, invalid ${data['invalid'] ?? 0})',
+        );
+        return;
       }
-      await prefs.setString(_offlineQueueKey, jsonEncode(queue));
-    } catch (_) {
-      // Storage errors must never stop GPS collection or the foreground service.
-    }
+    } catch (_) {}
+    _log('uploaded $sent');
   }
 
   /// Registers the background service definition. Cheap and idempotent —
@@ -173,6 +327,8 @@ class TrackingService {
       }
       if (running) {
         _log('service is already running');
+        await _markShouldRun(true);
+        await TrackingWatchdog.schedule();
         return;
       }
 
@@ -210,15 +366,22 @@ class TrackingService {
       }
 
       await service.startService();
+      await _markShouldRun(true);
+      await TrackingWatchdog.schedule();
       _log('background service started');
     } catch (e) {
       _log('start error: $e');
     }
   }
 
-  /// Stops the tracking loop. Safe to call even if it never started.
+  /// Stops the tracking loop. Safe to call even if it never started. The
+  /// service uploads whatever is still waiting before it shuts down.
   static Future<void> stop() async {
     try {
+      // Cleared first, so the watchdog can never bring the service back after
+      // a punch-out.
+      await _markShouldRun(false);
+      await TrackingWatchdog.cancel();
       final service = FlutterBackgroundService();
       if (await service.isRunning()) {
         service.invoke('stopService');
@@ -226,6 +389,25 @@ class TrackingService {
     } catch (e) {
       _log('stop error: $e');
     }
+  }
+
+  /// Called by the watchdog task (a separate, short-lived isolate): if tracking
+  /// is meant to be running today but the service has gone silent and is no
+  /// longer running, start it again. Needs no network and no UI.
+  static Future<void> restartIfStopped() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    if (prefs.getString(_shouldRunKey) != _todayKey()) return; // not tracking today
+    if ((prefs.getString('accessToken') ?? '').isEmpty) return; // logged out
+    final lastAlive = prefs.getInt(_lastAliveKey) ?? 0;
+    final silentFor = DateTime.now().millisecondsSinceEpoch - lastAlive;
+    if (silentFor < _watchdogSilence.inMilliseconds) return;
+
+    await init();
+    final service = FlutterBackgroundService();
+    if (await service.isRunning()) return; // alive but quiet (e.g. GPS off): restarting would not help
+    _log('watchdog: service was not running, starting it again');
+    await service.startService();
   }
 
   @pragma('vm:entry-point')
@@ -238,31 +420,85 @@ class TrackingService {
     }
 
     Position? lastUploadedPosition;
+    DateTime? lastCaptureAt;
+    var lastFlushAt = DateTime.fromMillisecondsSinceEpoch(0);
+    var lastPruneAt = DateTime.fromMillisecondsSinceEpoch(0);
+    var nextFlushAllowed = DateTime.fromMillisecondsSinceEpoch(0);
+    var backoff = Duration.zero;
+    var flushing = false;
     StreamSubscription<List<ConnectivityResult>>? connectivitySubscription;
     StreamSubscription<Position>? positionSubscription;
-    Timer? retryTimer;
+    Timer? flushTimer;
+    Timer? heartbeatTimer;
+    // Fixes are handled one at a time, in the order received: the position
+    // stream can hand over a burst, and overlapping calls raced on the
+    // last-uploaded position.
+    Future<void> chain = Future<void>.value();
 
-    service.on('stopService').listen((event) {
-      retryTimer?.cancel();
-      connectivitySubscription?.cancel();
-      positionSubscription?.cancel();
-      service.stopSelf();
-    });
-
-    Future<void> sendPing(Position position, {required bool isInitialPoint}) async {
-      SharedPreferences? prefs;
-      Map<String, dynamic>? payload;
+    Future<void> touchAlive() async {
       try {
-        prefs = await SharedPreferences.getInstance();
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setInt(_lastAliveKey, DateTime.now().millisecondsSinceEpoch);
+      } catch (_) {}
+    }
+
+    /// Sends everything waiting, oldest first, in batches. One run at a time.
+    /// [force] ignores the retry back-off (used on reconnect and on shutdown).
+    Future<void> flush({bool force = false}) async {
+      if (flushing) return;
+      if (!force && DateTime.now().isBefore(nextFlushAllowed)) return;
+      flushing = true;
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        // The app (a different isolate) refreshes the access token; pick up its copy.
+        await prefs.reload();
         final token = prefs.getString('accessToken') ?? '';
-        if (token.isEmpty) {
-          _log('ping skipped (no access token)');
+        if (token.isEmpty) return;
+        if (DateTime.now().difference(lastPruneAt) > const Duration(hours: 1)) {
+          lastPruneAt = DateTime.now();
+          final removed = await TrackingOutbox.prune();
+          if (removed > 0) _log('outbox: dropped $removed old fixes');
+        }
+        while (true) {
+          final rows = await TrackingOutbox.oldest(_batchSize);
+          if (rows.isEmpty) {
+            backoff = Duration.zero;
+            break;
+          }
+          final outcome = await _uploadBatch(rows, token);
+          if (outcome == _UploadOutcome.retryLater) {
+            backoff = backoff == Duration.zero
+                ? const Duration(seconds: 15)
+                : Duration(seconds: min(backoff.inSeconds * 2, 300));
+            nextFlushAllowed = DateTime.now().add(backoff);
+            break;
+          }
+          backoff = Duration.zero;
+          nextFlushAllowed = DateTime.fromMillisecondsSinceEpoch(0);
+          if (rows.length < _batchSize) break;
+        }
+        lastFlushAt = DateTime.now();
+      } catch (e) {
+        _log('flush error: $e');
+      } finally {
+        flushing = false;
+      }
+    }
+
+    /// Decides whether a fix is worth keeping, and if so stores it in the
+    /// outbox (never sends it directly), then triggers a flush when due.
+    Future<void> capture(
+      Position position, {
+      required bool isInitialPoint,
+      bool isHeartbeat = false,
+    }) async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.reload();
+        if ((prefs.getString('accessToken') ?? '').isEmpty) {
+          _log('fix skipped (no access token)');
           return;
         }
-
-        // Upload captures made with no network before adding the newest one;
-        // this preserves the real movement order after Wi-Fi/mobile switches.
-        await _syncOfflineQueue(prefs, token);
 
         if (!isInitialPoint) {
           // Between buildings or indoors the receiver reports fixes tens of
@@ -278,7 +514,9 @@ class TrackingService {
           }
         }
 
-        if (!isInitialPoint && lastUploadedPosition != null) {
+        // A heartbeat is recorded precisely because the employee has not
+        // moved, so the minimum-movement rule does not apply to it.
+        if (!isInitialPoint && !isHeartbeat && lastUploadedPosition != null) {
           final movedMeters = Geolocator.distanceBetween(
             lastUploadedPosition!.latitude,
             lastUploadedPosition!.longitude,
@@ -303,66 +541,63 @@ class TrackingService {
           batteryPercent = (await Battery().batteryLevel).toDouble();
         } catch (_) {}
 
-        // Mark this fix before the request. If connectivity is unavailable it
-        // is queued below, so subsequent stream events cannot add the same
-        // current location a second time.
-        lastUploadedPosition = position;
+        // A heartbeat must not move the baseline the 30 m rule measures from.
+        if (!isHeartbeat) lastUploadedPosition = position;
+        lastCaptureAt = DateTime.now();
 
-        payload = <String, dynamic>{
+        final capturedAt = _capturedAt(position);
+        final id = _newPingId();
+        final payload = <String, dynamic>{
+          'clientPingId': id,
           'latitude': position.latitude,
           'longitude': position.longitude,
           'accuracyMeters': position.accuracy,
           if (batteryPercent != null) 'batteryPercent': batteryPercent,
-          'activityType': 'EN_ROUTE',
-          'capturedAt': DateTime.now().toUtc().toIso8601String(),
+          'activityType': isHeartbeat ? 'IDLE_PING' : 'EN_ROUTE',
+          'capturedAt': capturedAt.toIso8601String(),
         };
+        await TrackingOutbox.add(
+          clientPingId: id,
+          capturedAtMs: capturedAt.millisecondsSinceEpoch,
+          payload: jsonEncode(payload),
+        );
+        unawaited(touchAlive());
         if (kDebugMode) {
           debugPrint(
-            'Tracking: GPS ${position.latitude.toStringAsFixed(6)}, '
+            'Tracking: stored ${position.latitude.toStringAsFixed(6)}, '
             '${position.longitude.toStringAsFixed(6)} '
             '(accuracy ${position.accuracy.toStringAsFixed(0)}m, '
-            'EN_ROUTE)',
+            '${isHeartbeat ? 'IDLE_PING' : 'EN_ROUTE'})',
           );
         }
 
-        final response = await http
-            .post(
-              Uri.parse(Api.trackingPingUrl),
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer $token',
-              },
-              body: jsonEncode(payload),
-            )
-            .timeout(const Duration(seconds: 15));
-
-        if (kDebugMode) {
-          debugPrint(
-            'Tracking ping: ${response.statusCode} | '
-            '${position.latitude}, ${position.longitude} | EN_ROUTE',
-          );
-          if (response.statusCode < 200 || response.statusCode >= 300) {
-            debugPrint('Tracking API response: ${response.body}');
-          }
-        }
-        // Network/server failures are saved locally. Do not queue client-side
-        // validation errors (4xx), which will never succeed on retry.
-        if (response.statusCode >= 500) {
-          await _queueOfflinePing(prefs, payload);
+        final pending = await TrackingOutbox.count();
+        final sinceFlush = DateTime.now().difference(lastFlushAt);
+        if (isInitialPoint ||
+            pending >= _flushThreshold ||
+            sinceFlush >= _flushInterval) {
+          unawaited(flush());
         }
       } catch (e) {
-        // No connection (or a Wi-Fi/mobile handoff): the GPS fix is retained
-        // locally and retried in capture order once a later tick has internet.
-        try {
-          final localPrefs = prefs ?? await SharedPreferences.getInstance();
-          // GPS errors have no payload; HTTP/network errors keep this capture.
-          if (payload != null) {
-            await _queueOfflinePing(localPrefs, payload);
-          }
-        } catch (_) {}
-        _log('ping error: $e');
+        _log('capture error: $e');
       }
     }
+
+    service.on('stopService').listen((event) async {
+      flushTimer?.cancel();
+      heartbeatTimer?.cancel();
+      connectivitySubscription?.cancel();
+      positionSubscription?.cancel();
+      // Last chance to upload the final stretch before the service goes away.
+      try {
+        await flush(force: true).timeout(const Duration(seconds: 10));
+      } catch (_) {}
+      service.stopSelf();
+    });
+    service.on('flushNow').listen((event) => unawaited(flush(force: true)));
+
+    await _migrateLegacyQueue();
+    unawaited(touchAlive());
 
     // Record the punch-in position once. Subsequent points come from the
     // platform GPS stream only after at least 30m of movement.
@@ -373,11 +608,11 @@ class TrackingService {
           timeLimit: Duration(seconds: 30),
         ),
       );
-      await sendPing(initialPosition, isInitialPoint: true);
+      await capture(initialPosition, isInitialPoint: true);
     } on TimeoutException {
       final fallback = await Geolocator.getLastKnownPosition();
       if (fallback != null) {
-        await sendPing(fallback, isInitialPoint: true);
+        await capture(fallback, isInitialPoint: true);
       } else {
         _log('initial point skipped (GPS fix timed out)');
       }
@@ -391,36 +626,45 @@ class TrackingService {
         distanceFilter: _minimumMovementMeters,
       ),
     ).listen(
-      (position) => unawaited(sendPing(position, isInitialPoint: false)),
+      (position) {
+        chain = chain.then((_) => capture(position, isInitialPoint: false));
+      },
       onError: (Object error) => _log('GPS stream error: $error'),
     );
-    // A Wi-Fi ↔ mobile-data change triggers an immediate ordered queue sync;
-    // tracking itself never stops while the device is offline. The network is
-    // often not usable yet at the moment Android reports the switch, so the
-    // same sync also retries on a timer until the queue drains.
-    var syncing = false;
-    Future<void> syncQueue() async {
-      if (syncing) return;
-      syncing = true;
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        final token = prefs.getString('accessToken') ?? '';
-        if (token.isNotEmpty) await _syncOfflineQueue(prefs, token);
-      } finally {
-        syncing = false;
-      }
-    }
 
+    // Upload on a timer, and straight away when the network comes back (the
+    // retry back-off is reset, because the connection has just changed).
+    flushTimer = Timer.periodic(_flushInterval, (_) => unawaited(flush()));
     connectivitySubscription = Connectivity().onConnectivityChanged.listen((
       results,
     ) {
       if (results.any((result) => result != ConnectivityResult.none)) {
-        unawaited(syncQueue());
+        nextFlushAllowed = DateTime.fromMillisecondsSinceEpoch(0);
+        backoff = Duration.zero;
+        unawaited(flush());
       }
     });
-    retryTimer = Timer.periodic(
-      const Duration(seconds: 30),
-      (_) => unawaited(syncQueue()),
-    );
+
+    heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) {
+      unawaited(touchAlive()); // the loop is running, even if there is no fix to record
+      final last = lastCaptureAt;
+      if (last != null && DateTime.now().difference(last) < _heartbeatInterval) {
+        return; // something was recorded recently; no heartbeat needed
+      }
+      // Same single-file chain as real fixes, so a heartbeat never overlaps one.
+      chain = chain.then((_) async {
+        try {
+          final position = await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              timeLimit: Duration(seconds: 20),
+            ),
+          );
+          await capture(position, isInitialPoint: false, isHeartbeat: true);
+        } catch (e) {
+          _log('heartbeat skipped: $e');
+        }
+      });
+    });
   }
 }

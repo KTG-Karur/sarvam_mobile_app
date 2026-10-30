@@ -8,6 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:sarvam/view/auth/splash_screen.dart';
 import 'package:sarvam/services/face_recognition_engine.dart';
 import 'package:sarvam/services/tracking_service.dart';
+import 'package:sarvam/services/tracking_watchdog.dart';
 import 'package:sarvam/services/loan_advance_config.dart';
 
 void main() {
@@ -35,6 +36,14 @@ void main() {
   unawaited(
     TrackingService.init().catchError((Object error, StackTrace stackTrace) {
       debugPrint('Live tracking initialization failed: $error\n$stackTrace');
+    }),
+  );
+
+  // Registers the watchdog task that restarts Live Tracking if the phone kills
+  // its background service while the employee is still punched in.
+  unawaited(
+    TrackingWatchdog.init().catchError((Object error, StackTrace stackTrace) {
+      debugPrint('Tracking watchdog initialization failed: $error\n$stackTrace');
     }),
   );
 
