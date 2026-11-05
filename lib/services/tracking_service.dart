@@ -74,16 +74,16 @@ class TrackingService {
   /// nothing under the 30 m rule), one fresh fix is recorded as an `IDLE_PING`.
   /// It tells the server the app is alive and where the employee is, so a quiet
   /// stretch can be told apart from tracking that died.
-  static const Duration _heartbeatInterval = Duration(seconds: 90);
+  static const Duration _heartbeatInterval = Duration(minutes: 30);
 
   /// Fixes are uploaded together: at least this often while any are waiting...
-  static const Duration _flushInterval = Duration(seconds: 30);
+  static const Duration _flushInterval = Duration(minutes: 5);
 
   /// ...immediately once this many are waiting...
   static const int _flushThreshold = 50;
 
   /// ...and never more than this many in one request (the server allows 500).
-  static const int _batchSize = 100;
+  static const int _batchSize = 200;
 
   static final Random _random = Random();
 
