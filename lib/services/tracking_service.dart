@@ -413,6 +413,20 @@ class TrackingService {
   @pragma('vm:entry-point')
   static void _onStart(ServiceInstance service) async {
     DartPluginRegistrant.ensureInitialized();
+
+    // Load selected company URL in this isolate
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      final url = prefs.getString('selected_company_url');
+      if (url != null && url.isNotEmpty) {
+        Api.setBaseUrl(url);
+      }
+    } catch (e) {
+      // ignore: avoid_print
+      print('Tracking: failed to load company URL in service isolate: $e');
+    }
+
     _log('service isolate started');
 
     if (service is AndroidServiceInstance) {
