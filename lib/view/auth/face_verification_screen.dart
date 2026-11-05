@@ -6,11 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:camera/camera.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
+import 'package:sarvam/services/punch_location_service.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 import 'package:sarvam/view/auth/face_training_screen.dart';
@@ -42,7 +42,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
 
   late final FaceDetector _faceDetector;
 
-  Position? _position;
 
   bool _faceDetected = false;
   String _statusGuidanceText = 'Position Face in Frame';
@@ -83,7 +82,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
       });
       return;
     }
-    _fetchLocation();
     _initializeCamera();
   }
 
@@ -169,27 +167,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     } else if (state == AppLifecycleState.resumed) {
       _initializeCamera();
     }
-  }
-
-  Future<void> _fetchLocation() async {
-    if (!mounted) return;
-    try {
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) return;
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        return;
-      }
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-      );
-      if (!mounted) return;
-      setState(() => _position = position);
-    } catch (_) {}
   }
 
   Future<void> _initializeCamera() async {
@@ -592,6 +569,10 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     _autoHoldStartTime = null;
     _autoHoldProgress = 0.0;
 
+    // Read the live location now, while the face is checked, so it is a few seconds old at the punch, not as old as
+    // the moment this screen opened. Never throws; the result says whether it is usable.
+    final locationFuture = PunchLocationService.captureFresh();
+
     await _stopImageStream();
     await Future.delayed(const Duration(milliseconds: 60));
 
@@ -693,12 +674,28 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
         }
       }
 
+      final location = await locationFuture;
+      if (punchType == 'PUNCH_IN' && !location.isOk) {
+        // No trustworthy current position: do not punch in on a guess (or on the server borrowing an old ping).
+        setState(() => _isVerifying = false);
+        _startImageStream();
+        Get.snackbar(
+          'Location needed',
+          location.error!,
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: const Color(0xFFB45309),
+          colorText: Colors.white,
+          duration: const Duration(seconds: 5),
+        );
+        return;
+      }
+
       final matchResult = await FaceBiometricService.verifyFace(
         liveFeatures: probe,
         type: punchType,
         deviceCosine: deviceCosine,
-        latitude: _position?.latitude,
-        longitude: _position?.longitude,
+        latitude: location.position?.latitude,
+        longitude: location.position?.longitude,
       );
 
       setState(() => _isVerifying = false);

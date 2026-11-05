@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
+import 'package:sarvam/services/punch_location_service.dart';
 import 'package:sarvam/services/device_biometric_service.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
 import 'package:sarvam/view/auth/face_verification_screen.dart';
@@ -31,7 +31,6 @@ class _PunchMethodScreenState extends State<PunchMethodScreen> {
   bool _fingerprintAvailable = false;
   bool _checkingAvailability = true;
   bool _busy = false;
-  Position? _position;
 
   String get _action => widget.isPunchOut ? 'Punch-Out' : 'Punch-In';
 
@@ -39,7 +38,6 @@ class _PunchMethodScreenState extends State<PunchMethodScreen> {
   void initState() {
     super.initState();
     _checkFingerprintAvailability();
-    _fetchLocation();
   }
 
   Future<void> _checkFingerprintAvailability() async {
@@ -49,26 +47,6 @@ class _PunchMethodScreenState extends State<PunchMethodScreen> {
       _fingerprintAvailable = available;
       _checkingAvailability = false;
     });
-  }
-
-  Future<void> _fetchLocation() async {
-    try {
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) return;
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        return;
-      }
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-      );
-      if (!mounted) return;
-      setState(() => _position = position);
-    } catch (_) {}
   }
 
   void _startFaceVerification() {
@@ -123,10 +101,20 @@ class _PunchMethodScreenState extends State<PunchMethodScreen> {
           : Get.put(AuthController());
       final deviceId = await auth.getOrCreateDeviceId();
 
+      // The location is taken NOW, at the moment of the punch, not when this screen opened: the server compares it
+      // with the branch's punch radius, so a position saved earlier would judge where you were, not where you are.
+      final location = await PunchLocationService.captureFresh();
+      if (!mounted) return;
+      if (punchType == 'PUNCH_IN' && !location.isOk) {
+        setState(() => _busy = false);
+        _showResultDialog(success: false, message: location.error!);
+        return;
+      }
+
       final result = await FaceBiometricService.recordDeviceBiometricPunch(
         type: punchType,
-        latitude: _position?.latitude,
-        longitude: _position?.longitude,
+        latitude: location.position?.latitude,
+        longitude: location.position?.longitude,
         deviceId: deviceId,
       );
       if (!mounted) return;
