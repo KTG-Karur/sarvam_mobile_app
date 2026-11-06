@@ -32,6 +32,12 @@ mixin EnrollmentLookupsMixin on GetxController {
   Rxn<String> get requestedLoanPurposeTypeId;
   Rxn<String> get requestedLoanPurposeId;
   Rxn<Map<String, dynamic>> get selectedProduct;
+  TextEditingController get dobCtrl;
+  TextEditingController get fatherNameCtrl;
+  Rxn<String> get gender;
+  TextEditingController get permanentAddressCtrl;
+  TextEditingController get pancardNoCtrl;
+  TextEditingController get votersIdNoCtrl;
   TextEditingController get pincodeCtrl;
   TextEditingController get postOfficeCtrl;
   TextEditingController get stateCtrl;
@@ -500,6 +506,15 @@ mixin EnrollmentLookupsMixin on GetxController {
     final phone = mobileNumberCtrl.text.trim();
     final firstName = clientNameCtrl.text.trim();
     final lastName = lastNameCtrl.text.trim();
+    final dob = dobCtrl.text.trim();
+    final fatherName = fatherNameCtrl.text.trim();
+    final genderVal = gender.value;
+    final pan = pancardNoCtrl.text.trim();
+    final voterId = votersIdNoCtrl.text.trim();
+    final addressLine = permanentAddressCtrl.text.trim();
+    final city = districtCtrl.text.trim();
+    final state = stateCtrl.text.trim();
+    final pin = pincodeCtrl.text.trim().replaceAll(RegExp(r'\D'), '');
 
     if (firstName.isEmpty) {
       Get.snackbar(
@@ -519,15 +534,54 @@ mixin EnrollmentLookupsMixin on GetxController {
       );
       return;
     }
+
+    if (dob.isEmpty) {
+      Get.snackbar(
+        'DOB Required',
+        'Please enter the client\'s Date of Birth on Tab 1 before running credit check.',
+        backgroundColor: Colors.orange,
+        colorText: Colors.white,
+      );
+      return;
+    }
+
+    final stateCode = _getStateCode(state);
+    if (addressLine.isEmpty || city.isEmpty || stateCode == null || pin.length != 6) {
+      Get.snackbar(
+        'Complete Address Required',
+        'A complete address (House No, City, valid State, and 6-digit Pincode) is required on Tab 1.',
+        backgroundColor: Colors.orange,
+        colorText: Colors.white,
+      );
+      return;
+    }
+
     isRunningCreditCheck.value = true;
     try {
-      highmarkReport.value = await api.runHighmarkCheck({
+      final payload = <String, dynamic>{
         'firstName': firstName,
         'lastName': lastName.isEmpty ? firstName : lastName,
         'aadhaar': aadhaar,
         'phone': phone,
         'consentObtained': true,
-      });
+        'dob': dob,
+        'address': {
+          'line': addressLine.length > 150 ? addressLine.substring(0, 150) : addressLine,
+          'city': city.length > 50 ? city.substring(0, 50) : city,
+          'state': stateCode,
+          'pin': pin,
+        },
+      };
+
+      if (genderVal != null) {
+        final g = _mapGender(genderVal);
+        if (g != null) payload['gender'] = g;
+      }
+      if (pan.isNotEmpty) payload['pan'] = pan.toUpperCase();
+      if (voterId.isNotEmpty) payload['voterId'] = voterId;
+      if (fatherName.isNotEmpty) payload['fatherName'] = fatherName;
+
+      highmarkReport.value = await api.runHighmarkCheck(payload);
       Get.snackbar(
         'Credit Check Complete',
         'Highmark report retrieved successfully.',
@@ -544,5 +598,71 @@ mixin EnrollmentLookupsMixin on GetxController {
     } finally {
       isRunningCreditCheck.value = false;
     }
+  }
+
+  static const Map<String, String> _stateCodeMap = {
+    'andhra pradesh': 'AP',
+    'arunachal pradesh': 'AR',
+    'assam': 'AS',
+    'bihar': 'BR',
+    'chhattisgarh': 'CG',
+    'goa': 'GA',
+    'gujarat': 'GJ',
+    'haryana': 'HR',
+    'himachal pradesh': 'HP',
+    'jammu and kashmir': 'JK',
+    'jammu & kashmir': 'JK',
+    'jharkhand': 'JH',
+    'karnataka': 'KA',
+    'kerala': 'KL',
+    'madhya pradesh': 'MP',
+    'maharashtra': 'MH',
+    'manipur': 'MN',
+    'meghalaya': 'ML',
+    'mizoram': 'MZ',
+    'nagaland': 'NL',
+    'odisha': 'OR',
+    'orissa': 'OR',
+    'punjab': 'PB',
+    'rajasthan': 'RJ',
+    'sikkim': 'SK',
+    'tamil nadu': 'TN',
+    'tamilnadu': 'TN',
+    'telangana': 'TS',
+    'tripura': 'TR',
+    'uttarakhand': 'UK',
+    'uttar pradesh': 'UP',
+    'west bengal': 'WB',
+    'andaman and nicobar islands': 'AN',
+    'andaman & nicobar islands': 'AN',
+    'chandigarh': 'CH',
+    'dadra and nagar haveli': 'DN',
+    'daman and diu': 'DD',
+    'dadra and nagar haveli and daman and diu': 'DD',
+    'delhi': 'DL',
+    'nct of delhi': 'DL',
+    'new delhi': 'DL',
+    'lakshadweep': 'LD',
+    'puducherry': 'PY',
+    'pondicherry': 'PY',
+    'ladakh': 'LA',
+  };
+
+  String? _getStateCode(String? state) {
+    if (state == null || state.trim().isEmpty) return null;
+    final s = state.trim();
+    final upper = s.toUpperCase();
+    final validCodes = _stateCodeMap.values.toSet()..add('OD');
+    if (upper.length == 2 && validCodes.contains(upper)) return upper;
+    return _stateCodeMap[s.toLowerCase()];
+  }
+
+  String? _mapGender(String? g) {
+    if (g == null) return null;
+    final val = g.trim().toLowerCase();
+    if (val == 'male' || val == 'm') return 'M';
+    if (val == 'female' || val == 'f') return 'F';
+    if (val == 'other' || val == 'o' || val == 'transgender') return 'O';
+    return null;
   }
 }

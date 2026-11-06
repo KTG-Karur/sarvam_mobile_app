@@ -512,6 +512,11 @@ class TrackingService {
           return;
         }
 
+        if (position.isMocked) {
+          _log('point skipped (mock location detected)');
+          return;
+        }
+
         if (!isInitialPoint) {
           // Between buildings or indoors the receiver reports fixes tens of
           // metres off. Uploading them draws the route down streets the
