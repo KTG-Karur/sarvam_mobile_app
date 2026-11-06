@@ -72,20 +72,11 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _passwordController = TextEditingController();
   bool _isPasswordVisible = false;
   bool _rememberMe = false;
-  String? _companyName;
 
   @override
   void initState() {
     super.initState();
     _loadSavedCredentials();
-    _loadCompanyName();
-  }
-
-  Future<void> _loadCompanyName() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _companyName = prefs.getString('selected_company');
-    });
   }
 
   Future<void> _loadSavedCredentials() async {
@@ -242,25 +233,13 @@ class _LoginScreenState extends State<LoginScreen> {
                         SizedBox(height: 36.h),
 
                         // Employee ID Field Label
-                        RichText(
-                          text: TextSpan(
-                            text: 'EMPLOYEE ID',
-                            style: TextStyle(
-                              fontSize: 12.sp,
-                              fontWeight: FontWeight.bold,
-                              color: const Color(0xFF64748B),
-                              letterSpacing: 0.5,
-                            ),
-                            children: [
-                              if (_companyName != null && _companyName!.isNotEmpty)
-                                TextSpan(
-                                  text: ' ($_companyName)',
-                                  style: TextStyle(
-                                    color: const Color(0xFF0D6842),
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                            ],
+                        Text(
+                          'EMPLOYEE ID',
+                          style: TextStyle(
+                            fontSize: 12.sp,
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFF64748B),
+                            letterSpacing: 0.5,
                           ),
                         ),
 

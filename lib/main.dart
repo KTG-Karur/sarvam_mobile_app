@@ -5,27 +5,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/view/auth/splash_screen.dart';
 import 'package:sarvam/services/face_recognition_engine.dart';
 import 'package:sarvam/services/tracking_service.dart';
 import 'package:sarvam/services/tracking_watchdog.dart';
 import 'package:sarvam/services/loan_advance_config.dart';
-import 'package:sarvam/constant/api.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Load selected company URL before initializing other services
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    final url = prefs.getString('selected_company_url');
-    if (url != null && url.isNotEmpty) {
-      Api.setBaseUrl(url);
-    }
-  } catch (e) {
-    debugPrint('Failed to load initial company URL: $e');
-  }
 
   // Lock mobile app strictly to Portrait Up mode (disable screen rotation)
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
