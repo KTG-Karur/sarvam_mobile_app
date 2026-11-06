@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:sarvam/services/punch_location_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -1214,6 +1215,12 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
       return false;
     }
 
+    // Where the employee is NOW (a fresh fix); never blocks the collection (no good fix = submitted without coordinates).
+    final location = await PunchLocationService.captureFresh(
+      timeout: const Duration(seconds: 10),
+      maxAccuracy: 100,
+    );
+
     return _controller.submitArrearCollection(
       centerId: _controller.selectedCenterId.value,
       collectionDate: _apiDate,
@@ -1221,6 +1228,8 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
       attendance: attendance,
       denomination: denomination,
       photoBytes: photoBytes,
+      latitude: location.position?.latitude,
+      longitude: location.position?.longitude,
     );
   }
 

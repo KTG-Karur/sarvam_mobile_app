@@ -1,3 +1,4 @@
+import 'package:sarvam/services/punch_location_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -1497,17 +1498,25 @@ class _SingleCollectionDetailsBulkCenterCollectionState
                         allClients: const [],
                         centerId: _controller.selectedCenterId.value,
                         collectionDate: _apiDate,
-                        onSubmit: (photoBytes, denomination, total) =>
-                            _controller.submitSingleCollection(
-                              clientId: clientId,
-                              loanId: loanId,
-                              collectionDate: _apiDate,
-                              amount: collectVal,
-                              loanAdvance: advVal,
-                              collectionType: _singleCollectionType,
-                              denomination: denomination,
-                              photoBytes: photoBytes,
-                            ),
+                        onSubmit: (photoBytes, denomination, total) async {
+                          // Where the employee is NOW (a fresh fix); never blocks the collection.
+                          final location = await PunchLocationService.captureFresh(
+                            timeout: const Duration(seconds: 10),
+                            maxAccuracy: 100,
+                          );
+                          return _controller.submitSingleCollection(
+                            clientId: clientId,
+                            loanId: loanId,
+                            collectionDate: _apiDate,
+                            amount: collectVal,
+                            loanAdvance: advVal,
+                            collectionType: _singleCollectionType,
+                            denomination: denomination,
+                            photoBytes: photoBytes,
+                            latitude: location.position?.latitude,
+                            longitude: location.position?.longitude,
+                          );
+                        },
                       ),
                     ),
                   );
@@ -1571,15 +1580,23 @@ class _SingleCollectionDetailsBulkCenterCollectionState
                         allClients: const [],
                         centerId: centerId,
                         collectionDate: _apiDate,
-                        onSubmit: (photoBytes, denomination, total) =>
-                            _bulkController.submitBulkCollection(
-                              centerId: centerId,
-                              collectionDate: _apiDate,
-                              collectionType: _bulkCollectionType,
-                              collections: collections,
-                              denomination: denomination,
-                              photoBytes: photoBytes,
-                            ),
+                        onSubmit: (photoBytes, denomination, total) async {
+                          // Where the employee is NOW (a fresh fix); never blocks the collection.
+                          final location = await PunchLocationService.captureFresh(
+                            timeout: const Duration(seconds: 10),
+                            maxAccuracy: 100,
+                          );
+                          return _bulkController.submitBulkCollection(
+                            centerId: centerId,
+                            collectionDate: _apiDate,
+                            collectionType: _bulkCollectionType,
+                            collections: collections,
+                            denomination: denomination,
+                            photoBytes: photoBytes,
+                            latitude: location.position?.latitude,
+                            longitude: location.position?.longitude,
+                          );
+                        },
                       ),
                     ),
                   );

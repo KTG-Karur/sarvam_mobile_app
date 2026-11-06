@@ -34,7 +34,12 @@ class PunchLocationService {
   /// How long to keep looking for a good fix before giving up.
   static const Duration overallTimeout = Duration(seconds: 25);
 
-  static Future<PunchLocationResult> captureFresh() async {
+  /// [timeout] and [maxAccuracy] default to the punch-in rules. A collection uses a shorter wait and a looser
+  /// accuracy (it never blocks on a missing fix; it is just sent without coordinates).
+  static Future<PunchLocationResult> captureFresh({
+    Duration timeout = overallTimeout,
+    double maxAccuracy = maxAccuracyMeters,
+  }) async {
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
         return const PunchLocationResult.failed(
@@ -56,7 +61,7 @@ class PunchLocationService {
         );
       }
 
-      final deadline = DateTime.now().add(overallTimeout);
+      final deadline = DateTime.now().add(timeout);
       Position? best;
       // A few attempts: the first fix after opening the app is often vague indoors or under cover.
       while (DateTime.now().isBefore(deadline)) {
@@ -81,7 +86,7 @@ class PunchLocationService {
             continue; // an old position handed back by the system: ask again
           }
           if (best == null || fix.accuracy < best.accuracy) best = fix;
-          if (fix.accuracy <= maxAccuracyMeters) {
+          if (fix.accuracy <= maxAccuracy) {
             return PunchLocationResult.ok(fix);
           }
         } on TimeoutException {

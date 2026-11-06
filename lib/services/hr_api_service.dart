@@ -316,16 +316,49 @@ class HrApiService {
     // Send a date-only value in a URL-safe query string.  Using Uri here also
     // prevents an employee id containing reserved characters from changing the
     // route or query that reaches the server.
-    final dateKey =
-        '${date.year.toString().padLeft(4, '0')}-'
-        '${date.month.toString().padLeft(2, '0')}-'
-        '${date.day.toString().padLeft(2, '0')}';
+    final dateKey = _dateKey(date);
     final employeeKey = Uri.encodeComponent(employeeId);
     final query = Uri(queryParameters: {'date': dateKey}).query;
     final payload = await _get(
       '/api/hr/tracking/employee/$employeeKey/detail?$query',
     );
     return payload is Map<String, dynamic> ? payload : <String, dynamic>{};
+  }
+
+  static String _dateKey(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}';
+
+  /// The road-snapped route of one employee's day: the SAME path the web
+  /// tracking map draws (GET .../route-snapped, computed once on the server
+  /// from Google Roads and cached). Returns an empty list when the server has
+  /// none (fewer than two points, or road matching unavailable); callers then
+  /// draw the raw route points, exactly as the web does.
+  static Future<List<Map<String, double>>> snappedRoute({
+    required String employeeId,
+    required DateTime date,
+  }) async {
+    try {
+      final payload = await _get(
+        '/api/hr/tracking/employee/${Uri.encodeComponent(employeeId)}'
+        '/route-snapped?date=${_dateKey(date)}',
+      );
+      final path = payload is Map ? payload['snappedPath'] : null;
+      if (path is! List) return const [];
+      final out = <Map<String, double>>[];
+      for (final point in path.whereType<Map>()) {
+        final lat = point['latitude'];
+        final lng = point['longitude'];
+        if (lat is num && lng is num) {
+          out.add({'latitude': lat.toDouble(), 'longitude': lng.toDouble()});
+        }
+      }
+      return out;
+    } catch (error) {
+      if (kDebugMode) debugPrint('Route map: snapped route unavailable: $error');
+      return const [];
+    }
   }
 
   static Future<List<dynamic>> _getList(String path) async {

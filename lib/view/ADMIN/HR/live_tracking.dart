@@ -82,6 +82,8 @@ class _LiveTrackingState extends State<LiveTracking>
       setState(() {
         _logs = [
           _DayLog(
+            employeeId: id,
+            date: selectedDate,
             day: selectedDate.day,
             month: _monthAbbr(selectedDate.month).toUpperCase(),
             year: selectedDate.year,
@@ -288,6 +290,8 @@ class _LiveTrackingState extends State<LiveTracking>
           distanceKm: log.distanceKm,
           totalDuration: inProgress ? 'In progress' : _durationBetween(log),
           stops: _stopsForLog(log),
+          employeeId: log.employeeId,
+          date: log.date,
         ),
         transitionsBuilder: (_, animation, __, child) {
           return FadeTransition(
@@ -910,6 +914,10 @@ class _LiveTrackingState extends State<LiveTracking>
 enum _RouteStatus { completed, inProgress }
 
 class _DayLog {
+  /// Which employee and which day, so the route screens can ask the server for
+  /// the same road-snapped path the web shows.
+  final String employeeId;
+  final DateTime date;
   final int day;
   final String month;
   final int year;
@@ -925,6 +933,8 @@ class _DayLog {
   final DateTime? punchOutAt;
 
   _DayLog({
+    required this.employeeId,
+    required this.date,
     required this.day,
     required this.month,
     required this.year,

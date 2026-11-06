@@ -1,3 +1,4 @@
+import 'package:sarvam/services/punch_location_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -595,6 +596,13 @@ class _CollectionSubmissionFlowPageState
         ? Get.find<CollectionController>()
         : Get.put(CollectionController());
 
+    // The collection's location is where the employee is NOW (a fresh fix). It never blocks the collection: with no good
+    // fix it is submitted without coordinates, exactly as before.
+    final location = await PunchLocationService.captureFresh(
+      timeout: const Duration(seconds: 10),
+      maxAccuracy: 100,
+    );
+
     final result = await controller.submitDemandCollection(
       centerId: widget.centerId,
       collectionDate: widget.collectionDate,
@@ -603,6 +611,8 @@ class _CollectionSubmissionFlowPageState
       denomination: {...denomination, 'upi': upi},
       totalCollected: _calculatedTotal,
       meetingPhotoBytes: _meetingPhotoBytes,
+      latitude: location.position?.latitude,
+      longitude: location.position?.longitude,
     );
 
     if (!mounted) return;

@@ -218,6 +218,8 @@ class CollectionController extends GetxController {
     required Map<String, dynamic> denomination,
     required num totalCollected,
     Uint8List? meetingPhotoBytes,
+    double? latitude,
+    double? longitude,
   }) async {
     if (meetingPhotoBytes == null || meetingPhotoBytes.isEmpty) {
       Get.snackbar(
@@ -258,6 +260,8 @@ class CollectionController extends GetxController {
         'attendance': jsonEncode(attendance),
         'denomination': jsonEncode(denomination),
         if (meetingPhotoBytes != null) 'photo': photoFile(),
+        if (latitude != null) 'latitude': latitude.toString(),
+        if (longitude != null) 'longitude': longitude.toString(),
       });
 
       debugPrint("Request POST URL: ${Api.demandCollectionUrl}");

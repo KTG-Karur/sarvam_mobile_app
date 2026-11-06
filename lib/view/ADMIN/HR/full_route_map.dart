@@ -24,8 +24,14 @@ class FullRouteMap extends StatefulWidget {
     required this.distanceKm,
     required this.totalDuration,
     required this.stops,
+    this.employeeId,
+    this.date,
   });
 
+  /// With [employeeId] and [date] the map draws the same server-snapped route
+  /// as the web; without them it falls back to routing the points itself.
+  final String? employeeId;
+  final DateTime? date;
   final String dateLabel;
   final bool inProgress;
   final double distanceKm;
@@ -87,6 +93,28 @@ class _FullRouteMapState extends State<FullRouteMap>
   }
 
   Future<void> _loadRoadRoute() async {
+    final employeeId = widget.employeeId;
+    final date = widget.date;
+    if (employeeId != null && date != null) {
+      // 1st choice: the same path as the web map. The IN / OUT pins stay on
+      // the real punch points (as on the web), so the snapped flag is not set.
+      final snapped = await HrApiService.snappedRoute(
+        employeeId: employeeId,
+        date: date,
+      );
+      if (!mounted) return;
+      if (snapped.length >= 2) {
+        setState(() {
+          _roadVisitedPoints = snapped
+              .map((point) => LatLng(point['latitude']!, point['longitude']!))
+              .toList();
+        });
+        return;
+      }
+      // The server's road snap failed or has nothing: fall back to the app's
+      // own road route below (server /api/geo/road-route, then OSRM). If that
+      // fails too, the raw route points already on screen stay.
+    }
     final visited = orderedVisitedRouteStops(widget.stops)
         .map((stop) => <String, double>{
               'latitude': stop.position.latitude,
