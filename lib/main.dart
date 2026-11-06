@@ -11,8 +11,18 @@ import 'package:sarvam/services/tracking_service.dart';
 import 'package:sarvam/services/tracking_watchdog.dart';
 import 'package:sarvam/services/loan_advance_config.dart';
 
-void main() {
+import 'package:sarvam/constant/api.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Load tenant URL before app startup
+  final prefs = await SharedPreferences.getInstance();
+  final savedUrl = prefs.getString('selected_company_url');
+  if (savedUrl != null && savedUrl.isNotEmpty) {
+    Api.setBaseUrl(savedUrl);
+  }
 
   // Lock mobile app strictly to Portrait Up mode (disable screen rotation)
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);

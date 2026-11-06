@@ -8,6 +8,9 @@ import 'package:sarvam/view/FDO/home/home.dart';
 import 'package:sarvam/services/secure_session_service.dart';
 import 'package:sarvam/services/app_permission_service.dart';
 
+import 'package:sarvam/constant/api.dart';
+import 'package:sarvam/view/auth/company_selection_screen.dart';
+
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -43,15 +46,22 @@ class _SplashScreenState extends State<SplashScreen>
       await AppPermissionService.requestStartupPermissions();
       if (!mounted) return;
       final prefs = await SharedPreferences.getInstance();
-      final String? token = await SecureSessionService.readAccessToken();
-      final bool mpinSet = prefs.getBool('isMpinSet') ?? false;
-      final bool directLogin = prefs.getBool('directLogin') ?? false;
-      if (token != null && token.isNotEmpty && directLogin) {
-        Get.off(() => const Home());
-      } else if (token != null && token.isNotEmpty && mpinSet) {
-        Get.off(() => const MpinLoginScreen());
+
+      final String? selectedUrl = prefs.getString('selected_company_url');
+      if (selectedUrl != null && selectedUrl.isNotEmpty) {
+        Api.setBaseUrl(selectedUrl);
+        final String? token = await SecureSessionService.readAccessToken();
+        final bool mpinSet = prefs.getBool('isMpinSet') ?? false;
+        final bool directLogin = prefs.getBool('directLogin') ?? false;
+        if (token != null && token.isNotEmpty && directLogin) {
+          Get.off(() => const Home());
+        } else if (token != null && token.isNotEmpty && mpinSet) {
+          Get.off(() => const MpinLoginScreen());
+        } else {
+          Get.off(() => const LoginScreen());
+        }
       } else {
-        Get.off(() => const LoginScreen());
+        Get.off(() => const CompanySelectionScreen());
       }
     });
   }

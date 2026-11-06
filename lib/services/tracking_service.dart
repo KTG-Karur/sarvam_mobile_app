@@ -415,6 +415,18 @@ class TrackingService {
     DartPluginRegistrant.ensureInitialized();
     _log('service isolate started');
 
+    // Load tenant URL in background isolate
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedUrl = prefs.getString('selected_company_url');
+      if (savedUrl != null && savedUrl.isNotEmpty) {
+        Api.setBaseUrl(savedUrl);
+        _log('base URL set to $savedUrl');
+      }
+    } catch (e) {
+      _log('failed to load tenant URL: $e');
+    }
+
     if (service is AndroidServiceInstance) {
       service.setAsForegroundService();
     }

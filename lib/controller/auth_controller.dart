@@ -7,6 +7,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/view/auth/login_screen.dart';
+import 'package:sarvam/view/auth/company_selection_screen.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
 import 'package:sarvam/services/secure_session_service.dart';
 
@@ -1092,8 +1093,10 @@ class AuthController extends GetxController {
       await prefs.setBool('isMpinSet', false);
       await prefs.setBool('faceEnrollmentCompleted', false);
       await prefs.remove('directLogin');
+      await prefs.remove('selected_company');
+      await prefs.remove('selected_company_url');
 
-      Get.offAll(() => const LoginScreen());
+      Get.offAll(() => const CompanySelectionScreen());
     } catch (e) {
       Get.snackbar(
         'Logout Error',
