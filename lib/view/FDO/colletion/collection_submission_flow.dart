@@ -66,9 +66,9 @@ class _CollectionSubmissionFlowPageState
 
   // Step 3 Denomination controllers
   final Map<int, TextEditingController> _denominationControllers = {
-    500: TextEditingController(text: '6'),
-    200: TextEditingController(text: '1'),
-    100: TextEditingController(text: '4'),
+    500: TextEditingController(),
+    200: TextEditingController(),
+    100: TextEditingController(),
     50: TextEditingController(),
     20: TextEditingController(),
     10: TextEditingController(),

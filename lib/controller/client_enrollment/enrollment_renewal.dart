@@ -316,9 +316,15 @@ mixin EnrollmentRenewalMixin on GetxController {
       requestedLoanPurposeId.value = null;
       selectedProduct.value = null;
 
-      // Tab 6 — location + house KYC are mandatory fresh captures.
-      latitude.value = '';
-      longitude.value = '';
+      // Tab 6 — lat/long come from the backend record; house KYC docs are
+      // mandatory fresh captures.
+      final loc = d['location'];
+      final rawLat = d['latitude'] ?? d['lat'] ?? (loc is Map ? loc['latitude'] : null);
+      final rawLng = d['longitude'] ?? d['lng'] ?? (loc is Map ? loc['longitude'] : null);
+      final latStr = _s(rawLat);
+      final lngStr = _s(rawLng);
+      latitude.value = (latStr == null || latStr == 'null') ? '' : latStr;
+      longitude.value = (lngStr == null || lngStr == 'null') ? '' : lngStr;
       mapsUrl.value = '';
       kycDocuments.clear();
       final docs = d['kycDocuments'];

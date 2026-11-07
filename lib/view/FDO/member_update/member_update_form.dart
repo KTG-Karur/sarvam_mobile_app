@@ -491,6 +491,50 @@ class MemberUpdateForm extends StatelessWidget {
             onChanged: (v) => controller.houseStatus.value = v,
             required: false,
           ),
+          Obx(
+            () => Column(
+              children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: EnrollmentTextField(
+                      label: 'Latitude',
+                      hint: 'Auto-filled',
+                      controller: TextEditingController(text: controller.latitude.value),
+                      readOnly: true,
+                      required: true,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: EnrollmentTextField(
+                      label: 'Longitude',
+                      hint: 'Auto-filled',
+                      controller: TextEditingController(text: controller.longitude.value),
+                      readOnly: true,
+                      required: true,
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: controller.isLocating.value ? null : controller.fetchLocation,
+                  icon: controller.isLocating.value
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.my_location_outlined, size: 17),
+                  label: const Text('Use Current Location'),
+                  style: FilledButton.styleFrom(backgroundColor: enrollmentGreen),
+                ),
+              ),
+              ],
+            ),
+          ),
         ],
       ),
     ],
@@ -858,45 +902,6 @@ class MemberUpdateForm extends StatelessWidget {
         _residenceDocLabels,
         owner: 'client',
         subtitle: 'House Image 1 (Mandatory), lat/long & QR required',
-      ),
-      const SizedBox(height: 16),
-      Row(
-        children: [
-          Expanded(
-            child: EnrollmentTextField(
-              label: 'Latitude',
-              hint: 'Auto-filled',
-              controller: TextEditingController(text: controller.latitude.value),
-              readOnly: true,
-              required: true,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: EnrollmentTextField(
-              label: 'Longitude',
-              hint: 'Auto-filled',
-              controller: TextEditingController(text: controller.longitude.value),
-              readOnly: true,
-              required: true,
-            ),
-          ),
-        ],
-      ),
-      SizedBox(
-        width: double.infinity,
-        child: FilledButton.icon(
-          onPressed: controller.isLocating.value ? null : controller.fetchLocation,
-          icon: controller.isLocating.value
-              ? const SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                )
-              : const Icon(Icons.my_location_outlined, size: 17),
-          label: const Text('Use Current Location'),
-          style: FilledButton.styleFrom(backgroundColor: enrollmentGreen),
-        ),
       ),
       if (controller.docState(EnrollmentOptions.docLocationQr)?.isUploading == true)
         const Padding(

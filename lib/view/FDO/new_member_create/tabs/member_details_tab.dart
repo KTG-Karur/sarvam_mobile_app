@@ -202,12 +202,24 @@ class MemberDetailsTab extends StatelessWidget {
             ),
             RenewalLock(
               locked: controller.isFieldLocked('postOffice'),
-              child: EnrollmentTextField(
-                label: 'Post Office',
-                hint: 'Enter post office',
-                controller: controller.postOfficeCtrl,
-                required: controller.isRequired('postOffice'),
-              ),
+              child: controller.postOfficeOptions.length > 1
+                  ? ValueListenableBuilder<TextEditingValue>(
+                      valueListenable: controller.postOfficeCtrl,
+                      builder: (_, v, __) => EnrollmentSelectField(
+                        label: 'Post Office',
+                        value: v.text.isEmpty ? null : v.text,
+                        options: controller.postOfficeOptions.toList(),
+                        onChanged: (name) =>
+                            controller.postOfficeCtrl.text = name ?? '',
+                        required: controller.isRequired('postOffice'),
+                      ),
+                    )
+                  : EnrollmentTextField(
+                      label: 'Post Office',
+                      hint: 'Enter post office',
+                      controller: controller.postOfficeCtrl,
+                      required: controller.isRequired('postOffice'),
+                    ),
             ),
             RenewalLock(
               locked: controller.isFieldLocked('state'),
