@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:sarvam/constant/page_access.dart';
+import 'package:sarvam/constant/roles.dart';
+import 'package:sarvam/services/permission_service.dart';
+import 'package:sarvam/view/BM/member_individual/member_individual.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
@@ -10,6 +14,7 @@ import 'package:sarvam/view/ADMIN/HR/hr_home.dart';
 import 'package:sarvam/view/auth/punch_method_screen.dart';
 import 'package:sarvam/view/AM/collection_view/collection_view_hub.dart';
 import 'package:sarvam/view/FDO/client_search_locate/client_search_locate.dart';
+import 'package:sarvam/view/FDO/client_loan_tracker/client_loan_tracker.dart';
 import 'package:sarvam/view/FDO/loan_disbursement/loan_disbursement.dart';
 import 'package:sarvam/view/auth/role_home_router.dart';
 import 'package:sarvam/view/FDO/colletion/collection.dart';
@@ -64,10 +69,26 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
     'December',
   ];
 
+  // Member Individual tile — shown to BM/AM by default, and to any other role
+  // an admin has granted the page to on the web Role Permissions screen.
+  bool _canMemberIndividual = false;
+
+  Future<void> _refreshMemberIndividualAccess() async {
+    final allowed = await PageAccess.can(
+      PagePaths.memberIndividual,
+      builtInRoles: const [AppRole.branchManager, AppRole.areaManager],
+    );
+    if (mounted && allowed != _canMemberIndividual) {
+      setState(() => _canMemberIndividual = allowed);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _loadUserDetails();
+    _refreshMemberIndividualAccess();
+    PermissionService.changes.addListener(_refreshMemberIndividualAccess);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _ctrl.getTaskDetails();
       _ctrl.getDashboardStats();
@@ -93,6 +114,7 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
 
   @override
   void dispose() {
+    PermissionService.changes.removeListener(_refreshMemberIndividualAccess);
     _pageAnimController.dispose();
     super.dispose();
   }
@@ -1203,10 +1225,30 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
           ),
         ] else ...[
           SizedBox(width: 10.w),
-          const Expanded(child: SizedBox()),
+          Expanded(
+            child: _canMemberIndividual
+                ? _tile(
+                    asset: 'assets/icon/co_applicant_management.png',
+                    label: 'Member\nIndividual',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const MemberIndividual(),
+                      ),
+                    ),
+                  )
+                : const SizedBox(),
+          ),
         ],
         SizedBox(width: 10.w),
-        const Expanded(child: SizedBox()),
+        Expanded(
+          child: _tile(
+            asset: 'assets/icon/client_loan_tracker.png',
+            label: 'Client Loan\nTracker',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ClientLoanTracker()),
+            ),
+          ),
+        ),
         SizedBox(width: 10.w),
         const Expanded(child: SizedBox()),
       ],

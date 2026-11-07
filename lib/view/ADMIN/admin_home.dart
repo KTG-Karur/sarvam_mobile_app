@@ -33,6 +33,8 @@ import 'package:sarvam/view/ADMIN/branches/extend_branch_lock_screen.dart';
 import 'package:sarvam/view/BM/member_approval.dart';
 import 'package:sarvam/view/BM/centre_approval.dart';
 import 'package:sarvam/view/BM/final_disbursement/final_disbursement.dart';
+import 'package:sarvam/view/BM/member_individual/member_individual.dart';
+import 'package:sarvam/view/FDO/client_loan_tracker/client_loan_tracker.dart';
 import 'package:sarvam/view/FDO/client_search_locate/client_search_locate.dart';
 
 import 'package:sarvam/view/auth/login_screen.dart';
@@ -3726,6 +3728,14 @@ class _AdminHomeState extends State<AdminHome>
       case 'Member Approval Workflow':
         _push(const MemberApproval());
         break;
+      case 'Member Individual':
+        _push(const MemberIndividual());
+        break;
+
+      case 'Client Loan Tracker':
+        _push(const ClientLoanTracker());
+        break;
+
       case 'Loan Indexation':
         _push(const LoanProductsList());
         break;

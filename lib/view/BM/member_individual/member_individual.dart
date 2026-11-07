@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:sarvam/constant/page_access.dart';
+import 'package:sarvam/constant/roles.dart';
+import 'package:sarvam/services/permission_service.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -37,8 +40,28 @@ class _MemberIndividualState extends State<MemberIndividual> {
   List<dynamic> _grtSessions = [];
   bool _isLoadingGrtSessions = false;
 
+  // Creating a GRT session needs write access (BM/AM/Admin, or add/edit
+  // granted on the web Role Permissions screen).
+  bool _canWrite = false;
+
+  Future<void> _refreshAccess() async {
+    final write = await PageAccess.canWrite(
+      PagePaths.memberIndividual,
+      builtInRoles: const [AppRole.branchManager, AppRole.areaManager],
+    );
+    if (mounted && write != _canWrite) setState(() => _canWrite = write);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshAccess();
+    PermissionService.changes.addListener(_refreshAccess);
+  }
+
   @override
   void dispose() {
+    PermissionService.changes.removeListener(_refreshAccess);
     _searchController.dispose();
     super.dispose();
   }
@@ -139,7 +162,9 @@ class _MemberIndividualState extends State<MemberIndividual> {
               style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w800, color: _darkText),
             ),
             ElevatedButton.icon(
-              onPressed: () async {
+              onPressed: !_canWrite
+                  ? null
+                  : () async {
                 final sessionId = await showDialog<String>(
                   context: context,
                   builder: (_) => GrtSessionCreateDialog(centerId: centerId, centerName: centerName),

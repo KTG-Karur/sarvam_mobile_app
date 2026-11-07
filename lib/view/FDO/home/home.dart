@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:sarvam/constant/page_access.dart';
+import 'package:sarvam/constant/roles.dart';
+import 'package:sarvam/services/permission_service.dart';
+import 'package:sarvam/view/BM/member_individual/member_individual.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
@@ -39,10 +43,26 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
   late final Animation<double> _pageFade;
   late final Animation<Offset> _pageSlide;
 
+  // Member Individual tile — shown to BM/AM by default, and to any other role
+  // an admin has granted the page to on the web Role Permissions screen.
+  bool _canMemberIndividual = false;
+
+  Future<void> _refreshMemberIndividualAccess() async {
+    final allowed = await PageAccess.can(
+      PagePaths.memberIndividual,
+      builtInRoles: const [AppRole.branchManager, AppRole.areaManager],
+    );
+    if (mounted && allowed != _canMemberIndividual) {
+      setState(() => _canMemberIndividual = allowed);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _loadUserDetails();
+    _refreshMemberIndividualAccess();
+    PermissionService.changes.addListener(_refreshMemberIndividualAccess);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _controller.getDashboardStats();
     });
@@ -64,6 +84,7 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
 
   @override
   void dispose() {
+    PermissionService.changes.removeListener(_refreshMemberIndividualAccess);
     _pageAnimController.dispose();
     super.dispose();
   }
@@ -511,6 +532,32 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
                                 ),
                               ],
                             ),
+                            if (_canMemberIndividual) ...[
+                              SizedBox(height: 10.h),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _buildShortcut(
+                                      asset:
+                                          'assets/icon/co_applicant_management.png',
+                                      label: 'Member\nIndividual',
+                                      onTap: () => Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) =>
+                                              const MemberIndividual(),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  SizedBox(width: 10.w),
+                                  const Expanded(child: SizedBox()),
+                                  SizedBox(width: 10.w),
+                                  const Expanded(child: SizedBox()),
+                                  SizedBox(width: 10.w),
+                                  const Expanded(child: SizedBox()),
+                                ],
+                              ),
+                            ],
                             SizedBox(height: 20.h),
                           ],
                         ),

@@ -22,9 +22,11 @@ import 'package:sarvam/view/ADMIN/reports/admin_reports_overview.dart';
 import 'package:sarvam/view/ADMIN/settings/profile_settings.dart';
 
 import 'package:sarvam/view/BM/member_approval.dart';
+import 'package:sarvam/view/BM/member_individual/member_individual.dart';
 import 'package:sarvam/view/BM/centre_approval.dart';
 import 'package:sarvam/view/BM/final_disbursement/final_disbursement.dart';
 import 'package:sarvam/view/FDO/client_search_locate/client_search_locate.dart';
+import 'package:sarvam/view/FDO/client_loan_tracker/client_loan_tracker.dart';
 import 'package:sarvam/view/BM/collection_batch_revert.dart';
 
 class ModuleDirectoryScreen extends StatefulWidget {
@@ -551,6 +553,12 @@ class _ModuleDirectoryScreenState extends State<ModuleDirectoryScreen> {
       case 'Member Validation':
       case 'Member Approval Workflow':
         Get.to(() => const MemberApproval());
+        break;
+      case 'Client Loan Tracker':
+        Get.to(() => const ClientLoanTracker());
+        break;
+      case 'Member Individual':
+        Get.to(() => const MemberIndividual());
         break;
       case 'Loan Indexation':
       case 'Loan Product':

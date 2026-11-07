@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:intl/intl.dart';
@@ -65,106 +67,485 @@ class LoanTrackerItem {
   });
 }
 
-class _ClientLoanTrackerState extends State<ClientLoanTracker> {
-  late List<LoanTrackerItem> _items;
-  final ApiClient _apiClient = ApiClient();
-  bool _isLoading = false;
+/// One row of `/api/loans/renewal-tracker` — a renewal loan application.
+class RenewalTrackerItem {
+  RenewalTrackerItem({
+    required this.id,
+    required this.loanNumber,
+    required this.amount,
+    required this.renewalApprovalStatus,
+    required this.disbursementStatus,
+    required this.clientDisplayId,
+    required this.clientName,
+    this.disbursedAt,
+    this.createdAt,
+    this.mobileNumber,
+    this.centerName,
+    this.branchName,
+    this.productName,
+    this.fdoName,
+    this.recheck,
+    this.rejection,
+  });
 
-  final List<String> _branches = ['All Branches', 'Theni', 'Ooty', 'Madurai'];
+  final String id;
+  final String loanNumber;
+  final num amount;
+  final String renewalApprovalStatus;
+  final String disbursementStatus;
+  final String clientDisplayId;
+  final String clientName;
+  final dynamic disbursedAt;
+  final dynamic createdAt;
+  final String? mobileNumber;
+  final String? centerName;
+  final String? branchName;
+  final String? productName;
+  final String? fdoName;
+
+  /// `{documentOnly, by, remarks}` while the renewal is in recheck.
+  final Map<String, dynamic>? recheck;
+
+  /// `{stageName, by, at, remarks}` when the renewal was rejected.
+  final Map<String, dynamic>? rejection;
+
+  factory RenewalTrackerItem.fromJson(Map<String, dynamic> j) {
+    Map<String, dynamic>? asMap(dynamic v) =>
+        v is Map ? Map<String, dynamic>.from(v) : null;
+    String? str(dynamic v) {
+      final t = v?.toString();
+      return t == null || t.isEmpty || t == 'null' ? null : t;
+    }
+
+    return RenewalTrackerItem(
+      id: '${j['id'] ?? ''}',
+      loanNumber: '${j['loanNumber'] ?? '—'}',
+      amount: j['amount'] is num
+          ? j['amount'] as num
+          : num.tryParse('${j['amount']}') ?? 0,
+      renewalApprovalStatus: '${j['renewalApprovalStatus'] ?? ''}',
+      disbursementStatus: '${j['disbursementStatus'] ?? ''}',
+      clientDisplayId: '${j['clientDisplayId'] ?? '—'}',
+      clientName: '${j['clientName'] ?? ''}',
+      disbursedAt: j['disbursedAt'],
+      createdAt: j['createdAt'],
+      mobileNumber: str(j['mobileNumber']),
+      centerName: str(j['centerName']),
+      branchName: str(j['branchName']),
+      productName: str(j['productName']),
+      fdoName: str(j['fdoName']),
+      recheck: asMap(j['recheck']),
+      rejection: asMap(j['rejection']),
+    );
+  }
+}
+
+class _ClientLoanTrackerState extends State<ClientLoanTracker> {
+  static const _pageSize = 20;
+
+  /// Top tabs, as on the web: All, Draft, New Loan and Renewal Loan. Label → the server `tab` value, which is also its `tabCounts` key.
+  static const _topTabKeys = {
+    'All': 'all',
+    'Draft': 'pending',
+    'New Loan': 'new_loan',
+    'Renewal Loan': 'renewal',
+  };
+
+  /// New Loan chips that are their own member list on the server; every other
+  /// chip is an approval stage (the server's `approvalFilter`).
+  static const _listChipTabs = {
+    'recheck',
+    'pre_disbursement',
+    'disbursed',
+    'rejected',
+  };
+
+  /// What a row is labelled when it comes from a specific server tab.
+  static const _rowStatusByTab = {
+    'pending': 'Draft',
+    'yet_to_approve': 'Approval Queue',
+    'pre_disbursement': 'Pre Disbursement',
+    'disbursed': 'Disbursed',
+    'recheck': 'Recheck',
+    'rejected': 'Rejected',
+  };
+
+  List<LoanTrackerItem> _items = [];
+  final ApiClient _apiClient = ApiClient();
+  final ScrollController _scrollController = ScrollController();
+  final TextEditingController _searchController = TextEditingController();
+  Timer? _searchDebounce;
+
+  bool _isLoading = false;
+  bool _isLoadingMore = false;
+  int _page = 1;
+  int _totalPages = 1;
+  int _total = 0;
+  int _requestId = 0; // discards responses from superseded requests
+  Map<String, int> _tabCounts = {};
+
+  // Approval workflow configured on the server (in order): each entry has
+  // roleSlug, stageName, pendingStatus and retakeStatus. Empty until the first
+  // response arrives, or when no custom workflow is configured.
+  List<Map<String, dynamic>> _workflowStages = [];
+  Map<String, int> _stageCounts = {}; // 'stage:<roleSlug>' / 'admin' → waiting
+  bool _isFdo = false;
+  // False until the first response says which stages are configured, so the
+  // chip row doesn't flash the default BM / AM / QC names first.
+  bool _stagesLoaded = false;
+
+  // Renewal Loan tab: its own list, stage chip, stages and counts (the
+  // renewal tracker is a separate API).
+  List<RenewalTrackerItem> _renewalItems = [];
+  String _renewalChip = 'all';
+  List<Map<String, dynamic>> _renewalStages = []; // {roleSlug, stageName}
+  Map<String, int> _renewalCounts = {}; // 'all', 'stage:<slug>', 'admin', ...
+  bool _renewalStagesLoaded = false;
+
+  bool get _isRenewalTab => _selectedStatus == 'Renewal Loan';
+
+  // Filter options (loaded once): branches the user may filter by, and the
+  // centers they can see. Each is a map with at least `id` and `name`.
+  List<Map<String, dynamic>> _branches = [];
+  List<Map<String, dynamic>> _centers = [];
 
   String _selectedStatus = 'All';
-  String _selectedBranch = 'All Branches';
-  String _selectedQueueStage = 'All Stages';
+  String _selectedBranchId = ''; // '' = all branches
+  String _selectedCenterId = ''; // '' = all centers
+  String _newLoanChip = 'all'; // New Loan chip: a stage key or a list tab
   String _searchQuery = '';
   DateTime? _fromDate;
   DateTime? _toDate;
 
+  /// The server tab behind the current top tab + New Loan chip.
+  String get _activeTabKey {
+    if (_selectedStatus != 'New Loan') return _topTabKeys[_selectedStatus] ?? 'all';
+    if (_newLoanChip == 'all') return 'new_loan';
+    if (_listChipTabs.contains(_newLoanChip)) return _newLoanChip;
+    return 'yet_to_approve';
+  }
+
+  String get _listTitle {
+    final hasChips = _selectedStatus == 'New Loan' || _isRenewalTab;
+    if (!hasChips || _activeChipKey == 'all') return _selectedStatus;
+    for (final chip in _queueChips) {
+      if (chip.key == _activeChipKey) return '$_selectedStatus • ${chip.label}';
+    }
+    return _selectedStatus;
+  }
+
+  bool get _hasActiveFilters =>
+      _fromDate != null ||
+      _toDate != null ||
+      _searchQuery.isNotEmpty ||
+      _selectedBranchId.isNotEmpty ||
+      _selectedCenterId.isNotEmpty;
+
   @override
   void initState() {
     super.initState();
-    _items = [];
-    _loadTracker();
+    _scrollController.addListener(_onScroll);
+    _init();
   }
 
-  Future<void> _loadTracker() async {
-    setState(() => _isLoading = true);
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _scrollController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _init() async {
+    await _loadFilterOptions();
+    if (!mounted) return;
+    await _loadTracker();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 300) {
+      _loadTracker(loadMore: true);
+    }
+  }
+
+  List<Map<String, dynamic>> _asMapList(dynamic raw) {
+    final list = raw is Map && raw['centers'] is List ? raw['centers'] : raw;
+    if (list is! List) return [];
+    return list
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  /// Loads the branch and center options the same way the web tracker does:
+  /// an Area Manager's list comes from their assigned branches, everyone else
+  /// from the permitted-branches list. The server clamps whatever branch or
+  /// center is requested to what the caller is allowed to see.
+  Future<void> _loadFilterOptions() async {
     try {
-      // Read branch info before calling the API so we can pass it as a filter
-      // param — the server scopes its response to the supplied branchId,
-      // mirroring the web app's behaviour.
       final prefs = await SharedPreferences.getInstance();
-      final userBranchId = prefs.getString('branchId') ?? '';
       final role = prefs.getString('role') ?? '';
       final rbacRoleName = prefs.getString('rbacRoleName') ?? '';
-      final assigned = prefs.getStringList('assignedBranchIds') ?? [];
-      final isAM = RoleScope.isAreaManager(role) || RoleScope.isAreaManager(rbacRoleName);
+      final userId = prefs.getString('userId') ?? '';
+      final isAM =
+          RoleScope.isAreaManager(role) || RoleScope.isAreaManager(rbacRoleName);
+      // Only an FDO can fix and resubmit a recheck, as on the web.
+      _isFdo = RoleScope.resolve(role, rbacRoleName) == AppRole.fdo;
 
-      // Build query string: always fetch all statuses; filter by single branch
-      // for single-branch roles (FDO/BM), but omit explicit branchId for AM
-      // so backend returns all assigned branches.
-      final branchParam = (!isAM && userBranchId.isNotEmpty)
-          ? '&branchId=$userBranchId'
-          : '';
-      final response = await _apiClient.get(
-        '${Api.clientLoanTrackerUrl}?tab=all&page=1&pageSize=200$branchParam',
-      );
+      final branchFuture = isAM
+          ? _apiClient.get('${Api.baseUrl}/api/area-manager-branches?userId=$userId')
+          : _apiClient.get('${Api.branchesUrl}?permitted=hoWide');
+      final centerFuture = _apiClient.get('${Api.centersUrl}?includeInactive=false');
+      final results = await Future.wait([branchFuture, centerFuture]);
+
+      final branchBody = results[0].body;
+      if (branchBody is Map && branchBody['success'] == true) {
+        var list = _asMapList(branchBody['data']);
+        if (isAM) {
+          // Rows look like { branch: { id, name, code } }.
+          list = list
+              .map((e) => e['branch'])
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList();
+        }
+        _branches = list;
+      }
+
+      final centerBody = results[1].body;
+      if (centerBody is Map && centerBody['success'] == true) {
+        _centers = _asMapList(centerBody['data']);
+      }
+
+      // A user with exactly one branch has nothing to choose — pre-select it.
+      if (_branches.length == 1) {
+        _selectedBranchId = '${_branches.first['id']}';
+      }
+      if (mounted) setState(() {});
+    } catch (_) {
+      // Filters are optional — the list still loads without them.
+    }
+  }
+
+  /// Centers shown in the center dropdown: only those of the chosen branch.
+  List<Map<String, dynamic>> get _visibleCenters => _selectedBranchId.isEmpty
+      ? _centers
+      : _centers.where((c) => '${c['branchId']}' == _selectedBranchId).toList();
+
+  String _ymd(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
+
+  /// Renewal Loan tab: one page of `/api/loans/renewal-tracker` for the current
+  /// stage chip and filters. Mirrors [_loadTracker]'s paging.
+  Future<void> _loadRenewals({bool loadMore = false}) async {
+    if (loadMore && (_isLoading || _isLoadingMore || _page >= _totalPages)) {
+      return;
+    }
+    final requestId = ++_requestId;
+    final nextPage = loadMore ? _page + 1 : 1;
+    setState(() {
+      if (loadMore) {
+        _isLoadingMore = true;
+      } else {
+        _isLoading = true;
+        _isLoadingMore = false;
+        _renewalItems = [];
+      }
+    });
+
+    try {
+      final params = <String, String>{
+        'stage': _renewalChip,
+        'page': '$nextPage',
+        'pageSize': '$_pageSize',
+      };
+      if (_searchQuery.trim().isNotEmpty) params['search'] = _searchQuery.trim();
+      if (_fromDate != null) params['dateFrom'] = _ymd(_fromDate!);
+      if (_toDate != null) params['dateTo'] = _ymd(_toDate!);
+      if (_selectedBranchId.isNotEmpty) params['branchId'] = _selectedBranchId;
+      if (_selectedCenterId.isNotEmpty) params['centerId'] = _selectedCenterId;
+
+      final url = Uri.parse('${Api.baseUrl}/api/loans/renewal-tracker')
+          .replace(queryParameters: params)
+          .toString();
+      final response = await _apiClient.get(url);
+      if (!mounted) return;
+
       final body = response.body;
-      final rawClients =
-          body is Map && body['success'] == true && body['data'] is Map
-          ? body['data']['clients']
+      final data = body is Map && body['success'] == true && body['data'] is Map
+          ? Map<String, dynamic>.from(body['data'] as Map)
           : null;
 
-      if (rawClients is List) {
-        final loaded = rawClients
-            .whereType<Map>()
-            .map(
-              (client) =>
-                  _trackerItemFromApi(Map<String, dynamic>.from(client)),
-            )
-            .toList();
+      // The configured stages don't depend on the chip or filters — keep them
+      // even from a superseded response (same reason as the member tracker).
+      final stages = data?['stages'];
+      if (stages is List) {
+        setState(() {
+          _renewalStages = stages
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList();
+          _renewalStagesLoaded = true;
+        });
+      }
+      if (requestId != _requestId) return;
 
-        // Client-side safety net: if the API didn't honour the branchId param
-        // (e.g. older backend), filter locally so FDOs never see other branches.
-        final filtered = userBranchId.isEmpty
-            ? loaded
-            : loaded.where((item) {
-                if (isAM) return true;
-                if (item.branchId.isEmpty) return false;
-                if (item.branchId == userBranchId) return true;
-                if (assigned.isNotEmpty && assigned.contains(item.branchId)) {
-                  return true;
-                }
-                return false;
-              }).toList();
-
-        if (mounted) {
-          setState(() {
-            _items = filtered;
-            _branches
-              ..clear()
-              ..addAll([
-                'All Branches',
-                ..._items
-                    .map((item) => item.branch)
-                    .where((b) => b.isNotEmpty && b != '—')
-                    .toSet(),
-              ]);
-            // Pre-select the user's own branch
-            final branchName = prefs.getString('branchName') ?? '';
-            if (branchName.isNotEmpty && _branches.contains(branchName)) {
-              _selectedBranch = branchName;
-            }
-          });
+      if (data == null || data['items'] is! List) {
+        if (!loadMore) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Unable to load renewal loans.')),
+          );
         }
-      } else if (mounted) {
+        return;
+      }
+
+      final loaded = (data['items'] as List)
+          .whereType<Map>()
+          .map((e) => RenewalTrackerItem.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+      final counts = data['stageCounts'];
+      final pagination = data['pagination'];
+      setState(() {
+        _renewalItems = loadMore ? [..._renewalItems, ...loaded] : loaded;
+        if (counts is Map) {
+          _renewalCounts = {
+            for (final e in counts.entries)
+              '${e.key}': (e.value is num) ? (e.value as num).toInt() : 0,
+          };
+        }
+        if (pagination is Map) {
+          _page = (pagination['page'] as num?)?.toInt() ?? nextPage;
+          _totalPages = (pagination['totalPages'] as num?)?.toInt() ?? 1;
+          _total = (pagination['total'] as num?)?.toInt() ?? loaded.length;
+        }
+      });
+    } catch (_) {
+      if (mounted && requestId == _requestId && !loadMore) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Unable to load the client loan tracker.'),
-          ),
+          const SnackBar(content: Text('Unable to load renewal loans.')),
         );
       }
+    } finally {
+      if (mounted && requestId == _requestId) {
+        setState(() {
+          _isLoading = false;
+          _isLoadingMore = false;
+          _renewalStagesLoaded = true;
+        });
+      }
+    }
+  }
+
+  /// Fetches one page for the current tab and filters from the server.
+  /// [loadMore] appends the next page; otherwise the list restarts at page 1.
+  Future<void> _loadTracker({bool loadMore = false}) async {
+    if (_isRenewalTab) return _loadRenewals(loadMore: loadMore);
+    if (loadMore && (_isLoading || _isLoadingMore || _page >= _totalPages)) {
+      return;
+    }
+    final requestId = ++_requestId;
+    final nextPage = loadMore ? _page + 1 : 1;
+    setState(() {
+      if (loadMore) {
+        _isLoadingMore = true;
+      } else {
+        _isLoading = true;
+        _isLoadingMore = false;
+        _items = [];
+      }
+    });
+
+    try {
+      final tabKey = _activeTabKey;
+      final params = <String, String>{
+        'tab': tabKey,
+        'page': '$nextPage',
+        'pageSize': '$_pageSize',
+      };
+      if (tabKey == 'yet_to_approve') {
+        params['approvalFilter'] = _newLoanChip;
+      }
+      if (_searchQuery.trim().isNotEmpty) params['search'] = _searchQuery.trim();
+      if (_fromDate != null) params['dateFrom'] = _ymd(_fromDate!);
+      if (_toDate != null) params['dateTo'] = _ymd(_toDate!);
+      if (_selectedBranchId.isNotEmpty) params['branchId'] = _selectedBranchId;
+      if (_selectedCenterId.isNotEmpty) params['centerId'] = _selectedCenterId;
+
+      final url = Uri.parse(Api.clientLoanTrackerUrl)
+          .replace(queryParameters: params)
+          .toString();
+      final response = await _apiClient.get(url);
+      if (!mounted) return;
+
+      final body = response.body;
+      final data = body is Map && body['success'] == true && body['data'] is Map
+          ? Map<String, dynamic>.from(body['data'] as Map)
+          : null;
+
+      // The configured workflow stages don't depend on the tab or filters, so
+      // keep them even if a newer request has superseded this one — otherwise
+      // a quick tab switch right after opening would discard the first
+      // response and leave the stage chips on their defaults.
+      final stages = data?['workflowStages'];
+      if (stages is List) {
+        setState(() {
+          _workflowStages = stages
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList();
+          _stagesLoaded = true;
+        });
+      }
+      if (requestId != _requestId) return;
+
+      if (data == null || data['clients'] is! List) {
+        if (!loadMore) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Unable to load the client loan tracker.'),
+            ),
+          );
+        }
+        return;
+      }
+
+      final stageCounts = data['stageCounts'];
+      if (stageCounts is Map) {
+        _stageCounts = {
+          for (final e in stageCounts.entries)
+            '${e.key}': (e.value is num) ? (e.value as num).toInt() : 0,
+        };
+      }
+
+      final loaded = (data['clients'] as List).whereType<Map>().map((client) {
+        final item = _trackerItemFromApi(Map<String, dynamic>.from(client));
+        // Inside a specific tab every row belongs to that tab by definition
+        // (the server already filtered), so label it accordingly — e.g. the
+        // Recheck tab also holds approved clients with a flagged document.
+        final forced = _rowStatusByTab[tabKey];
+        if (forced != null) item.status = forced;
+        return item;
+      }).toList();
+
+      final counts = data['tabCounts'];
+      final pagination = data['pagination'];
+      setState(() {
+        _items = loadMore ? [..._items, ...loaded] : loaded;
+        if (counts is Map) {
+          _tabCounts = {
+            for (final e in counts.entries)
+              '${e.key}': (e.value is num) ? (e.value as num).toInt() : 0,
+          };
+        }
+        if (pagination is Map) {
+          _page = (pagination['page'] as num?)?.toInt() ?? nextPage;
+          _totalPages = (pagination['totalPages'] as num?)?.toInt() ?? 1;
+          _total = (pagination['total'] as num?)?.toInt() ?? loaded.length;
+        }
+      });
     } catch (_) {
-      if (mounted) {
+      if (mounted && requestId == _requestId && !loadMore) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Unable to load the client loan tracker.'),
@@ -172,7 +553,14 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
         );
       }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted && requestId == _requestId) {
+        setState(() {
+          _isLoading = false;
+          _isLoadingMore = false;
+          // Even if the call failed, stop waiting and use the default chips.
+          _stagesLoaded = true;
+        });
+      }
     }
   }
 
@@ -260,7 +648,7 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
       remarks: '${client['rejectionReason'] ?? ''}',
       recheckStage: recheckStage,
       requestedBy: requestedBy,
-      recheckAction: status == 'Recheck' ? 'Resolve' : '',
+      recheckAction: 'Resolve',
       approvalHistory: rawHistory,
     );
   }
@@ -289,14 +677,27 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
     if (approvalStatus == 'APPROVED') {
       return 'Approved';
     }
-    if (approvalStatus.contains('RETAKE') ||
-        approvalStatus.contains('REJECT')) {
+    if (approvalStatus == 'REJECTED') {
+      return 'Rejected';
+    }
+    if (approvalStatus.contains('RETAKE')) {
       return 'Recheck';
     }
     return 'Approval Queue';
   }
 
   String _approvalLabel(String status) {
+    // A configured workflow names its own stages — use those when the status
+    // belongs to one of them.
+    for (final st in _workflowStages) {
+      if (status == '${st['pendingStatus']}' ||
+          status == '${st['retakeStatus']}') {
+        return '${st['stageName']}';
+      }
+    }
+    if (status == 'SUBMITTED' && _workflowStages.isNotEmpty) {
+      return '${_workflowStages.first['stageName']}';
+    }
     if (status.contains('AM') || status.contains('LEVEL_2')) {
       return 'AM Approval';
     }
@@ -340,83 +741,6 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
     return NumberFormat('#,##,##0', 'en_IN').format(n);
   }
 
-  DateTime? _parseEnrolledDate(String enrolledOn) {
-    try {
-      final parts = enrolledOn.split(' ');
-      if (parts.length < 3) return null;
-      final day = int.parse(parts[0]);
-      final monthStr = parts[1];
-      final year = int.parse(parts[2]);
-
-      final months = {
-        'Jan': 1,
-        'Feb': 2,
-        'Mar': 3,
-        'Apr': 4,
-        'May': 5,
-        'Jun': 6,
-        'Jul': 7,
-        'Aug': 8,
-        'Sep': 9,
-        'Oct': 10,
-        'Nov': 11,
-        'Dec': 12,
-      };
-
-      final month = months[monthStr] ?? 1;
-      return DateTime(year, month, day);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  List<LoanTrackerItem> get _filteredItems {
-    return _items.where((item) {
-      // 1. Status Filter
-      final matchesStatus =
-          _selectedStatus == 'All' ||
-          item.status.toLowerCase() == _selectedStatus.toLowerCase();
-
-      // 2. Queue Stage sub-filter (for Approval Queue tab)
-      final matchesQueueStage =
-          _selectedStatus != 'Approval Queue' ||
-          _selectedQueueStage == 'All Stages' ||
-          item.queueStage == _selectedQueueStage;
-
-      // 3. Branch Filter
-      final matchesBranch =
-          _selectedBranch == 'All Branches' ||
-          item.branch == _selectedBranch ||
-          item.branch == '—'; // Always show drafts/unassigned
-
-      // 4. Search Query
-      final matchesSearch =
-          _searchQuery.isEmpty ||
-          item.clientId.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          item.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          item.mobile.contains(_searchQuery);
-
-      // 5. Date Range Filter
-      bool matchesDate = true;
-      final parsedDate = _parseEnrolledDate(item.enrolledOn);
-      if (parsedDate != null) {
-        if (_fromDate != null && parsedDate.isBefore(_fromDate!)) {
-          matchesDate = false;
-        }
-        if (_toDate != null &&
-            parsedDate.isAfter(_toDate!.add(const Duration(days: 1)))) {
-          matchesDate = false;
-        }
-      }
-
-      return matchesStatus &&
-          matchesQueueStage &&
-          matchesBranch &&
-          matchesSearch &&
-          matchesDate;
-    }).toList();
-  }
-
   Future<void> _pickDate(BuildContext context, bool isFrom) async {
     final date = await showDatePicker(
       context: context,
@@ -444,14 +768,66 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
         _toDate = date;
       }
     });
+    _loadTracker();
   }
 
+  void _onSearchChanged(String value) {
+    _searchQuery = value;
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 400), () {
+      if (mounted) _loadTracker();
+    });
+    setState(() {});
+  }
+
+  void _selectStatus(String status) {
+    if (_selectedStatus == status) return;
+    setState(() {
+      _selectedStatus = status;
+      _newLoanChip = 'all';
+      _renewalChip = 'all';
+    });
+    _loadTracker();
+  }
+
+  void _selectChip(String stage) {
+    if (_activeChipKey == stage) return;
+    setState(() {
+      if (_isRenewalTab) {
+        _renewalChip = stage;
+      } else {
+        _newLoanChip = stage;
+      }
+    });
+    _loadTracker();
+  }
+
+  void _selectBranch(String branchId) {
+    setState(() {
+      _selectedBranchId = branchId;
+      _selectedCenterId = ''; // a center belongs to one branch
+    });
+    _loadTracker();
+  }
+
+  void _selectCenter(String centerId) {
+    setState(() => _selectedCenterId = centerId);
+    _loadTracker();
+  }
+
+  /// Resets every filter and reloads. A user with a single branch keeps it
+  /// selected, since there is nothing else for them to pick.
   Future<void> _refresh() async {
+    _searchDebounce?.cancel();
+    _searchController.clear();
     setState(() {
       _searchQuery = '';
       _selectedStatus = 'All';
-      _selectedBranch = 'All Branches';
-      _selectedQueueStage = 'All Stages';
+      _selectedBranchId =
+          _branches.length == 1 ? '${_branches.first['id']}' : '';
+      _selectedCenterId = '';
+      _newLoanChip = 'all';
+      _renewalChip = 'all';
       _fromDate = null;
       _toDate = null;
     });
@@ -482,7 +858,15 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
             onPressed: () {
               Navigator.pop(context);
               setState(() {
+                final before = _items.length;
                 _items.removeWhere((item) => item.clientId == clientId);
+                if (_items.length < before) {
+                  _total = (_total - 1).clamp(0, _total);
+                  for (final key in const ['pending', 'all']) {
+                    final c = _tabCounts[key];
+                    if (c != null && c > 0) _tabCounts[key] = c - 1;
+                  }
+                }
               });
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Draft deleted successfully')),
@@ -538,6 +922,7 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
                 color: const Color(0xFF0C5F34),
                 onRefresh: _refresh,
                 child: ListView(
+                  controller: _scrollController,
                   padding: EdgeInsets.symmetric(horizontal: 16.w),
                   physics: const AlwaysScrollableScrollPhysics(
                     parent: BouncingScrollPhysics(),
@@ -548,14 +933,9 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
                     // Horizontal Status Row with counts
                     _buildStatusFilterRow(),
 
-                    SizedBox(height: 16.h),
-
-                    // Filter options card
-                    _buildFiltersCard(),
-
-                    // Secondary filter for Approval Queue
-                    if (_selectedStatus == 'Approval Queue') ...[
-                      SizedBox(height: 8.h),
+                    // New Loan's sub-tabs sit directly under the top tabs
+                    if (_selectedStatus == 'New Loan' || _isRenewalTab) ...[
+                      SizedBox(height: 12.h),
                       Text(
                         'FILTER BY APPROVAL STAGE:',
                         style: TextStyle(
@@ -567,33 +947,43 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
                       _buildQueueSubFilter(),
                     ],
 
+                    SizedBox(height: 16.h),
+
+                    // Filter options card
+                    _buildFiltersCard(),
+
+
                     SizedBox(height: 18.h),
 
                     // List Section Title
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.list_alt_rounded,
-                              size: 16.sp,
-                              color: const Color(0xFF0C5F34),
-                            ),
-                            SizedBox(width: 6.w),
-                            Text(
-                              '$_selectedStatus (${_filteredItems.length} records)',
-                              style: TextStyle(
-                                fontSize: 14.sp,
-                                fontWeight: FontWeight.bold,
-                                color: const Color(0xFF0F172A),
+                        Expanded(
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.list_alt_rounded,
+                                size: 16.sp,
+                                color: const Color(0xFF0C5F34),
                               ),
-                            ),
-                          ],
+                              SizedBox(width: 6.w),
+                              Expanded(
+                                child: Text(
+                                  '$_listTitle ($_total records)',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 14.sp,
+                                    fontWeight: FontWeight.bold,
+                                    color: const Color(0xFF0F172A),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                        if (_fromDate != null ||
-                            _toDate != null ||
-                            _searchQuery.isNotEmpty)
+                        if (_hasActiveFilters) ...[
+                          SizedBox(width: 8.w),
                           GestureDetector(
                             onTap: _refresh,
                             child: Text(
@@ -605,12 +995,13 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
                               ),
                             ),
                           ),
+                        ],
                       ],
                     ),
                     SizedBox(height: 12.h),
 
                     // Dynamic cards listing
-                    if (_isLoading && _items.isEmpty)
+                    if (_isLoading && (_isRenewalTab ? _renewalItems : _items).isEmpty)
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 48),
                         child: Center(
@@ -619,10 +1010,23 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
                           ),
                         ),
                       )
-                    else if (_filteredItems.isEmpty)
+                    else if ((_isRenewalTab ? _renewalItems : _items).isEmpty)
                       _buildEmptyState()
-                    else
-                      ..._filteredItems.map(_buildTrackerCard),
+                    else ...[
+                      if (_isRenewalTab)
+                        ..._renewalItems.map(_buildRenewalCard)
+                      else
+                        ..._items.map(_buildTrackerCard),
+                      if (_isLoadingMore)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 16),
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              color: Color(0xFF0C5F34),
+                            ),
+                          ),
+                        ),
+                    ],
 
                     SizedBox(height: 20.h),
                   ],
@@ -718,36 +1122,25 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
   static const _statusIcons = {
     'All': Icons.grid_view_rounded,
     'Draft': Icons.edit_note_rounded,
-    'Approval Queue': Icons.hourglass_top_rounded,
-    'Approved': Icons.verified_rounded,
-    'Pre Disbursement': Icons.pending_actions_rounded,
-    'Disbursed': Icons.check_circle_rounded,
-    'Recheck': Icons.error_outline_rounded,
+    'New Loan': Icons.person_add_alt_1_rounded,
+    'Renewal Loan': Icons.autorenew_rounded,
   };
 
   Widget _buildStatusFilterRow() {
+    // Counts come from the server (they cover every page, not just the rows
+    // loaded so far, and don't change when you switch tabs).
     final statusCounts = {
-      'All': _items.length,
-      'Draft': _items.where((i) => i.status == 'Draft').length,
-      'Approval Queue': _items
-          .where((i) => i.status == 'Approval Queue')
-          .length,
-      'Approved': _items.where((i) => i.status == 'Approved').length,
-      'Pre Disbursement': _items
-          .where((i) => i.status == 'Pre Disbursement')
-          .length,
-      'Disbursed': _items.where((i) => i.status == 'Disbursed').length,
-      'Recheck': _items.where((i) => i.status == 'Recheck').length,
+      for (final entry in _topTabKeys.entries)
+        entry.key: entry.value == 'renewal'
+            ? (_renewalCounts['all'] ?? 0)
+            : (_tabCounts[entry.value] ?? 0),
     };
 
     final statusColors = {
       'All': const Color(0xFF0C5F34),
       'Draft': Colors.grey.shade700,
-      'Approval Queue': Colors.orange.shade800,
-      'Approved': Colors.green.shade700,
-      'Pre Disbursement': Colors.purple.shade700,
-      'Disbursed': const Color(0xFF0D6842),
-      'Recheck': Colors.red.shade700,
+      'New Loan': Colors.orange.shade700,
+      'Renewal Loan': Colors.cyan.shade700,
     };
 
     return SizedBox(
@@ -762,11 +1155,7 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
           final color = statusColors[status] ?? const Color(0xFF0C5F34);
 
           return GestureDetector(
-            onTap: () {
-              setState(() {
-                _selectedStatus = status;
-              });
-            },
+            onTap: () => _selectStatus(status),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 150),
               margin: EdgeInsets.only(right: 8.w),
@@ -830,14 +1219,78 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
     );
   }
 
-  Widget _buildQueueSubFilter() {
-    final stages = [
-      'All Stages',
-      'BM Approval',
-      'AM Approval',
-      'QC Approval',
-      'Admin Approval',
+  /// New Loan chips, in the web's order: All Stages → each approval stage
+  /// (the server's configured workflow, or BM / AM / QC / Admin when none is
+  /// configured) → Admin → Recheck → Pre-Disbursement → Disbursed → Rejected.
+  /// `key` is the server's `approvalFilter` value, or a list tab's name.
+  String get _activeChipKey => _isRenewalTab ? _renewalChip : _newLoanChip;
+
+  bool get _chipsReady => _isRenewalTab ? _renewalStagesLoaded : _stagesLoaded;
+
+  List<({String key, String label})> get _queueChips {
+    if (_isRenewalTab) {
+      // Renewal chain: the server always names its stages (it falls back to
+      // BM → AM → QC itself when no workflow is configured).
+      return [
+        (key: 'all', label: 'All Stages'),
+        for (final st in _renewalStages)
+          (key: 'stage:${st['roleSlug']}', label: '${st['stageName']}'),
+        (key: 'admin', label: 'Admin Approval'),
+        (key: 'recheck', label: 'Recheck'),
+        (key: 'pre_disbursement', label: 'Pre-Disbursement'),
+        (key: 'disbursed', label: 'Disbursed'),
+        (key: 'rejected', label: 'Rejected'),
+      ];
+    }
+    const listChips = [
+      (key: 'recheck', label: 'Recheck'),
+      (key: 'pre_disbursement', label: 'Pre-Disbursement'),
+      (key: 'disbursed', label: 'Disbursed'),
+      (key: 'rejected', label: 'Rejected'),
     ];
+    if (_workflowStages.isEmpty) {
+      return const [
+        (key: 'all', label: 'All Stages'),
+        (key: 'bm', label: 'BM Approval'),
+        (key: 'am', label: 'AM Approval'),
+        (key: 'qc', label: 'QC Verification'),
+        (key: 'admin', label: 'Admin Approval'),
+        ...listChips,
+      ];
+    }
+    return [
+      (key: 'all', label: 'All Stages'),
+      for (final st in _workflowStages)
+        (key: 'stage:${st['roleSlug']}', label: '${st['stageName']}'),
+      (key: 'admin', label: 'Admin Approval'),
+      ...listChips,
+    ];
+  }
+
+  Widget _buildQueueSubFilter() {
+    // Placeholder pills until we know which stages are configured.
+    if (!_chipsReady) {
+      return Container(
+        margin: EdgeInsets.symmetric(vertical: 8.h),
+        height: 32.h,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          physics: const NeverScrollableScrollPhysics(),
+          children: [
+            for (final w in const [80.0, 110.0, 120.0])
+              Container(
+                width: w.w,
+                margin: EdgeInsets.only(right: 8.w),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE5F7EA),
+                  borderRadius: BorderRadius.circular(20.r),
+                ),
+              ),
+          ],
+        ),
+      );
+    }
+    final chips = _queueChips;
 
     return Container(
       margin: EdgeInsets.symmetric(vertical: 8.h),
@@ -845,14 +1298,15 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
       child: ListView(
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
-        children: stages.map((stage) {
-          final isSelected = _selectedQueueStage == stage;
+        children: chips.map((chip) {
+          final isSelected = _activeChipKey == chip.key;
+          final int? count = _isRenewalTab
+              ? (chip.key == 'all' ? null : _renewalCounts[chip.key])
+              : (_listChipTabs.contains(chip.key)
+                    ? _tabCounts[chip.key]
+                    : _stageCounts[chip.key]);
           return GestureDetector(
-            onTap: () {
-              setState(() {
-                _selectedQueueStage = stage;
-              });
-            },
+            onTap: () => _selectChip(chip.key),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 150),
               margin: EdgeInsets.only(right: 8.w),
@@ -865,7 +1319,7 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
               ),
               child: Center(
                 child: Text(
-                  stage,
+                  count == null ? chip.label : '${chip.label} ($count)',
                   style: TextStyle(
                     fontSize: 11.sp,
                     fontWeight: isSelected
@@ -894,6 +1348,7 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
         children: [
           // Search input
           TextField(
+            controller: _searchController,
             style: TextStyle(fontSize: 14.sp),
             decoration: InputDecoration(
               prefixIcon: const Icon(Icons.search, color: Color(0xFF729A7D)),
@@ -911,7 +1366,7 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
                 borderRadius: BorderRadius.circular(12.r),
               ),
             ),
-            onChanged: (value) => setState(() => _searchQuery = value),
+            onChanged: _onSearchChanged,
           ),
           SizedBox(height: 12.h),
 
@@ -938,42 +1393,73 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
           SizedBox(height: 12.h),
 
           // Branch select
-          DropdownButtonFormField<String>(
-            key: ValueKey(_selectedBranch),
-            isExpanded: true,
-            initialValue: _selectedBranch,
-            style: TextStyle(fontSize: 14.sp, color: Colors.black),
-            decoration: InputDecoration(
-              prefixIcon: const Icon(
-                Icons.location_city,
-                color: Color(0xFF729A7D),
-              ),
-              filled: true,
-              fillColor: const Color(0xFFF7FBF7),
-              contentPadding: EdgeInsets.symmetric(vertical: 10.h),
-              border: OutlineInputBorder(
-                borderSide: const BorderSide(color: Color(0xFFD7E9DD)),
-                borderRadius: BorderRadius.circular(12.r),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderSide: const BorderSide(color: Color(0xFFD7E9DD)),
-                borderRadius: BorderRadius.circular(12.r),
-              ),
-            ),
-            items: _branches
-                .map(
-                  (branch) =>
-                      DropdownMenuItem(value: branch, child: Text(branch)),
-                )
-                .toList(),
-            onChanged: (value) {
-              if (value != null) {
-                setState(() => _selectedBranch = value);
-              }
-            },
+          _filterDropdown(
+            icon: Icons.location_city,
+            allLabel: 'All Branches',
+            value: _selectedBranchId,
+            options: _branches,
+            onChanged: _selectBranch,
+          ),
+          SizedBox(height: 12.h),
+
+          // Center select (only the chosen branch's centers)
+          _filterDropdown(
+            icon: Icons.account_balance,
+            allLabel: 'All Centers',
+            value: _selectedCenterId,
+            options: _visibleCenters,
+            onChanged: _selectCenter,
           ),
         ],
       ),
+    );
+  }
+
+  /// A filter dropdown with an "All ..." entry first. Options are maps with
+  /// `id` and `name`.
+  Widget _filterDropdown({
+    required IconData icon,
+    required String allLabel,
+    required String value,
+    required List<Map<String, dynamic>> options,
+    required ValueChanged<String> onChanged,
+  }) {
+    final ids = options.map((o) => '${o['id']}').toSet();
+    final current = ids.contains(value) ? value : '';
+    return DropdownButtonFormField<String>(
+      key: ValueKey('$allLabel-$current-${options.length}'),
+      isExpanded: true,
+      initialValue: current,
+      style: TextStyle(fontSize: 14.sp, color: Colors.black),
+      decoration: InputDecoration(
+        prefixIcon: Icon(icon, color: const Color(0xFF729A7D)),
+        filled: true,
+        fillColor: const Color(0xFFF7FBF7),
+        contentPadding: EdgeInsets.symmetric(vertical: 10.h),
+        border: OutlineInputBorder(
+          borderSide: const BorderSide(color: Color(0xFFD7E9DD)),
+          borderRadius: BorderRadius.circular(12.r),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderSide: const BorderSide(color: Color(0xFFD7E9DD)),
+          borderRadius: BorderRadius.circular(12.r),
+        ),
+      ),
+      items: [
+        DropdownMenuItem(value: '', child: Text(allLabel)),
+        ...options.map(
+          (o) => DropdownMenuItem(
+            value: '${o['id']}',
+            child: Text(
+              '${o['name'] ?? o['code'] ?? o['id']}',
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+      ],
+      onChanged: (v) {
+        if (v != null) onChanged(v);
+      },
     );
   }
 
@@ -1001,11 +1487,18 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
             bg: Colors.teal.shade50,
             label: 'QC APPROVAL',
           );
-        default:
+        case 'Admin Approval':
           return (
             color: Colors.deepPurple.shade400,
             bg: Colors.deepPurple.shade50,
             label: 'ADMIN APPROVAL',
+          );
+        default:
+          // A custom workflow stage — use its own name.
+          return (
+            color: Colors.indigo.shade600,
+            bg: Colors.indigo.shade50,
+            label: item.queueStage.toUpperCase(),
           );
       }
     }
@@ -1046,6 +1539,12 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
           bg: Colors.red.shade50,
           label: 'RECHECK',
         );
+      case 'Rejected':
+        return (
+          color: Colors.red.shade900,
+          bg: Colors.red.shade50,
+          label: 'REJECTED',
+        );
       default:
         return (
           color: const Color(0xFF0C5F34),
@@ -1063,6 +1562,7 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
     final style = _styleFor(item);
     final isDraft = item.status == 'Draft';
     final isRecheck = item.status == 'Recheck';
+    final isRejected = item.status == 'Rejected';
     final isMoneyStage =
         item.status == 'Pre Disbursement' || item.status == 'Disbursed';
 
@@ -1072,7 +1572,9 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16.r),
         border: Border.all(
-          color: isRecheck ? Colors.red.shade100 : const Color(0xFFE2E8F0),
+          color: (isRecheck || isRejected)
+              ? Colors.red.shade100
+              : const Color(0xFFE2E8F0),
         ),
         boxShadow: [
           BoxShadow(
@@ -1260,6 +1762,7 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
                           ),
                         ),
                       ),
+                      if (_isFdo)
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.orange.shade800,
@@ -1284,6 +1787,35 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
                       ),
                     ],
                   ),
+                ] else if (isRejected) ...[
+                  SizedBox(height: 10.h),
+                  Container(
+                    width: double.infinity,
+                    padding: EdgeInsets.all(10.r),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(10.r),
+                    ),
+                    child: Text(
+                      item.remarks.isEmpty
+                          ? 'No reason provided.'
+                          : item.remarks,
+                      style: TextStyle(
+                        fontSize: 11.5.sp,
+                        color: Colors.red.shade900,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: 8.h),
+                  Text(
+                    'Rejected at ${item.recheckStage}'
+                    '${item.requestedBy.isEmpty ? '' : ' by ${item.requestedBy}'}',
+                    style: TextStyle(
+                      fontSize: 10.5.sp,
+                      color: const Color(0xFF64748B),
+                    ),
+                  ),
                 ] else ...[
                   SizedBox(height: 8.h),
                   Text(
@@ -1297,6 +1829,245 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  // Renewal approval status → label + color, matching the web's
+  // RENEWAL_STATUS_CONFIG.
+  static const _renewalStatusLabels = {
+    'SUBMITTED': ('Submitted', Colors.amber),
+    'PENDING_BM_REVIEW': ('Pending BM', Colors.green),
+    'BM_RETAKE_REQUIRED': ('BM Retake', Colors.orange),
+    'PENDING_AM_REVIEW': ('Pending AM', Colors.blue),
+    'AM_RETAKE_REQUIRED': ('AM Retake', Colors.pink),
+    'PENDING_QC_VERIFICATION': ('Pending QC', Colors.teal),
+    'QC_VERIFICATION_RETAKE_REQUIRED': ('QC Retake', Colors.cyan),
+    'PENDING_FINAL_REVIEW': ('Pending Admin', Colors.deepPurple),
+    'FINAL_RETAKE_REQUIRED': ('Admin Retake', Colors.purple),
+    'PENDING_LEVEL_1': ('Level 1 Pending', Colors.green),
+    'LEVEL_1_RETAKE_REQUIRED': ('L1 Retake', Colors.orange),
+    'PENDING_LEVEL_2': ('Level 2 Pending', Colors.blue),
+    'LEVEL_2_RETAKE_REQUIRED': ('L2 Retake', Colors.pink),
+    'PENDING_LEVEL_3': ('Level 3 Pending', Colors.teal),
+    'LEVEL_3_RETAKE_REQUIRED': ('L3 Retake', Colors.cyan),
+    'PENDING_LEVEL_4': ('Level 4 Pending', Colors.deepPurple),
+    'LEVEL_4_RETAKE_REQUIRED': ('L4 Retake', Colors.purple),
+    'APPROVED': ('Approved', Colors.green),
+    'REJECTED': ('Rejected', Colors.red),
+  };
+
+  // Disbursement status → label + color (web's DISB_STATUS_CONFIG).
+  static const _disbStatusLabels = {
+    'PENDING_LEVEL1': ('Pending AM', Colors.orange),
+    'APPROVED_LEVEL1': ('AM Approved', Colors.blue),
+    'PENDING_LEVEL2': ('Pending BM', Colors.deepPurple),
+    'APPROVED_LEVEL2': ('Ready to Disburse', Colors.green),
+    'DISBURSED': ('Disbursed', Colors.teal),
+    'REJECTED': ('Rejected', Colors.red),
+  };
+
+  /// The badge on a renewal card: the disbursement status on the
+  /// Pre-Disbursement / Disbursed chips, "Image Recheck" when only a document
+  /// was flagged, otherwise the approval status.
+  ({String label, Color color, Color bg}) _renewalBadge(RenewalTrackerItem it) {
+    ({String label, Color color, Color bg}) of(String label, MaterialColor c) =>
+        (label: label, color: c.shade700, bg: c.shade50);
+
+    if (_renewalChip == 'pre_disbursement' || _renewalChip == 'disbursed') {
+      final cfg = _disbStatusLabels[it.disbursementStatus];
+      return cfg == null
+          ? of(it.disbursementStatus, Colors.grey)
+          : of(cfg.$1, cfg.$2);
+    }
+    if (it.recheck?['documentOnly'] == true) {
+      return of('Image Recheck', Colors.pink);
+    }
+    final cfg = _renewalStatusLabels[it.renewalApprovalStatus];
+    return cfg == null
+        ? of(it.renewalApprovalStatus, Colors.grey)
+        : of(cfg.$1, cfg.$2);
+  }
+
+  /// A renewal loan application card — read-only, like the web's Renewal Loan
+  /// tab: client, loan number and amount, stage badge, FDO, applied date, plus
+  /// the recheck remarks / rejection details where they apply.
+  Widget _buildRenewalCard(RenewalTrackerItem item) {
+    final badge = _renewalBadge(item);
+    final recheck = item.recheck;
+    final rejection = item.rejection;
+    final recheckBy = recheck?['by']?.toString();
+    final recheckRemarks = recheck?['remarks']?.toString();
+    final isRecheckChip = _renewalChip == 'recheck';
+    final isRejected = rejection != null;
+
+    return Container(
+      margin: EdgeInsets.only(bottom: 12.h),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16.r),
+        border: Border.all(
+          color: isRejected ? Colors.red.shade100 : const Color(0xFFE2E8F0),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(14.r),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _avatar(item.clientName, badge.color),
+                SizedBox(width: 10.w),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.clientName.isEmpty
+                            ? item.clientDisplayId
+                            : item.clientName,
+                        style: TextStyle(
+                          fontSize: 14.5.sp,
+                          fontWeight: FontWeight.w800,
+                          color: const Color(0xFF0F172A),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      SizedBox(height: 2.h),
+                      Text(
+                        item.clientDisplayId,
+                        style: TextStyle(
+                          fontSize: 11.sp,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFF0C5F34),
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(width: 6.w),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    _badge(badge.label.toUpperCase(), badge.color, badge.bg),
+                    if (recheckBy != null && recheckBy.isNotEmpty) ...[
+                      SizedBox(height: 3.h),
+                      Text(
+                        'by $recheckBy',
+                        style: TextStyle(
+                          fontSize: 10.sp,
+                          color: const Color(0xFF94A3B8),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+            SizedBox(height: 10.h),
+            Wrap(
+              spacing: 14.w,
+              runSpacing: 6.h,
+              children: [
+                _metaChip(Icons.receipt_long_outlined, item.loanNumber),
+                _metaChip(
+                  Icons.currency_rupee_rounded,
+                  _formatAmount('${item.amount}'),
+                ),
+                if (item.mobileNumber != null)
+                  _metaChip(Icons.call_outlined, item.mobileNumber!),
+                if (item.centerName != null)
+                  _metaChip(Icons.apartment_outlined, item.centerName!),
+                if (item.branchName != null)
+                  _metaChip(Icons.account_tree_outlined, item.branchName!),
+                if (item.productName != null)
+                  _metaChip(Icons.inventory_2_outlined, item.productName!),
+                if (item.fdoName != null)
+                  _metaChip(Icons.badge_outlined, item.fdoName!),
+              ],
+            ),
+            if (isRecheckChip &&
+                recheckRemarks != null &&
+                recheckRemarks.isNotEmpty) ...[
+              SizedBox(height: 10.h),
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.all(10.r),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(10.r),
+                ),
+                child: Text(
+                  recheckRemarks,
+                  style: TextStyle(
+                    fontSize: 11.5.sp,
+                    color: Colors.red.shade900,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+            if (isRejected) ...[
+              SizedBox(height: 10.h),
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.all(10.r),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(10.r),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Rejected by ${rejection['stageName'] ?? 'Admin'}'
+                      ' · ${rejection['by'] ?? '—'}'
+                      ' · ${_displayDate(rejection['at'])}',
+                      style: TextStyle(
+                        fontSize: 11.sp,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.red.shade900,
+                      ),
+                    ),
+                    if ((rejection['remarks']?.toString() ?? '').isNotEmpty) ...[
+                      SizedBox(height: 4.h),
+                      Text(
+                        '${rejection['remarks']}',
+                        style: TextStyle(
+                          fontSize: 11.5.sp,
+                          color: Colors.red.shade900,
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+            SizedBox(height: 8.h),
+            Text(
+              _renewalChip == 'disbursed'
+                  ? 'Applied ${_displayDate(item.createdAt)}'
+                        ' • Disbursed ${_displayDate(item.disbursedAt)}'
+                  : 'Applied ${_displayDate(item.createdAt)}',
+              style: TextStyle(
+                fontSize: 10.5.sp,
+                color: const Color(0xFF729A7D),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1427,8 +2198,8 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
           ),
           SizedBox(height: 4.h),
           Text(
-            _selectedStatus == 'Approved'
-                ? 'No approved clients yet'
+            _isRenewalTab
+                ? 'No renewal loans match the selected filters.'
                 : 'No records match the selected filters.',
             style: TextStyle(fontSize: 11.sp, color: const Color(0xFF64748B)),
           ),

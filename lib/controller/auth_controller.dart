@@ -9,6 +9,7 @@ import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/view/auth/login_screen.dart';
 import 'package:sarvam/view/auth/company_selection_screen.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
+import 'package:sarvam/services/permission_service.dart';
 import 'package:sarvam/services/secure_session_service.dart';
 
 /// Admin decision on a user's request to re-register / update their face.
@@ -1081,6 +1082,7 @@ class AuthController extends GetxController {
       await prefs.remove('lastName');
       await prefs.remove('role');
       await prefs.remove('rbacRoleName');
+      await PermissionService.clear();
       await prefs.remove('assignedBranchIds');
       await prefs.remove('branchId');
       await prefs.remove('branchName');

@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:sarvam/constant/page_access.dart';
+import 'package:sarvam/constant/roles.dart';
 import 'package:sarvam/controller/member_individual_detail_controller.dart';
+import 'package:sarvam/services/permission_service.dart';
 import 'package:sarvam/services/api_client.dart';
 import 'package:sarvam/services/enrollment_api_service.dart';
 import 'package:sarvam/view/BM/group_assignment/widgets/id_dropdown.dart';
@@ -41,14 +44,40 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
     vsync: this,
   );
 
+  // Write access (save / review / photos / complete). BM, AM and Admin always
+  // have it; other roles need add or edit granted on the web Role Permissions
+  // screen. The backend enforces this too — this just hides what would fail.
+  bool _canWrite = false;
+  // Changing a loan's product is BM / Admin only on the backend (a page grant
+  // doesn't open it), so it ignores page permissions.
+  bool _canChangeProduct = false;
+
+  Future<void> _refreshAccess() async {
+    final role = await RoleScope.current();
+    final write = await PageAccess.canWrite(
+      PagePaths.memberIndividual,
+      builtInRoles: const [AppRole.branchManager, AppRole.areaManager],
+    );
+    final product = role == AppRole.admin || role == AppRole.branchManager;
+    if (mounted && (write != _canWrite || product != _canChangeProduct)) {
+      setState(() {
+        _canWrite = write;
+        _canChangeProduct = product;
+      });
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    _refreshAccess();
+    PermissionService.changes.addListener(_refreshAccess);
     controller.loadRecord();
   }
 
   @override
   void dispose() {
+    PermissionService.changes.removeListener(_refreshAccess);
     _tabController.dispose();
     controller.disposeControllers();
     super.dispose();
@@ -472,7 +501,7 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
             () => SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: controller.isSavingCashFlow.value
+                onPressed: controller.isSavingCashFlow.value || !_canWrite
                     ? null
                     : () async {
                         final ok = await controller.saveCashFlow();
@@ -708,7 +737,9 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
               child: SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: () => _showEditProductSheet(context),
+                  onPressed: _canChangeProduct
+                      ? () => _showEditProductSheet(context)
+                      : null,
                   style: OutlinedButton.styleFrom(
                     foregroundColor: _green,
                     side: const BorderSide(color: _green, width: 1.2),
@@ -733,7 +764,8 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
               child: ElevatedButton.icon(
                 onPressed:
                     controller.isCompletingAppraisal.value ||
-                        controller.loanAppraisalComplete
+                        controller.loanAppraisalComplete ||
+                        !_canWrite
                     ? null
                     : () async {
                         final ok = await controller.markLoanAppraisalReviewed();
@@ -1353,7 +1385,7 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
                 Expanded(
                   child: Obx(
                     () => OutlinedButton.icon(
-                      onPressed: controller.isUploadingPhoto.value
+                      onPressed: controller.isUploadingPhoto.value || !_canWrite
                           ? null
                           : () => controller.captureAndUploadPhoto(
                               isMandatory: !controller.hasMandatoryPhoto,
@@ -1394,7 +1426,8 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
                 onPressed:
                     controller.isCompletingVisit.value ||
                         controller.houseHoldVisitComplete ||
-                        !controller.hasMandatoryPhoto
+                        !controller.hasMandatoryPhoto ||
+                        !_canWrite
                     ? null
                     : () => controller.markHouseholdVisitComplete(),
                 style: ElevatedButton.styleFrom(
@@ -1696,7 +1729,7 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
                             ),
                           ),
                           IconButton(
-                            onPressed: deleting
+                            onPressed: deleting || !_canWrite
                                 ? null
                                 : () => controller.deletePhoto(photoId),
                             icon: deleting

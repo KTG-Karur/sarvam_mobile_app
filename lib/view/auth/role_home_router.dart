@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/constant/roles.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
+import 'package:sarvam/services/permission_service.dart';
 import 'package:sarvam/services/tracking_service.dart';
 import 'package:sarvam/view/FDO/home/home.dart';
 import 'package:sarvam/view/BM/BM_home.dart';
@@ -383,6 +385,10 @@ Future<Widget> resolveHomeScreen() async {
   final prefs = await SharedPreferences.getInstance();
   final role = prefs.getString('role') ?? '';
   final rbacRoleName = prefs.getString('rbacRoleName') ?? '';
+
+  // Load the stored RBAC page permissions, then refresh them in the background.
+  await PermissionService.loadCached();
+  unawaited(PermissionService.refresh());
 
   final resolved = RoleScope.resolve(role, rbacRoleName);
   debugPrint('[Role Home Router] $role role detected ($rbacRoleName), showing ${resolved.name.toUpperCase()} dashboard.');
