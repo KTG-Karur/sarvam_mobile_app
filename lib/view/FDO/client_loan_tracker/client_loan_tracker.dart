@@ -7,6 +7,8 @@ import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/constant/roles.dart';
 import 'package:sarvam/services/api_client.dart';
 import 'package:sarvam/view/FDO/client_loan_tracker/fdo_recheck_dialog.dart';
+import 'package:sarvam/view/FDO/client_loan_tracker/renewal_loan_detail.dart';
+import 'package:sarvam/view/FDO/client_loan_tracker/renewal_status_labels.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ClientLoanTracker extends StatefulWidget {
@@ -17,6 +19,9 @@ class ClientLoanTracker extends StatefulWidget {
 }
 
 class LoanTrackerItem {
+  /// The record's internal id (what the draft-delete API takes) — [clientId]
+  /// is the business id shown to people.
+  final String dbId;
   final String clientId;
   final String name;
   final String mobile;
@@ -43,6 +48,7 @@ class LoanTrackerItem {
   final List<Map<String, dynamic>> approvalHistory;
 
   LoanTrackerItem({
+    this.dbId = '',
     required this.clientId,
     required this.name,
     required this.mobile,
@@ -190,6 +196,8 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
   List<Map<String, dynamic>> _workflowStages = [];
   Map<String, int> _stageCounts = {}; // 'stage:<roleSlug>' / 'admin' → waiting
   bool _isFdo = false;
+  // Re-access a rejected member / renewal: Admin, BM and AM (as on the web).
+  bool _canReaccess = false;
   // False until the first response says which stages are configured, so the
   // chip row doesn't flash the default BM / AM / QC names first.
   bool _stagesLoaded = false;
@@ -219,7 +227,8 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
 
   /// The server tab behind the current top tab + New Loan chip.
   String get _activeTabKey {
-    if (_selectedStatus != 'New Loan') return _topTabKeys[_selectedStatus] ?? 'all';
+    if (_selectedStatus != 'New Loan')
+      return _topTabKeys[_selectedStatus] ?? 'all';
     if (_newLoanChip == 'all') return 'new_loan';
     if (_listChipTabs.contains(_newLoanChip)) return _newLoanChip;
     return 'yet_to_approve';
@@ -290,14 +299,24 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
       final rbacRoleName = prefs.getString('rbacRoleName') ?? '';
       final userId = prefs.getString('userId') ?? '';
       final isAM =
-          RoleScope.isAreaManager(role) || RoleScope.isAreaManager(rbacRoleName);
+          RoleScope.isAreaManager(role) ||
+          RoleScope.isAreaManager(rbacRoleName);
       // Only an FDO can fix and resubmit a recheck, as on the web.
-      _isFdo = RoleScope.resolve(role, rbacRoleName) == AppRole.fdo;
+      final resolvedRole = RoleScope.resolve(role, rbacRoleName);
+      _isFdo = resolvedRole == AppRole.fdo;
+      _canReaccess =
+          resolvedRole == AppRole.admin ||
+          resolvedRole == AppRole.branchManager ||
+          resolvedRole == AppRole.areaManager;
 
       final branchFuture = isAM
-          ? _apiClient.get('${Api.baseUrl}/api/area-manager-branches?userId=$userId')
+          ? _apiClient.get(
+              '${Api.baseUrl}/api/area-manager-branches?userId=$userId',
+            )
           : _apiClient.get('${Api.branchesUrl}?permitted=hoWide');
-      final centerFuture = _apiClient.get('${Api.centersUrl}?includeInactive=false');
+      final centerFuture = _apiClient.get(
+        '${Api.centersUrl}?includeInactive=false',
+      );
       final results = await Future.wait([branchFuture, centerFuture]);
 
       final branchBody = results[0].body;
@@ -360,15 +379,16 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
         'page': '$nextPage',
         'pageSize': '$_pageSize',
       };
-      if (_searchQuery.trim().isNotEmpty) params['search'] = _searchQuery.trim();
+      if (_searchQuery.trim().isNotEmpty)
+        params['search'] = _searchQuery.trim();
       if (_fromDate != null) params['dateFrom'] = _ymd(_fromDate!);
       if (_toDate != null) params['dateTo'] = _ymd(_toDate!);
       if (_selectedBranchId.isNotEmpty) params['branchId'] = _selectedBranchId;
       if (_selectedCenterId.isNotEmpty) params['centerId'] = _selectedCenterId;
 
-      final url = Uri.parse('${Api.baseUrl}/api/loans/renewal-tracker')
-          .replace(queryParameters: params)
-          .toString();
+      final url = Uri.parse(
+        '${Api.baseUrl}/api/loans/renewal-tracker',
+      ).replace(queryParameters: params).toString();
       final response = await _apiClient.get(url);
       if (!mounted) return;
 
@@ -466,15 +486,16 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
       if (tabKey == 'yet_to_approve') {
         params['approvalFilter'] = _newLoanChip;
       }
-      if (_searchQuery.trim().isNotEmpty) params['search'] = _searchQuery.trim();
+      if (_searchQuery.trim().isNotEmpty)
+        params['search'] = _searchQuery.trim();
       if (_fromDate != null) params['dateFrom'] = _ymd(_fromDate!);
       if (_toDate != null) params['dateTo'] = _ymd(_toDate!);
       if (_selectedBranchId.isNotEmpty) params['branchId'] = _selectedBranchId;
       if (_selectedCenterId.isNotEmpty) params['centerId'] = _selectedCenterId;
 
-      final url = Uri.parse(Api.clientLoanTrackerUrl)
-          .replace(queryParameters: params)
-          .toString();
+      final url = Uri.parse(
+        Api.clientLoanTrackerUrl,
+      ).replace(queryParameters: params).toString();
       final response = await _apiClient.get(url);
       if (!mounted) return;
 
@@ -629,6 +650,7 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
             .trim();
 
     return LoanTrackerItem(
+      dbId: '${client['id'] ?? ''}',
       clientId: '${client['clientId'] ?? client['id'] ?? '—'}',
       name: '${client['firstName'] ?? ''} ${client['lastName'] ?? ''}'.trim(),
       mobile: '${client['mobileNumber'] ?? '—'}',
@@ -823,8 +845,9 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
     setState(() {
       _searchQuery = '';
       _selectedStatus = 'All';
-      _selectedBranchId =
-          _branches.length == 1 ? '${_branches.first['id']}' : '';
+      _selectedBranchId = _branches.length == 1
+          ? '${_branches.first['id']}'
+          : '';
       _selectedCenterId = '';
       _newLoanChip = 'all';
       _renewalChip = 'all';
@@ -834,48 +857,135 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
     await _loadTracker();
   }
 
-  void _deleteDraft(String clientId) {
-    showDialog(
+  String? _apiMessage(dynamic body) {
+    if (body is! Map) return null;
+    final m = (body['message'] ?? body['error'])?.toString();
+    return m == null || m.isEmpty ? null : m;
+  }
+
+  void _snack(String message, {bool error = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: error ? Colors.red.shade700 : const Color(0xFF0C5F34),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  /// Deletes a draft on the server (`DELETE /clients/draft?id=`), like the web
+  /// tracker, then reloads the list. The server only lets an FDO delete their
+  /// own drafts, and only records still in DRAFT.
+  Future<void> _deleteDraft(LoanTrackerItem item) async {
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16.r),
         ),
         title: const Text('Delete Draft'),
-        content: const Text(
-          'Are you sure you want to delete this draft application?',
-        ),
+        content: const Text('Delete this draft? This cannot be undone.'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancel'),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red.shade700,
             ),
+            onPressed: () => Navigator.pop(context, true),
             child: const Text('Delete', style: TextStyle(color: Colors.white)),
-            onPressed: () {
-              Navigator.pop(context);
-              setState(() {
-                final before = _items.length;
-                _items.removeWhere((item) => item.clientId == clientId);
-                if (_items.length < before) {
-                  _total = (_total - 1).clamp(0, _total);
-                  for (final key in const ['pending', 'all']) {
-                    final c = _tabCounts[key];
-                    if (c != null && c > 0) _tabCounts[key] = c - 1;
-                  }
-                }
-              });
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Draft deleted successfully')),
-              );
-            },
           ),
         ],
       ),
     );
+    if (confirmed != true || !mounted) return;
+
+    if (item.dbId.isEmpty) {
+      _snack('Could not delete draft.', error: true);
+      return;
+    }
+    try {
+      final response = await _apiClient.delete(
+        '${Api.clientDraftUrl}?id=${Uri.encodeQueryComponent(item.dbId)}',
+      );
+      final body = response.body;
+      if (body is Map && body['success'] == true) {
+        _snack('Draft deleted');
+        await _loadTracker();
+      } else {
+        _snack(_apiMessage(body) ?? 'Could not delete draft.', error: true);
+      }
+    } catch (_) {
+      _snack('Could not delete draft.', error: true);
+    }
+  }
+
+  /// Re-access a rejected member (`renewal: false`, [targetId] = the business
+  /// client id) or a rejected renewal loan (`renewal: true`, [targetId] = the
+  /// loan id). It goes back to the approval stage that rejected it; remarks
+  /// are required. Mirrors the web's re-access dialog.
+  Future<void> _openReaccess({
+    required bool renewal,
+    required String targetId,
+    required String name,
+    String? subtitle,
+  }) async {
+    final result = await showDialog<({bool ok, String message})>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _ReaccessDialog(
+        renewal: renewal,
+        name: name,
+        subtitle: subtitle,
+        onSubmit: (remarks) => _submitReaccess(
+          renewal: renewal,
+          targetId: targetId,
+          remarks: remarks,
+          name: name,
+          subtitle: subtitle,
+        ),
+      ),
+    );
+    if (result == null || !mounted) return;
+    _snack(result.message, error: !result.ok);
+    if (result.ok) await _loadTracker();
+  }
+
+  Future<({bool ok, String message})> _submitReaccess({
+    required bool renewal,
+    required String targetId,
+    required String remarks,
+    required String name,
+    String? subtitle,
+  }) async {
+    try {
+      final url = renewal
+          ? '${Api.baseUrl}/api/approval/loans/'
+                '${Uri.encodeComponent(targetId)}/renewal-reaccess'
+          : '${Api.baseUrl}/api/approval/clients/'
+                '${Uri.encodeComponent(targetId)}/reaccess';
+      final response = await _apiClient.post(url, {'remarks': remarks});
+      final body = response.body;
+      if (body is Map && body['success'] == true) {
+        final data = body['data'];
+        final back = data is Map && data['returnedToRejectingStage'] == true;
+        final label = renewal ? 'Renewal ${subtitle ?? ''} ($name)' : name;
+        return (
+          ok: true,
+          message: back
+              ? '$label is back in the approval queue at the stage that '
+                    'rejected it.'
+              : '$label restarted at the first approval stage (the rejecting '
+                    'stage is no longer in the workflow).',
+        );
+      }
+      return (ok: false, message: _apiMessage(body) ?? 'Could not re-access.');
+    } catch (_) {
+      return (ok: false, message: 'Could not re-access.');
+    }
   }
 
   /// Opens the real re-upload/resubmit flow (mirrors the web app's
@@ -952,7 +1062,6 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
                     // Filter options card
                     _buildFiltersCard(),
 
-
                     SizedBox(height: 18.h),
 
                     // List Section Title
@@ -1001,7 +1110,8 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
                     SizedBox(height: 12.h),
 
                     // Dynamic cards listing
-                    if (_isLoading && (_isRenewalTab ? _renewalItems : _items).isEmpty)
+                    if (_isLoading &&
+                        (_isRenewalTab ? _renewalItems : _items).isEmpty)
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 48),
                         child: Center(
@@ -1655,7 +1765,7 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton.icon(
-                      onPressed: () => _deleteDraft(item.clientId),
+                      onPressed: () => _deleteDraft(item),
                       icon: Icon(
                         Icons.delete_outline,
                         size: 16.sp,
@@ -1763,28 +1873,28 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
                         ),
                       ),
                       if (_isFdo)
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange.shade800,
-                          elevation: 0,
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 12.w,
-                            vertical: 8.h,
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange.shade800,
+                            elevation: 0,
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 12.w,
+                              vertical: 8.h,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8.r),
+                            ),
                           ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8.r),
+                          onPressed: () => _openRecheckAction(item),
+                          child: Text(
+                            item.recheckAction,
+                            style: TextStyle(
+                              fontSize: 10.5.sp,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
-                        onPressed: () => _openRecheckAction(item),
-                        child: Text(
-                          item.recheckAction,
-                          style: TextStyle(
-                            fontSize: 10.5.sp,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
                     ],
                   ),
                 ] else if (isRejected) ...[
@@ -1816,6 +1926,20 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
                       color: const Color(0xFF64748B),
                     ),
                   ),
+                  if (_canReaccess && _newLoanChip == 'rejected') ...[
+                    SizedBox(height: 6.h),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: _reaccessButton(
+                        () => _openReaccess(
+                          renewal: false,
+                          targetId: item.clientId,
+                          name: item.name,
+                          subtitle: item.clientId,
+                        ),
+                      ),
+                    ),
+                  ],
                 ] else ...[
                   SizedBox(height: 8.h),
                   Text(
@@ -1834,40 +1958,6 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
     );
   }
 
-  // Renewal approval status → label + color, matching the web's
-  // RENEWAL_STATUS_CONFIG.
-  static const _renewalStatusLabels = {
-    'SUBMITTED': ('Submitted', Colors.amber),
-    'PENDING_BM_REVIEW': ('Pending BM', Colors.green),
-    'BM_RETAKE_REQUIRED': ('BM Retake', Colors.orange),
-    'PENDING_AM_REVIEW': ('Pending AM', Colors.blue),
-    'AM_RETAKE_REQUIRED': ('AM Retake', Colors.pink),
-    'PENDING_QC_VERIFICATION': ('Pending QC', Colors.teal),
-    'QC_VERIFICATION_RETAKE_REQUIRED': ('QC Retake', Colors.cyan),
-    'PENDING_FINAL_REVIEW': ('Pending Admin', Colors.deepPurple),
-    'FINAL_RETAKE_REQUIRED': ('Admin Retake', Colors.purple),
-    'PENDING_LEVEL_1': ('Level 1 Pending', Colors.green),
-    'LEVEL_1_RETAKE_REQUIRED': ('L1 Retake', Colors.orange),
-    'PENDING_LEVEL_2': ('Level 2 Pending', Colors.blue),
-    'LEVEL_2_RETAKE_REQUIRED': ('L2 Retake', Colors.pink),
-    'PENDING_LEVEL_3': ('Level 3 Pending', Colors.teal),
-    'LEVEL_3_RETAKE_REQUIRED': ('L3 Retake', Colors.cyan),
-    'PENDING_LEVEL_4': ('Level 4 Pending', Colors.deepPurple),
-    'LEVEL_4_RETAKE_REQUIRED': ('L4 Retake', Colors.purple),
-    'APPROVED': ('Approved', Colors.green),
-    'REJECTED': ('Rejected', Colors.red),
-  };
-
-  // Disbursement status → label + color (web's DISB_STATUS_CONFIG).
-  static const _disbStatusLabels = {
-    'PENDING_LEVEL1': ('Pending AM', Colors.orange),
-    'APPROVED_LEVEL1': ('AM Approved', Colors.blue),
-    'PENDING_LEVEL2': ('Pending BM', Colors.deepPurple),
-    'APPROVED_LEVEL2': ('Ready to Disburse', Colors.green),
-    'DISBURSED': ('Disbursed', Colors.teal),
-    'REJECTED': ('Rejected', Colors.red),
-  };
-
   /// The badge on a renewal card: the disbursement status on the
   /// Pre-Disbursement / Disbursed chips, "Image Recheck" when only a document
   /// was flagged, otherwise the approval status.
@@ -1876,7 +1966,7 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
         (label: label, color: c.shade700, bg: c.shade50);
 
     if (_renewalChip == 'pre_disbursement' || _renewalChip == 'disbursed') {
-      final cfg = _disbStatusLabels[it.disbursementStatus];
+      final cfg = kDisbStatusLabels[it.disbursementStatus];
       return cfg == null
           ? of(it.disbursementStatus, Colors.grey)
           : of(cfg.$1, cfg.$2);
@@ -1884,7 +1974,7 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
     if (it.recheck?['documentOnly'] == true) {
       return of('Image Recheck', Colors.pink);
     }
-    final cfg = _renewalStatusLabels[it.renewalApprovalStatus];
+    final cfg = kRenewalStatusLabels[it.renewalApprovalStatus];
     return cfg == null
         ? of(it.renewalApprovalStatus, Colors.grey)
         : of(cfg.$1, cfg.$2);
@@ -1918,160 +2008,209 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
           ),
         ],
       ),
-      child: Padding(
-        padding: EdgeInsets.all(14.r),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _avatar(item.clientName, badge.color),
-                SizedBox(width: 10.w),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item.clientName.isEmpty
-                            ? item.clientDisplayId
-                            : item.clientName,
-                        style: TextStyle(
-                          fontSize: 14.5.sp,
-                          fontWeight: FontWeight.w800,
-                          color: const Color(0xFF0F172A),
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      SizedBox(height: 2.h),
-                      Text(
-                        item.clientDisplayId,
-                        style: TextStyle(
-                          fontSize: 11.sp,
-                          fontWeight: FontWeight.w700,
-                          color: const Color(0xFF0C5F34),
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                SizedBox(width: 6.w),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    _badge(badge.label.toUpperCase(), badge.color, badge.bg),
-                    if (recheckBy != null && recheckBy.isNotEmpty) ...[
-                      SizedBox(height: 3.h),
-                      Text(
-                        'by $recheckBy',
-                        style: TextStyle(
-                          fontSize: 10.sp,
-                          color: const Color(0xFF94A3B8),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16.r),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16.r),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => RenewalLoanDetail(loanId: item.id),
             ),
-            SizedBox(height: 10.h),
-            Wrap(
-              spacing: 14.w,
-              runSpacing: 6.h,
+          ),
+          child: Padding(
+            padding: EdgeInsets.all(14.r),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _metaChip(Icons.receipt_long_outlined, item.loanNumber),
-                _metaChip(
-                  Icons.currency_rupee_rounded,
-                  _formatAmount('${item.amount}'),
-                ),
-                if (item.mobileNumber != null)
-                  _metaChip(Icons.call_outlined, item.mobileNumber!),
-                if (item.centerName != null)
-                  _metaChip(Icons.apartment_outlined, item.centerName!),
-                if (item.branchName != null)
-                  _metaChip(Icons.account_tree_outlined, item.branchName!),
-                if (item.productName != null)
-                  _metaChip(Icons.inventory_2_outlined, item.productName!),
-                if (item.fdoName != null)
-                  _metaChip(Icons.badge_outlined, item.fdoName!),
-              ],
-            ),
-            if (isRecheckChip &&
-                recheckRemarks != null &&
-                recheckRemarks.isNotEmpty) ...[
-              SizedBox(height: 10.h),
-              Container(
-                width: double.infinity,
-                padding: EdgeInsets.all(10.r),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(10.r),
-                ),
-                child: Text(
-                  recheckRemarks,
-                  style: TextStyle(
-                    fontSize: 11.5.sp,
-                    color: Colors.red.shade900,
-                    height: 1.3,
-                  ),
-                ),
-              ),
-            ],
-            if (isRejected) ...[
-              SizedBox(height: 10.h),
-              Container(
-                width: double.infinity,
-                padding: EdgeInsets.all(10.r),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(10.r),
-                ),
-                child: Column(
+                Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Rejected by ${rejection['stageName'] ?? 'Admin'}'
-                      ' · ${rejection['by'] ?? '—'}'
-                      ' · ${_displayDate(rejection['at'])}',
-                      style: TextStyle(
-                        fontSize: 11.sp,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.red.shade900,
+                    _avatar(item.clientName, badge.color),
+                    SizedBox(width: 10.w),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.clientName.isEmpty
+                                ? item.clientDisplayId
+                                : item.clientName,
+                            style: TextStyle(
+                              fontSize: 14.5.sp,
+                              fontWeight: FontWeight.w800,
+                              color: const Color(0xFF0F172A),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          SizedBox(height: 2.h),
+                          Text(
+                            item.clientDisplayId,
+                            style: TextStyle(
+                              fontSize: 11.sp,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF0C5F34),
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    if ((rejection['remarks']?.toString() ?? '').isNotEmpty) ...[
-                      SizedBox(height: 4.h),
-                      Text(
-                        '${rejection['remarks']}',
-                        style: TextStyle(
-                          fontSize: 11.5.sp,
-                          color: Colors.red.shade900,
-                          height: 1.3,
+                    SizedBox(width: 6.w),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        _badge(
+                          badge.label.toUpperCase(),
+                          badge.color,
+                          badge.bg,
                         ),
-                      ),
-                    ],
+                        if (recheckBy != null && recheckBy.isNotEmpty) ...[
+                          SizedBox(height: 3.h),
+                          Text(
+                            'by $recheckBy',
+                            style: TextStyle(
+                              fontSize: 10.sp,
+                              color: const Color(0xFF94A3B8),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                   ],
                 ),
-              ),
-            ],
-            SizedBox(height: 8.h),
-            Text(
-              _renewalChip == 'disbursed'
-                  ? 'Applied ${_displayDate(item.createdAt)}'
-                        ' • Disbursed ${_displayDate(item.disbursedAt)}'
-                  : 'Applied ${_displayDate(item.createdAt)}',
-              style: TextStyle(
-                fontSize: 10.5.sp,
-                color: const Color(0xFF729A7D),
-              ),
+                SizedBox(height: 10.h),
+                Wrap(
+                  spacing: 14.w,
+                  runSpacing: 6.h,
+                  children: [
+                    _metaChip(Icons.receipt_long_outlined, item.loanNumber),
+                    _metaChip(
+                      Icons.currency_rupee_rounded,
+                      _formatAmount('${item.amount}'),
+                    ),
+                    if (item.mobileNumber != null)
+                      _metaChip(Icons.call_outlined, item.mobileNumber!),
+                    if (item.centerName != null)
+                      _metaChip(Icons.apartment_outlined, item.centerName!),
+                    if (item.branchName != null)
+                      _metaChip(Icons.account_tree_outlined, item.branchName!),
+                    if (item.productName != null)
+                      _metaChip(Icons.inventory_2_outlined, item.productName!),
+                    if (item.fdoName != null)
+                      _metaChip(Icons.badge_outlined, item.fdoName!),
+                  ],
+                ),
+                if (isRecheckChip &&
+                    recheckRemarks != null &&
+                    recheckRemarks.isNotEmpty) ...[
+                  SizedBox(height: 10.h),
+                  Container(
+                    width: double.infinity,
+                    padding: EdgeInsets.all(10.r),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(10.r),
+                    ),
+                    child: Text(
+                      recheckRemarks,
+                      style: TextStyle(
+                        fontSize: 11.5.sp,
+                        color: Colors.red.shade900,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                ],
+                if (isRejected) ...[
+                  SizedBox(height: 10.h),
+                  Container(
+                    width: double.infinity,
+                    padding: EdgeInsets.all(10.r),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(10.r),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Rejected by ${rejection['stageName'] ?? 'Admin'}'
+                          ' · ${rejection['by'] ?? '—'}'
+                          ' · ${_displayDate(rejection['at'])}',
+                          style: TextStyle(
+                            fontSize: 11.sp,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.red.shade900,
+                          ),
+                        ),
+                        if ((rejection['remarks']?.toString() ?? '')
+                            .isNotEmpty) ...[
+                          SizedBox(height: 4.h),
+                          Text(
+                            '${rejection['remarks']}',
+                            style: TextStyle(
+                              fontSize: 11.5.sp,
+                              color: Colors.red.shade900,
+                              height: 1.3,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+                if (_canReaccess &&
+                    _renewalChip == 'rejected' &&
+                    item.renewalApprovalStatus == 'REJECTED') ...[
+                  SizedBox(height: 8.h),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: _reaccessButton(
+                      () => _openReaccess(
+                        renewal: true,
+                        targetId: item.id,
+                        name: item.clientName,
+                        subtitle: item.loanNumber,
+                      ),
+                    ),
+                  ),
+                ],
+                SizedBox(height: 8.h),
+                Text(
+                  _renewalChip == 'disbursed'
+                      ? 'Applied ${_displayDate(item.createdAt)}'
+                            ' • Disbursed ${_displayDate(item.disbursedAt)}'
+                      : 'Applied ${_displayDate(item.createdAt)}',
+                  style: TextStyle(
+                    fontSize: 10.5.sp,
+                    color: const Color(0xFF729A7D),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
   }
+
+  Widget _reaccessButton(VoidCallback onPressed) => OutlinedButton.icon(
+    onPressed: onPressed,
+    icon: const Icon(Icons.undo_rounded, size: 15),
+    label: Text(
+      'Re-access',
+      style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w700),
+    ),
+    style: OutlinedButton.styleFrom(
+      foregroundColor: Colors.green.shade700,
+      side: BorderSide(color: Colors.green.shade200),
+      padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
+      minimumSize: Size.zero,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    ),
+  );
 
   Widget _avatar(String name, Color color) {
     final trimmed = name.trim();
@@ -2635,6 +2774,115 @@ class _ClientLoanTrackerState extends State<ClientLoanTracker> {
       default:
         return 'Pending BM Approval';
     }
+  }
+}
+
+/// The remarks dialog for re-accessing a rejected member / renewal. It owns its
+/// text controller so the controller is disposed together with the dialog —
+/// disposing it from the caller while the dialog is still animating out (and
+/// the keyboard closing) trips a framework assertion.
+class _ReaccessDialog extends StatefulWidget {
+  const _ReaccessDialog({
+    required this.renewal,
+    required this.name,
+    required this.onSubmit,
+    this.subtitle,
+  });
+
+  final bool renewal;
+  final String name;
+  final String? subtitle;
+  final Future<({bool ok, String message})> Function(String remarks) onSubmit;
+
+  @override
+  State<_ReaccessDialog> createState() => _ReaccessDialogState();
+}
+
+class _ReaccessDialogState extends State<_ReaccessDialog> {
+  final TextEditingController _remarks = TextEditingController();
+  bool _submitting = false;
+
+  @override
+  void dispose() {
+    _remarks.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    setState(() => _submitting = true);
+    final outcome = await widget.onSubmit(_remarks.text.trim());
+    if (mounted) Navigator.pop(context, outcome);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final renewal = widget.renewal;
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.r)),
+      title: Text(
+        renewal ? 'Re-access Rejected Renewal Loan' : 'Re-access Rejected Member',
+        style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w800),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            renewal
+                ? 'Renewal loan ${widget.subtitle ?? ''} for ${widget.name} '
+                      'will go back to the approval stage that rejected it and '
+                      'must be reviewed again there.'
+                : '${widget.name} (${widget.subtitle ?? ''}) will go back to '
+                      'the approval stage that rejected them and must be '
+                      'reviewed again there.',
+            style: TextStyle(fontSize: 12.sp, height: 1.35),
+          ),
+          SizedBox(height: 12.h),
+          TextField(
+            controller: _remarks,
+            minLines: 3,
+            maxLines: 4,
+            enabled: !_submitting,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              labelText: 'Remarks *',
+              hintText: renewal
+                  ? 'Why is this renewal being re-accessed?'
+                  : 'Why is this member being re-accessed?',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10.r),
+              ),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _submitting ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton.icon(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF0C5F34),
+            foregroundColor: Colors.white,
+          ),
+          onPressed: _submitting || _remarks.text.trim().isEmpty
+              ? null
+              : _submit,
+          icon: _submitting
+              ? SizedBox(
+                  width: 14.sp,
+                  height: 14.sp,
+                  child: const CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Icon(Icons.undo_rounded, size: 16),
+          label: const Text('Re-access'),
+        ),
+      ],
+    );
   }
 }
 
