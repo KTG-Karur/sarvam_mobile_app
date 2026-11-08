@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:sarvam/controller/member_approval_controller.dart';
+import 'package:sarvam/controller/renewal_approval_controller.dart';
 import 'package:sarvam/services/api_client.dart';
 import 'package:sarvam/services/enrollment_api_service.dart';
 import 'package:sarvam/view/BM/member_approval/client_approval_detail.dart';
 import 'package:sarvam/view/BM/member_approval/co_applicant_row.dart';
+import 'package:sarvam/view/BM/member_approval/renewal_approval_tab.dart';
 import 'package:sarvam/view/shared/highmark_report_sheet.dart';
 
 class MemberApproval extends StatefulWidget {
@@ -28,9 +30,15 @@ class _MemberApprovalState extends State<MemberApproval> {
       Get.isRegistered<MemberApprovalController>()
       ? Get.find<MemberApprovalController>()
       : Get.put(MemberApprovalController());
+  final RenewalApprovalController renewalController =
+      Get.isRegistered<RenewalApprovalController>()
+      ? Get.find<RenewalApprovalController>()
+      : Get.put(RenewalApprovalController());
   final EnrollmentApiService _highmarkApi = EnrollmentApiService(ApiClient());
 
   final _searchController = TextEditingController();
+  // 0 = Member Approval, 1 = Co-Applicant Approval, 2 = Renewal Loan Approval
+  // (shown in the web's order: Member, Renewal Loan, Co-Applicant).
   int _selectedTab = 0;
 
   @override
@@ -38,6 +46,9 @@ class _MemberApprovalState extends State<MemberApproval> {
     super.initState();
     controller.loadApprovalQueue();
     controller.loadCoApplicantQueue();
+    // Background load for the tab's count badge — silent, so a user whose role
+    // has no renewal stage isn't shown an error.
+    renewalController.load(silent: true);
     _searchController.addListener(() {
       controller.searchQuery.value = _searchController.text.trim();
     });
@@ -57,6 +68,7 @@ class _MemberApprovalState extends State<MemberApproval> {
   @override
   Widget build(BuildContext context) {
     final isCoApplicant = _selectedTab == 1;
+    final isRenewal = _selectedTab == 2;
 
     return Scaffold(
       backgroundColor: _bgGradientStart,
@@ -75,7 +87,9 @@ class _MemberApprovalState extends State<MemberApproval> {
               Expanded(
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 250),
-                  child: isCoApplicant
+                  child: isRenewal
+                      ? RenewalApprovalContent(controller: renewalController)
+                      : isCoApplicant
                       ? _buildCoApplicantContent()
                       : _buildMemberContent(),
                 ),
@@ -175,6 +189,8 @@ class _MemberApprovalState extends State<MemberApproval> {
         onTap: () {
           if (_selectedTab == 0) {
             controller.loadApprovalQueue();
+          } else if (_selectedTab == 2) {
+            renewalController.load();
           } else {
             controller.loadCoApplicantQueue();
           }
@@ -207,8 +223,9 @@ class _MemberApprovalState extends State<MemberApproval> {
       ),
       child: Row(
         children: [
-          Expanded(child: _buildTabItem('Member Approval', 0)),
-          Expanded(child: _buildTabItem('Co-Applicant Approval', 1)),
+          Expanded(child: _buildTabItem('Member', 0)),
+          Expanded(child: _buildTabItem('Renewal Loan', 2)),
+          Expanded(child: _buildTabItem('Co-Applicant', 1)),
         ],
       ),
     );
@@ -220,6 +237,8 @@ class _MemberApprovalState extends State<MemberApproval> {
     return Obx(() {
       final count = index == 0
           ? controller.approvalQueue.length
+          : index == 2
+          ? renewalController.items.length
           : controller.coApplicantQueue.length;
 
       return GestureDetector(
