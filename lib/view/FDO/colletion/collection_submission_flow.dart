@@ -1,3 +1,4 @@
+import 'package:sarvam/services/offline_collection_service.dart';
 import 'package:sarvam/services/punch_location_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -512,8 +513,16 @@ class _CollectionSubmissionFlowPageState
       ? value
       : num.tryParse(value?.toString().replaceAll(',', '') ?? '') ?? 0;
 
+  OfflineCollectionService get _offline =>
+      Get.isRegistered<OfflineCollectionService>()
+      ? Get.find<OfflineCollectionService>()
+      : Get.put(OfflineCollectionService());
+
   Future<void> _submit() async {
     setState(() => _submitting = true);
+    // Counts collections saved on the phone, so after the submit we can tell
+    // whether it reached the server or was only queued offline.
+    final queuedBefore = _offline.offlineSaveCounter;
 
     final upi = double.tryParse(_upiController.text.trim()) ?? 0;
     final denomination = <String, dynamic>{
@@ -534,13 +543,17 @@ class _CollectionSubmissionFlowPageState
       if (!mounted) return;
       setState(() => _submitting = false);
       if (!success) return;
-      Get.snackbar(
-        'Success',
-        'Submitted for BM Approval successfully!',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: const Color(0xFF008A3D),
-        colorText: Colors.white,
-      );
+      // Saved on the phone only (no connection): the offline save has already
+      // said so — don't also claim it was submitted.
+      if (_offline.offlineSaveCounter == queuedBefore) {
+        Get.snackbar(
+          'Success',
+          'Submitted for BM Approval successfully!',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: const Color(0xFF008A3D),
+          colorText: Colors.white,
+        );
+      }
       Navigator.pop(context, true);
       return;
     }
@@ -619,13 +632,17 @@ class _CollectionSubmissionFlowPageState
     setState(() => _submitting = false);
     if (result == null) return;
 
-    Get.snackbar(
-      'Success',
-      'Submitted for BM Approval successfully!',
-      snackPosition: SnackPosition.BOTTOM,
-      backgroundColor: const Color(0xFF008A3D),
-      colorText: Colors.white,
-    );
+    // Saved on the phone only (no connection): the offline save has already
+    // said so — don't also claim it was submitted.
+    if (_offline.offlineSaveCounter == queuedBefore) {
+      Get.snackbar(
+        'Success',
+        'Submitted for BM Approval successfully!',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: const Color(0xFF008A3D),
+        colorText: Colors.white,
+      );
+    }
     Navigator.pop(context, true);
   }
 

@@ -9,8 +9,8 @@ class CompanySelectionScreen extends StatelessWidget {
   const CompanySelectionScreen({super.key});
 
   static const _companies = {
-    'Sarvam': 'https://ktg.nidhimfi.com',
-    // 'Sarvam': 'https://sarvam.nidhimfi.com',
+    // 'Sarvam': 'https://ktg.nidhimfi.com',
+    'Sarvam': 'https://sarvam.nidhimfi.com',
     'GCPL': 'https://gcpl.nidhimfi.com',
   };
 

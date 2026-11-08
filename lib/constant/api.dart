@@ -1,6 +1,6 @@
 class Api {
-  // static String _baseUrl = "https://sarvam.nidhimfi.com";
-  static String _baseUrl = "https://ktg.nidhimfi.com";
+  static String _baseUrl = "https://sarvam.nidhimfi.com";
+  // static String _baseUrl = "https://ktg.nidhimfi.com";
   static String get baseUrl => _baseUrl;
   static void setBaseUrl(String url) => _baseUrl = url;
 

@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/collection_controller.dart';
 import 'package:sarvam/controller/live_collection_controller.dart';
 import 'package:sarvam/services/loan_advance_config.dart';
+import 'package:sarvam/services/offline_collection_service.dart';
 import 'package:sarvam/view/FDO/colletion/collection_submission_flow.dart';
 import 'package:sarvam/utils/center_formatter.dart';
 import 'package:sarvam/view/shared/eod_pending_banner.dart';
@@ -753,6 +754,18 @@ class _DemandCollectionState extends State<DemandCollection> {
       });
       _loadDemandCollection();
     }
+  }
+
+  /// The collection was only saved on the phone (no connection), so there is
+  /// nothing new to load from the server. Keep the center list as it is, but
+  /// clear the client rows — they are already queued, and leaving them would
+  /// let the same collection be entered twice.
+  void _afterOfflineSave() {
+    setState(() {
+      _selectedClientKeys.clear();
+      _collectionController.demandCollections.clear();
+      _loaded = false;
+    });
   }
 
   /// After a successful submission, reload the eligible centers first. A center
@@ -1945,6 +1958,10 @@ class _DemandCollectionState extends State<DemandCollection> {
               onPressed: selected.isEmpty
                   ? null
                   : () async {
+                      final offline = Get.isRegistered<OfflineCollectionService>()
+                          ? Get.find<OfflineCollectionService>()
+                          : Get.put(OfflineCollectionService());
+                      final queuedBefore = offline.offlineSaveCounter;
                       final submitted = await Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (_) => CollectionSubmissionFlowPage(
@@ -1964,7 +1981,11 @@ class _DemandCollectionState extends State<DemandCollection> {
                       );
                       if (submitted == true && mounted) {
                         setState(() => _selectedClientKeys.clear());
-                        await _refreshAfterSubmit();
+                        if (offline.offlineSaveCounter != queuedBefore) {
+                          _afterOfflineSave();
+                        } else {
+                          await _refreshAfterSubmit();
+                        }
                       }
                     },
               icon: const Icon(Icons.arrow_forward_rounded),

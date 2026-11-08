@@ -244,6 +244,9 @@ class ArrearCollectionController extends GetxController {
             type: 'ARREAR',
             payload: payload,
             title: 'Arrear Collection ($selectedCenterName)',
+            photoBytes: photoBytes,
+            latitude: latitude,
+            longitude: longitude,
           );
           if (saved) return true;
         }
@@ -289,6 +292,9 @@ class ArrearCollectionController extends GetxController {
           'denomination': denomination,
         },
         title: 'Arrear Collection ($selectedCenterName)',
+        photoBytes: photoBytes,
+        latitude: latitude,
+        longitude: longitude,
       );
       if (saved) return true;
       return false;

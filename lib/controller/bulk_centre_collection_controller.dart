@@ -229,6 +229,9 @@ class BulkCentreCollectionController extends GetxController {
             type: 'BULK',
             payload: payload,
             title: 'Bulk Collection ($selectedCenterName)',
+            photoBytes: photoBytes,
+            latitude: latitude,
+            longitude: longitude,
           );
           if (saved) return true;
         }
@@ -270,6 +273,9 @@ class BulkCentreCollectionController extends GetxController {
           'denomination': denomination,
         },
         title: 'Bulk Collection ($selectedCenterName)',
+        photoBytes: photoBytes,
+        latitude: latitude,
+        longitude: longitude,
       );
       if (saved) return true;
       return false;

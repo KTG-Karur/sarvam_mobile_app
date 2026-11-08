@@ -326,6 +326,9 @@ class SingleCollectionController extends GetxController {
             type: 'SINGLE',
             payload: payload,
             title: 'Single Collection ($clientId)',
+            photoBytes: photoBytes,
+            latitude: latitude,
+            longitude: longitude,
           );
           if (saved) {
             singleCollectionData['status'] = 'COLLECTED (OFFLINE)';
@@ -375,6 +378,9 @@ class SingleCollectionController extends GetxController {
           'denomination': denomination,
         },
         title: 'Single Collection ($clientId)',
+        photoBytes: photoBytes,
+        latitude: latitude,
+        longitude: longitude,
       );
       if (saved) {
         singleCollectionData['status'] = 'COLLECTED (OFFLINE)';

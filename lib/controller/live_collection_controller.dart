@@ -40,7 +40,9 @@ class LiveCollectionController extends GetxController {
   Future<List<dynamic>?> getEligibleCenters(String branchId) async {
     try {
       isLoading.value = true;
-      eligibleCenters.clear();
+      // The list is replaced only when the server answers (below). If the
+      // reload fails — e.g. the phone is offline — the centers already on
+      // screen stay, so collecting can carry on.
 
       final prefs = await SharedPreferences.getInstance();
       final accessToken = prefs.getString('accessToken') ?? '';

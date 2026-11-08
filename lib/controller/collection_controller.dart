@@ -300,6 +300,9 @@ class CollectionController extends GetxController {
             type: 'DEMAND',
             payload: payload,
             title: 'Demand Collection ($centerId)',
+            photoBytes: meetingPhotoBytes,
+            latitude: latitude,
+            longitude: longitude,
           );
           if (saved) {
             return {'offline': true, 'message': 'Demand collection saved offline.'};
@@ -344,6 +347,9 @@ class CollectionController extends GetxController {
           'totalCollected': totalCollected,
         },
         title: 'Demand Collection ($centerId)',
+        photoBytes: meetingPhotoBytes,
+        latitude: latitude,
+        longitude: longitude,
       );
       if (saved) {
         return {'offline': true, 'message': 'Demand collection saved offline.'};
