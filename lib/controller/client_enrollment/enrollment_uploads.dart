@@ -10,6 +10,7 @@ import 'package:image/image.dart' as img;
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:sarvam/controller/client_enrollment/enrollment_options.dart';
 import 'package:sarvam/services/enrollment_api_service.dart';
+import 'package:sarvam/services/photo_stamp_service.dart';
 
 /// Local + remote state for one KYC/residence document tile.
 class EnrollmentDocState {
@@ -102,7 +103,16 @@ mixin EnrollmentUploadsMixin on GetxController {
       String? filename;
       String? contentType;
 
-      if (source == ImageSource.camera) {
+      if (PhotoStampService.requiresStamp(documentType)) {
+        // House images 1–3: camera only (no gallery / file), with the
+        // location + date/time stamp burned in. The review + rotate step is
+        // part of the stamped capture flow.
+        final stamped = await PhotoStampService.captureStampedPhoto();
+        if (stamped == null) return;
+        bytes = stamped.bytes;
+        filename = stamped.filename;
+        contentType = 'image/jpeg';
+      } else if (source == ImageSource.camera) {
         final picked = await _picker.pickImage(
           source: ImageSource.camera,
           maxWidth: 1920,

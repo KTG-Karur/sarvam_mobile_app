@@ -1,8 +1,11 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:sarvam/services/api_client.dart';
 import 'package:sarvam/services/enrollment_api_service.dart';
+import 'package:sarvam/services/photo_stamp_service.dart';
 import 'package:sarvam/view/BM/member_approval/widgets/doc_type_labels.dart';
 
 const _green = Color(0xFF0C5F34);
@@ -109,24 +112,40 @@ class _FdoRecheckDialogState extends State<FdoRecheckDialog> {
   Future<void> _reupload(Map<String, dynamic> doc) async {
     final docId = doc['id']?.toString() ?? '';
     if (docId.isEmpty || _uploadingDocId != null) return;
-    final source = await _pickSource();
-    if (source == null) return;
-    final picked = await _picker.pickImage(
-      source: source,
-      maxWidth: 1920,
-      maxHeight: 1920,
-      imageQuality: 80,
+
+    // House images 1–3: camera only, stamped with location + date/time.
+    // Everything else keeps the camera-or-gallery choice.
+    final isStamped = PhotoStampService.requiresStamp(
+      '${doc['documentType'] ?? ''}',
     );
-    if (picked == null) return;
+    Uint8List bytes;
+    String filename;
+    if (isStamped) {
+      final stamped = await PhotoStampService.captureStampedPhoto();
+      if (stamped == null) return;
+      bytes = stamped.bytes;
+      filename = stamped.filename;
+    } else {
+      final source = await _pickSource();
+      if (source == null) return;
+      final picked = await _picker.pickImage(
+        source: source,
+        maxWidth: 1920,
+        maxHeight: 1920,
+        imageQuality: 80,
+      );
+      if (picked == null) return;
+      bytes = await picked.readAsBytes();
+      filename = picked.name;
+    }
 
     setState(() => _uploadingDocId = docId);
     try {
-      final bytes = await picked.readAsBytes();
       await _api.reuploadKycDocument(
         clientId: widget.clientId,
         documentId: docId,
         bytes: bytes,
-        filename: picked.name,
+        filename: filename,
         contentType: 'image/jpeg',
       );
       // Reload rather than patch locally — the server resets this

@@ -705,7 +705,12 @@ class _DemandCollectionState extends State<DemandCollection> {
     final prefs = await SharedPreferences.getInstance();
     final branchId = prefs.getString('branchId') ?? '';
     if (branchId.isNotEmpty) {
-      await _liveCollectionController.getEligibleCenters(branchId);
+      final loadedCenters = await _liveCollectionController.getEligibleCenters(
+        branchId,
+      );
+      if (loadedCenters != null && mounted) {
+        _syncSelectionWithEligibleCenters();
+      }
       // Sync regardless of whether any centers came back — the resolved
       // working date is still the correct one to lock the field/banner to,
       // even on a day with nothing left to collect.
@@ -719,6 +724,55 @@ class _DemandCollectionState extends State<DemandCollection> {
           });
         } catch (_) {}
       }
+    }
+  }
+
+  /// Mirrors the web's demand-collection page after it reloads the eligible
+  /// centers: a previously selected center that is no longer eligible (e.g. it
+  /// is now fully collected) is dropped, and when exactly one center is
+  /// eligible it is selected and loaded straight away.
+  void _syncSelectionWithEligibleCenters() {
+    final ids = _liveCollectionController.eligibleCenters
+        .map((c) => c is Map ? c['id']?.toString() : null)
+        .whereType<String>()
+        .toSet();
+
+    if (_center != null && !ids.contains(_center)) {
+      setState(() {
+        _center = null;
+        _loaded = false;
+        _selectedClientKeys.clear();
+        _collectionController.demandCollections.clear();
+      });
+    }
+
+    if (_center == null && ids.length == 1) {
+      setState(() {
+        _center = ids.first;
+        _loaded = false;
+      });
+      _loadDemandCollection();
+    }
+  }
+
+  /// After a successful submission, reload the eligible centers first. A center
+  /// that is now 100% collected is no longer eligible, so it drops out of the
+  /// list and the selection is cleared; a center that still has a balance stays
+  /// selected and its client rows are refreshed.
+  Future<void> _refreshAfterSubmit() async {
+    final submittedCenter = _center;
+    await _loadEligibleCenters();
+    if (!mounted) return;
+
+    if (_center != null && _center!.isNotEmpty) {
+      await _loadDemandCollection();
+    } else if (submittedCenter != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Collection completed — this center has been removed.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -947,6 +1001,9 @@ class _DemandCollectionState extends State<DemandCollection> {
             }).toList();
 
           return DropdownButtonFormField<String>(
+            // Rebuild when the selection is changed in code (auto-select, or
+            // dropped because the center is no longer eligible).
+            key: ValueKey('center-$_center-${centers.length}'),
             isExpanded: true,
             initialValue: _center,
             hint: Text(
@@ -960,6 +1017,19 @@ class _DemandCollectionState extends State<DemandCollection> {
               _loaded = false;
             }),
             decoration: _inputDecoration(),
+          );
+        }),
+        Obx(() {
+          if (_liveCollectionController.isLoading.value ||
+              _liveCollectionController.eligibleCenters.isNotEmpty) {
+            return const SizedBox.shrink();
+          }
+          return Padding(
+            padding: EdgeInsets.only(top: 6.h),
+            child: Text(
+              'No centers have pending collections for today\'s meeting day.',
+              style: TextStyle(fontSize: 10.5.sp, color: const Color(0xFF64748B)),
+            ),
           );
         }),
         SizedBox(height: 16.h),
@@ -1483,6 +1553,42 @@ class _DemandCollectionState extends State<DemandCollection> {
       item['status']?.toString().toUpperCase() == 'COLLECTED' ||
       _asNum(item['totalDemand']) <= 0;
 
+  /// The status badge, in the web's priority order: Collected, then Partial,
+  /// then Overdue (only for a client with nothing collected yet), else Pending.
+  /// An overdue client who has paid part of the demand reads Partial, not
+  /// Overdue.
+  ({String label, Color fg, Color bg}) _statusBadge(
+    String status,
+    bool isOverdue,
+  ) {
+    switch (status.toUpperCase()) {
+      case 'COLLECTED':
+        return (
+          label: 'COLLECTED',
+          fg: const Color(0xFF047857),
+          bg: const Color(0xFFD1FAE5),
+        );
+      case 'PARTIAL':
+        return (
+          label: 'PARTIAL',
+          fg: const Color(0xFFB45309),
+          bg: const Color(0xFFFEF3C7),
+        );
+    }
+    if (isOverdue) {
+      return (
+        label: 'OVERDUE',
+        fg: const Color(0xFFC5221F),
+        bg: const Color(0xFFFDE8E8),
+      );
+    }
+    return (
+      label: 'PENDING',
+      fg: const Color(0xFF475569),
+      bg: const Color(0xFFF1F5F9),
+    );
+  }
+
   Widget _clientDemandCard(
     Map<String, dynamic> item, {
     required bool selected,
@@ -1570,27 +1676,28 @@ class _DemandCollectionState extends State<DemandCollection> {
                       ],
                     ),
                   ),
-                  Container(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: 8.w,
-                      vertical: 4.h,
-                    ),
-                    decoration: BoxDecoration(
-                      color: isOverdue
-                          ? const Color(0xFFFDE8E8)
-                          : const Color(0xFFE4F5EB),
-                      borderRadius: BorderRadius.circular(6.r),
-                    ),
-                    child: Text(
-                      isOverdue ? 'OVERDUE' : status,
-                      style: TextStyle(
-                        fontSize: 9.sp,
-                        fontWeight: FontWeight.w700,
-                        color: isOverdue
-                            ? const Color(0xFFC5221F)
-                            : const Color(0xFF008A3D),
-                      ),
-                    ),
+                  Builder(
+                    builder: (_) {
+                      final badge = _statusBadge(status, isOverdue);
+                      return Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 8.w,
+                          vertical: 4.h,
+                        ),
+                        decoration: BoxDecoration(
+                          color: badge.bg,
+                          borderRadius: BorderRadius.circular(6.r),
+                        ),
+                        child: Text(
+                          badge.label,
+                          style: TextStyle(
+                            fontSize: 9.sp,
+                            fontWeight: FontWeight.w700,
+                            color: badge.fg,
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -1857,7 +1964,7 @@ class _DemandCollectionState extends State<DemandCollection> {
                       );
                       if (submitted == true && mounted) {
                         setState(() => _selectedClientKeys.clear());
-                        await _loadDemandCollection();
+                        await _refreshAfterSubmit();
                       }
                     },
               icon: const Icon(Icons.arrow_forward_rounded),

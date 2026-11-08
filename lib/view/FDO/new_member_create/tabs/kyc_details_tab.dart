@@ -7,6 +7,7 @@ import 'package:sarvam/controller/client_enrollment/enrollment_uploads.dart';
 import 'package:sarvam/controller/client_enrollment_controller.dart';
 import 'package:sarvam/view/FDO/new_member_create/widgets/enrollment_field_widgets.dart';
 import 'package:sarvam/services/enrollment_api_service.dart';
+import 'package:sarvam/services/photo_stamp_service.dart';
 
 /// Resolves a stored `fileUrl` (a bare, private-bucket object key for any
 /// document uploaded through this app) to a signed, viewable URL before
@@ -310,6 +311,16 @@ class KycDetailsTab extends StatelessWidget {
     required String owner,
     required bool allowPdf,
   }) {
+    // House images 1–3 are camera-only (location + date/time stamped), so there
+    // is nothing to choose between — go straight to the camera.
+    if (PhotoStampService.requiresStamp(documentType)) {
+      controller.pickAndUploadDocument(
+        documentType,
+        owner: owner,
+        source: ImageSource.camera,
+      );
+      return;
+    }
     showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
