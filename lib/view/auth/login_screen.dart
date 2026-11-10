@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sarvam/constant/api.dart';
+import 'package:sarvam/constant/companies.dart';
 import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/view/auth/set_mpin_screen.dart';
 import 'package:sarvam/view/auth/mpin_login_screen.dart';
@@ -72,20 +74,38 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _passwordController = TextEditingController();
   bool _isPasswordVisible = false;
   bool _rememberMe = false;
-  String? _companyName;
+  // The company being signed in to. Starts on the default (Sarvam); replaced by
+  // the last company chosen, if one was saved.
+  String _company = Companies.defaultName;
 
   @override
   void initState() {
     super.initState();
+    // Until the saved choice is read, talk to the default company's server.
+    Api.setBaseUrl(Companies.defaultUrl);
     _loadSavedCredentials();
-    _loadCompanyName();
+    _loadCompany();
   }
 
-  Future<void> _loadCompanyName() async {
+  /// Shows the last company chosen. Logging out keeps it, so the next person
+  /// signing in on this phone starts on the same company.
+  Future<void> _loadCompany() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _companyName = prefs.getString('selected_company');
-    });
+    final name = Companies.nameForUrl(prefs.getString('selected_company_url'));
+    Api.setBaseUrl(Companies.urlFor(name));
+    if (mounted) setState(() => _company = name);
+  }
+
+  /// Switches the company straight away: every call from here on (login, OTP,
+  /// forgot MPIN…) goes to its server, and the choice is remembered — also by
+  /// the background tracking service, which reads the saved address.
+  Future<void> _selectCompany(String name) async {
+    final url = Companies.urlFor(name);
+    Api.setBaseUrl(url);
+    setState(() => _company = name);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('selected_company', name);
+    await prefs.setString('selected_company_url', url);
   }
 
   Future<void> _loadSavedCredentials() async {
@@ -198,7 +218,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   padding: EdgeInsets.symmetric(horizontal: 28.w),
                   child: Form(
                     key: _formKey,
-                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    // Not set on the form itself: a form-wide "on user
+                    // interaction" checks EVERY field as soon as one is
+                    // touched (typing in Employee ID would flag Password as
+                    // required). Each field below checks only itself instead;
+                    // tapping Login checks them all.
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -241,26 +265,90 @@ class _LoginScreenState extends State<LoginScreen> {
 
                         SizedBox(height: 36.h),
 
-                        // Employee ID Field Label
-                        RichText(
-                          text: TextSpan(
-                            text: 'EMPLOYEE ID',
-                            style: TextStyle(
-                              fontSize: 12.sp,
-                              fontWeight: FontWeight.bold,
+                        // Company
+                        Text(
+                          'COMPANY',
+                          style: TextStyle(
+                            fontSize: 12.sp,
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFF64748B),
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+
+                        SizedBox(height: 8.h),
+
+                        // A plain dropdown, not a form field: a form field here
+                        // would count as "the user touched the form", and the
+                        // form would immediately validate Employee ID and
+                        // Password as required. Those errors should appear
+                        // only when Login is tapped.
+                        InputDecorator(
+                          decoration: InputDecoration(
+                            prefixIcon: Icon(
+                              Icons.business_outlined,
                               color: const Color(0xFF64748B),
-                              letterSpacing: 0.5,
+                              size: 20.sp,
                             ),
-                            children: [
-                              if (_companyName != null && _companyName!.isNotEmpty)
-                                TextSpan(
-                                  text: ' ($_companyName)',
-                                  style: TextStyle(
-                                    color: const Color(0xFF0D6842),
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                            ],
+                            filled: true,
+                            fillColor: const Color(0xFFF8F9FA),
+                            contentPadding: EdgeInsets.symmetric(
+                              vertical: 4.h,
+                              horizontal: 16.w,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12.r),
+                              borderSide: const BorderSide(
+                                color: Color(0xFFE2E8F0),
+                              ),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12.r),
+                              borderSide: const BorderSide(
+                                color: Color(0xFFE2E8F0),
+                              ),
+                            ),
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: _company,
+                              isExpanded: true,
+                              borderRadius: BorderRadius.circular(12.r),
+                              style: TextStyle(
+                                fontSize: 15.sp,
+                                color: const Color(0xFF0F172A),
+                              ),
+                              icon: const Icon(
+                                Icons.keyboard_arrow_down_rounded,
+                                color: Color(0xFF0D6842),
+                              ),
+                              items: Companies.names
+                                  .map(
+                                    (name) => DropdownMenuItem<String>(
+                                      value: name,
+                                      child: Text(name),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (name) {
+                                if (name != null && name != _company) {
+                                  _selectCompany(name);
+                                }
+                              },
+                            ),
+                          ),
+                        ),
+
+                        SizedBox(height: 24.h),
+
+                        // Employee ID Field Label
+                        Text(
+                          'EMPLOYEE ID',
+                          style: TextStyle(
+                            fontSize: 12.sp,
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFF64748B),
+                            letterSpacing: 0.5,
                           ),
                         ),
 
@@ -269,6 +357,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         // Employee ID Input Field
                         TextFormField(
                           controller: _employeeIdController,
+                          autovalidateMode: AutovalidateMode.onUserInteraction,
                           style: TextStyle(fontSize: 15.sp),
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
@@ -347,6 +436,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         // Password Input Field
                         TextFormField(
                           controller: _passwordController,
+                          autovalidateMode: AutovalidateMode.onUserInteraction,
                           obscureText: !_isPasswordVisible,
                           style: TextStyle(fontSize: 15.sp),
                           validator: (value) {

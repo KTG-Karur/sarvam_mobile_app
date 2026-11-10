@@ -316,6 +316,23 @@ class EnrollmentApiService {
   Future<List<dynamic>> getHighmarkHistory(String clientDbId) =>
       _getList("${Api.highmarkHistoryUrl}?clientId=$clientDbId");
 
+  /// `GET /api/highmark/html?id=` — CRIF's own printable ("original") report
+  /// for one pull, as an HTML page. Returns null when that pull has none (an
+  /// older pull, or one served by Surepass): a normal case, not an error, the
+  /// same as on the web. Throws [EnrollmentApiException] when the request fails.
+  Future<String?> getHighmarkOriginalHtml(String reportId) async {
+    final token = await _authToken();
+    // The page is large (hundreds of KB), so allow more time than a plain call.
+    _client.timeout = const Duration(seconds: 60);
+    final response = await _client.get(
+      "${Api.highmarkHtmlUrl}?id=${Uri.encodeQueryComponent(reportId)}",
+      headers: _authHeaders(token),
+    );
+    final data = _unwrap(response);
+    final html = data is Map ? data['html'] : null;
+    return html is String && html.trim().isNotEmpty ? html : null;
+  }
+
   // ---------------------------------------------------------------------
   // KYC document upload
   // ---------------------------------------------------------------------

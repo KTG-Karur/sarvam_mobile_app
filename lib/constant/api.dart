@@ -77,6 +77,7 @@ class Api {
   static String get highmarkCheckUrl => "$baseUrl/api/highmark/check";
   static String get highmarkLatestUrl => "$baseUrl/api/highmark/latest";
   static String get highmarkHistoryUrl => "$baseUrl/api/highmark/history";
+  static String get highmarkHtmlUrl => "$baseUrl/api/highmark/html";
   static String get groupsUrl => "$baseUrl/api/groups";
   static String get loanProductTypesUrl => "$baseUrl/api/loan-product-types";
   static String get productsUrl => "$baseUrl/api/products";

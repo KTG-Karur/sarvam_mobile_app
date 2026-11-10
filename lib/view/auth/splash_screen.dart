@@ -9,7 +9,7 @@ import 'package:sarvam/services/secure_session_service.dart';
 import 'package:sarvam/services/app_permission_service.dart';
 
 import 'package:sarvam/constant/api.dart';
-import 'package:sarvam/view/auth/company_selection_screen.dart';
+import 'package:sarvam/constant/companies.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -61,7 +61,10 @@ class _SplashScreenState extends State<SplashScreen>
           Get.off(() => const LoginScreen());
         }
       } else {
-        Get.off(() => const CompanySelectionScreen());
+        // No company chosen yet: sign in on the default one (the Login screen
+        // has a Company dropdown).
+        Api.setBaseUrl(Companies.defaultUrl);
+        Get.off(() => const LoginScreen());
       }
     });
   }
