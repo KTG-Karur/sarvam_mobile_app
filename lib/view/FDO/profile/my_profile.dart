@@ -141,7 +141,7 @@ class _MyProfileState extends State<MyProfile> {
                   SizedBox(height: 24.h),
                   Center(
                     child: Text(
-                      'App Version 1.0.7',
+                      'App Version 1.0.8',
                       style: TextStyle(
                         fontSize: 11.sp,
                         color: const Color(0xFF94A3B8),

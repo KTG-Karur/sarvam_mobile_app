@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/services/api_client.dart';
 import 'package:sarvam/view/FDO/client_search_locate/location_navigation_screen.dart';
@@ -219,21 +219,21 @@ class _LocateClientTabState extends State<LocateClientTab> {
               label: 'Member',
               name: memberName,
               icon: Icons.home_outlined,
-              hue: BitmapDescriptor.hueRed,
+              hue: 0.0, // red
               point: client.member,
             ),
             NavTarget(
               label: 'Centre',
               name: client.center,
               icon: Icons.groups_outlined,
-              hue: BitmapDescriptor.hueGreen,
+              hue: 120.0, // green
               point: client.centerPoint,
             ),
             NavTarget(
               label: 'Branch',
               name: client.branchName.isEmpty ? 'Branch' : client.branchName,
               icon: Icons.account_balance_outlined,
-              hue: BitmapDescriptor.hueOrange,
+              hue: 30.0, // orange
               point: client.branchPoint,
             ),
           ],

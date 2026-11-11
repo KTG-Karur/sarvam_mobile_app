@@ -1217,7 +1217,7 @@ class _ArrearCollectionDetailsState extends State<ArrearCollectionDetails> {
 
     // Where the employee is NOW (a fresh fix); never blocks the collection (no good fix = submitted without coordinates).
     final location = await PunchLocationService.captureFresh(
-      timeout: const Duration(seconds: 10),
+      timeout: const Duration(seconds: 20),
       maxAccuracy: 100,
     );
 

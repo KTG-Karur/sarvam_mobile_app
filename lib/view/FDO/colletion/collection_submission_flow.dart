@@ -612,7 +612,7 @@ class _CollectionSubmissionFlowPageState
     // The collection's location is where the employee is NOW (a fresh fix). It never blocks the collection: with no good
     // fix it is submitted without coordinates, exactly as before.
     final location = await PunchLocationService.captureFresh(
-      timeout: const Duration(seconds: 10),
+      timeout: const Duration(seconds: 20),
       maxAccuracy: 100,
     );
 

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/services/api_client.dart';
 import 'package:sarvam/view/FDO/client_search_locate/location_navigation_screen.dart';
@@ -228,7 +228,7 @@ class _LocateCenterTabState extends State<LocateCenterTab> {
               label: 'Centre',
               name: _centerDetails!['name'] ?? '',
               icon: Icons.groups_outlined,
-              hue: BitmapDescriptor.hueGreen,
+              hue: 120.0, // green
               point: point,
             ),
           ],

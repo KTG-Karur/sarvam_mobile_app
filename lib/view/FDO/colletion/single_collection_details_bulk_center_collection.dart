@@ -1501,7 +1501,7 @@ class _SingleCollectionDetailsBulkCenterCollectionState
                         onSubmit: (photoBytes, denomination, total) async {
                           // Where the employee is NOW (a fresh fix); never blocks the collection.
                           final location = await PunchLocationService.captureFresh(
-                            timeout: const Duration(seconds: 10),
+                            timeout: const Duration(seconds: 20),
                             maxAccuracy: 100,
                           );
                           return _controller.submitSingleCollection(
@@ -1583,7 +1583,7 @@ class _SingleCollectionDetailsBulkCenterCollectionState
                         onSubmit: (photoBytes, denomination, total) async {
                           // Where the employee is NOW (a fresh fix); never blocks the collection.
                           final location = await PunchLocationService.captureFresh(
-                            timeout: const Duration(seconds: 10),
+                            timeout: const Duration(seconds: 20),
                             maxAccuracy: 100,
                           );
                           return _bulkController.submitBulkCollection(

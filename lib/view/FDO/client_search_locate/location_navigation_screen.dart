@@ -1,16 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
-import 'package:sarvam/constant/api.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// One place the user can navigate to (member house, centre, branch).
@@ -64,10 +63,11 @@ class _LocationNavigationScreenState extends State<LocationNavigationScreen> {
   /// Re-route only when the user drifts this far off the drawn road route.
   static const _offRouteMeters = 80.0;
 
-  /// Minimum gap between route requests (keeps Routes API usage low).
+  /// Minimum gap between route requests (keeps free routing usage low).
   static const _minRerouteGap = Duration(seconds: 20);
 
-  GoogleMapController? _map;
+  final MapController _map = MapController();
+  bool _mapReady = false;
   StreamSubscription<Position>? _positionSub;
   LatLng? _current;
   late int _selected;
@@ -163,8 +163,8 @@ class _LocationNavigationScreenState extends State<LocationNavigationScreen> {
         _loadRoute();
       }
     }
-    if (_following) {
-      _map?.animateCamera(CameraUpdate.newLatLng(here));
+    if (_following && _mapReady) {
+      _map.move(here, _map.camera.zoom);
     }
   }
 
@@ -234,72 +234,24 @@ class _LocationNavigationScreenState extends State<LocationNavigationScreen> {
     if (!hadRoute) _fitRoute();
   }
 
-  /// Google Routes API first (same roads & traffic ETA as Google Maps), then
-  /// two public OSRM servers as backups.
+  /// Free, keyless road routing via public OSRM servers (OpenStreetMap data).
+  /// Picks a profile-matched server for the selected travel mode, with a
+  /// second public server as a backup.
   Future<_RoadRoute?> _fetchRoadRoute(LatLng from, LatLng to) async {
-    return await _googleRoute(from, to) ??
-        await _osrmRoute('https://router.project-osrm.org', from, to) ??
+    if (_mode == _TravelMode.bike) {
+      return await _osrmRoute(
+            'https://routing.openstreetmap.de/routed-bike',
+            from,
+            to,
+          ) ??
+          await _osrmRoute('https://router.project-osrm.org', from, to);
+    }
+    return await _osrmRoute('https://router.project-osrm.org', from, to) ??
         await _osrmRoute(
           'https://routing.openstreetmap.de/routed-car',
           from,
           to,
         );
-  }
-
-  Future<_RoadRoute?> _googleRoute(LatLng from, LatLng to) async {
-    try {
-      Map<String, dynamic> waypoint(LatLng p) => {
-        'location': {
-          'latLng': {'latitude': p.latitude, 'longitude': p.longitude},
-        },
-      };
-      final response = await http
-          .post(
-            Uri.parse(Api.googleRoutesUrl),
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Goog-Api-Key': Api.googleMapsApiKey,
-              'X-Goog-FieldMask':
-                  'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline',
-            },
-            body: jsonEncode({
-              'origin': waypoint(from),
-              'destination': waypoint(to),
-              'travelMode': _mode == _TravelMode.bike ? 'TWO_WHEELER' : 'DRIVE',
-              'routingPreference': 'TRAFFIC_AWARE',
-              'languageCode': 'en-IN',
-              'units': 'METRIC',
-            }),
-          )
-          .timeout(const Duration(seconds: 15));
-      if (response.statusCode != 200) {
-        if (kDebugMode) {
-          debugPrint('Google Routes ${response.statusCode}: ${response.body}');
-        }
-        return null;
-      }
-      final body = jsonDecode(response.body);
-      final routes = body is Map ? body['routes'] : null;
-      if (routes is! List || routes.isEmpty) return null;
-      final route = routes.first as Map;
-      final encoded = (route['polyline'] as Map?)?['encodedPolyline'];
-      if (encoded is! String) return null;
-      final points = _decodePolyline(encoded);
-      if (points.length < 2) return null;
-      final seconds =
-          double.tryParse('${route['duration'] ?? ''}'.replaceAll('s', '')) ??
-          0;
-      return _RoadRoute(
-        points: points,
-        distanceMeters:
-            (route['distanceMeters'] as num?)?.toDouble() ??
-            _pathMeters(points),
-        durationSeconds: seconds,
-      );
-    } catch (e) {
-      if (kDebugMode) debugPrint('Google Routes error: $e');
-      return null;
-    }
   }
 
   Future<_RoadRoute?> _osrmRoute(String base, LatLng from, LatLng to) async {
@@ -338,30 +290,6 @@ class _LocationNavigationScreenState extends State<LocationNavigationScreen> {
     }
   }
 
-  /// Decodes a Google encoded polyline into points.
-  static List<LatLng> _decodePolyline(String encoded) {
-    final points = <LatLng>[];
-    var index = 0, lat = 0, lng = 0;
-    while (index < encoded.length) {
-      for (var coord = 0; coord < 2; coord++) {
-        var shift = 0, result = 0, b = 0;
-        do {
-          b = encoded.codeUnitAt(index++) - 63;
-          result |= (b & 0x1f) << shift;
-          shift += 5;
-        } while (b >= 0x20 && index < encoded.length);
-        final delta = (result & 1) != 0 ? ~(result >> 1) : (result >> 1);
-        if (coord == 0) {
-          lat += delta;
-        } else {
-          lng += delta;
-        }
-      }
-      points.add(LatLng(lat / 1e5, lng / 1e5));
-    }
-    return points;
-  }
-
   void _resetRoute() {
     _routeRequestId++;
     _routePoints = const [];
@@ -391,27 +319,21 @@ class _LocationNavigationScreenState extends State<LocationNavigationScreen> {
   }
 
   Future<void> _fitRoute() async {
-    final map = _map;
     final to = _target.point;
-    if (map == null || to == null) return;
+    if (!_mapReady || to == null) return;
     final pts = [..._routePoints, ?_current, to];
     if (pts.length < 2) {
-      await map.animateCamera(CameraUpdate.newLatLngZoom(to, 15));
+      _map.move(to, 15);
       return;
     }
-    final bounds = LatLngBounds(
-      southwest: LatLng(
-        pts.map((p) => p.latitude).reduce(math.min),
-        pts.map((p) => p.longitude).reduce(math.min),
-      ),
-      northeast: LatLng(
-        pts.map((p) => p.latitude).reduce(math.max),
-        pts.map((p) => p.longitude).reduce(math.max),
-      ),
-    );
     setState(() => _following = false);
     try {
-      await map.animateCamera(CameraUpdate.newLatLngBounds(bounds, 60));
+      _map.fitCamera(
+        CameraFit.coordinates(
+          coordinates: pts,
+          padding: const EdgeInsets.all(60),
+        ),
+      );
     } catch (_) {
       // Map not laid out yet — the next position update will retry.
     }
@@ -419,9 +341,9 @@ class _LocationNavigationScreenState extends State<LocationNavigationScreen> {
 
   void _recenter() {
     final here = _current;
-    if (here == null) return;
+    if (here == null || !_mapReady) return;
     setState(() => _following = true);
-    _map?.animateCamera(CameraUpdate.newLatLngZoom(here, 17));
+    _map.move(here, 17);
   }
 
   Future<void> _startNavigation() async {
@@ -488,40 +410,46 @@ class _LocationNavigationScreenState extends State<LocationNavigationScreen> {
   @override
   Widget build(BuildContext context) {
     final to = _target.point;
-    final markers = <Marker>{
+    final markerColor = HSVColor.fromAHSV(1, _target.hue, 0.85, 0.9).toColor();
+    final markers = <Marker>[
       if (to != null)
         Marker(
-          markerId: const MarkerId('destination'),
-          position: to,
-          infoWindow: InfoWindow(title: _target.label, snippet: _target.name),
-          icon: BitmapDescriptor.defaultMarkerWithHue(_target.hue),
+          point: to,
+          width: 46,
+          height: 46,
+          alignment: Alignment.topCenter,
+          child: Icon(Icons.location_on, size: 46, color: markerColor),
         ),
-    };
-    // Google-Maps look: a darker casing under a bright blue road line.
-    final polylines = <Polyline>{
-      if (_routePoints.length >= 2) ...{
-        Polyline(
-          polylineId: const PolylineId('route-casing'),
-          points: _routePoints,
-          color: _routeCasing,
-          width: 10,
-          zIndex: 1,
-          startCap: Cap.roundCap,
-          endCap: Cap.roundCap,
-          jointType: JointType.round,
+      if (_current != null)
+        Marker(
+          point: _current!,
+          width: 22,
+          height: 22,
+          child: Container(
+            decoration: BoxDecoration(
+              color: _routeBlue,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 3),
+              boxShadow: const [
+                BoxShadow(color: Colors.black26, blurRadius: 4),
+              ],
+            ),
+          ),
         ),
+    ];
+    // A darker casing (border) under a bright blue road line.
+    final polylines = <Polyline>[
+      if (_routePoints.length >= 2)
         Polyline(
-          polylineId: const PolylineId('route'),
           points: _routePoints,
           color: _routeBlue,
-          width: 7,
-          zIndex: 2,
-          startCap: Cap.roundCap,
-          endCap: Cap.roundCap,
-          jointType: JointType.round,
+          strokeWidth: 7,
+          borderColor: _routeCasing,
+          borderStrokeWidth: 3,
+          strokeCap: StrokeCap.round,
+          strokeJoin: StrokeJoin.round,
         ),
-      },
-    };
+    ];
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5FBF7),
@@ -542,22 +470,33 @@ class _LocationNavigationScreenState extends State<LocationNavigationScreen> {
           Expanded(
             child: Stack(
               children: [
-                GoogleMap(
-                  initialCameraPosition: CameraPosition(
-                    target: to ?? _current ?? const LatLng(10.0104, 77.4768),
-                    zoom: 14,
+                FlutterMap(
+                  mapController: _map,
+                  options: MapOptions(
+                    initialCenter:
+                        to ?? _current ?? const LatLng(10.0104, 77.4768),
+                    initialZoom: 14,
+                    maxZoom: 19,
+                    onMapReady: () {
+                      _mapReady = true;
+                      _fitRoute();
+                    },
+                    onPositionChanged: (camera, hasGesture) {
+                      if (hasGesture && _following) {
+                        setState(() => _following = false);
+                      }
+                    },
                   ),
-                  onMapCreated: (c) {
-                    _map = c;
-                    _fitRoute();
-                  },
-                  myLocationEnabled: _current != null,
-                  myLocationButtonEnabled: false,
-                  zoomControlsEnabled: false,
-                  compassEnabled: true,
-                  trafficEnabled: true,
-                  markers: markers,
-                  polylines: polylines,
+                  children: [
+                    TileLayer(
+                      urlTemplate:
+                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      userAgentPackageName: 'com.sarvam.app',
+                      maxNativeZoom: 19,
+                    ),
+                    PolylineLayer(polylines: polylines),
+                    MarkerLayer(markers: markers),
+                  ],
                 ),
                 Positioned(
                   right: 12.w,
