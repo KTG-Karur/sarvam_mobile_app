@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:sarvam/constant/api.dart';
+import 'package:sarvam/constant/companies.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
@@ -174,7 +176,7 @@ class _SetMpinScreenState extends State<SetMpinScreen> {
 
                           Center(
                             child: Image.asset(
-                              'assets/icon/Sarvam_01.png',
+                              Companies.logoForUrl(Api.baseUrl),
                               height: 75.h,
                               fit: BoxFit.contain,
                             ),

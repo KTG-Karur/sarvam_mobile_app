@@ -17,6 +17,18 @@ class Companies {
     'GCPL': 'https://gcpl.nidhimfi.com',
   };
 
+  /// Company name → logo shown on the splash and sign-in screens.
+  static const Map<String, String> logos = {
+    'Sarvam': 'assets/icon/Sarvam_01.png',
+    'GCPL': 'assets/icon/GCPL.png',
+  };
+
+  /// The logo for [name], or the default company's when [name] isn't known.
+  static String logoFor(String? name) => logos[name] ?? logos[defaultName]!;
+
+  /// The logo for the company whose server is [url].
+  static String logoForUrl(String? url) => logoFor(nameForUrl(url));
+
   static List<String> get names => urls.keys.toList();
 
   static String get defaultUrl => urls[defaultName]!;

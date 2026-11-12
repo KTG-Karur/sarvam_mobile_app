@@ -230,7 +230,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                         Center(
                           child: Image.asset(
-                            'assets/icon/Sarvam_01.png',
+                            Companies.logoFor(_company),
                             height: 75.h,
                             fit: BoxFit.contain,
                           ),

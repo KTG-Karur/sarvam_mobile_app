@@ -48,8 +48,9 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
   // have it; other roles need add or edit granted on the web Role Permissions
   // screen. The backend enforces this too — this just hides what would fail.
   bool _canWrite = false;
-  // Changing a loan's product is BM / Admin only on the backend (a page grant
-  // doesn't open it), so it ignores page permissions.
+  // Changing a loan's product is AM / BM / Admin only on the backend (a page
+  // grant doesn't open it), so it ignores page permissions. The web does the
+  // same for AMs via /api/disbursements/{id}/update-product.
   bool _canChangeProduct = false;
 
   Future<void> _refreshAccess() async {
@@ -58,7 +59,10 @@ class _MemberIndividualDetailState extends State<MemberIndividualDetail>
       PagePaths.memberIndividual,
       builtInRoles: const [AppRole.branchManager, AppRole.areaManager],
     );
-    final product = role == AppRole.admin || role == AppRole.branchManager;
+    final product =
+        role == AppRole.admin ||
+        role == AppRole.branchManager ||
+        role == AppRole.areaManager;
     if (mounted && (write != _canWrite || product != _canChangeProduct)) {
       setState(() {
         _canWrite = write;

@@ -21,6 +21,8 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  // Logo of the company chosen last time; Sarvam until the saved choice is read.
+  String _logo = Companies.logoFor(null);
   late final Animation<double> _logoScaleAnimation;
   late final Animation<double> _logoFadeAnimation;
 
@@ -41,6 +43,7 @@ class _SplashScreenState extends State<SplashScreen>
     );
 
     _controller.forward();
+    _loadLogo();
     Future.delayed(const Duration(milliseconds: 1800), () async {
       if (!mounted) return;
       await AppPermissionService.requestStartupPermissions();
@@ -75,6 +78,12 @@ class _SplashScreenState extends State<SplashScreen>
     super.dispose();
   }
 
+  Future<void> _loadLogo() async {
+    final prefs = await SharedPreferences.getInstance();
+    final logo = Companies.logoForUrl(prefs.getString('selected_company_url'));
+    if (mounted && logo != _logo) setState(() => _logo = logo);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -95,7 +104,7 @@ class _SplashScreenState extends State<SplashScreen>
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(24.r),
                   child: Image.asset(
-                    'assets/icon/Sarvam_01.png',
+                    _logo,
                     width: 180.w,
                     height: 180.w,
                     fit: BoxFit.contain,
