@@ -4,6 +4,8 @@ class Api {
   static String get baseUrl => _baseUrl;
   static void setBaseUrl(String url) => _baseUrl = url;
 
+  static String get appVersionUrl =>
+      "$baseUrl/api/mobile/app-version?platform=android";
   static String get mobileLoginUrl => "$baseUrl/api/mobile/login";
   static String get loginUrl => "$baseUrl/api/mobile/login";
   static String get logoutUrl => "$baseUrl/api/auth/logout";

@@ -10,6 +10,7 @@ import 'package:sarvam/services/app_permission_service.dart';
 
 import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/constant/companies.dart';
+import 'package:sarvam/services/app_version_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -48,6 +49,11 @@ class _SplashScreenState extends State<SplashScreen>
       if (!mounted) return;
       await AppPermissionService.requestStartupPermissions();
       if (!mounted) return;
+
+      // ── Version gate — must pass before any navigation ──
+      final bool canContinue = await AppVersionService.checkAndPrompt();
+      if (!mounted || !canContinue) return;
+
       final prefs = await SharedPreferences.getInstance();
 
       final String? selectedUrl = prefs.getString('selected_company_url');
