@@ -1,3 +1,5 @@
+import 'package:sarvam/constant/api.dart';
+
 /// The companies a user can sign in to, each with its own server. This is the
 /// one place the list lives — the Login screen (dropdown), the splash screen
 /// and logout all read it, so the addresses can't drift apart.
@@ -11,15 +13,13 @@ class Companies {
   static const String defaultName = 'Sarvam';
 
   /// Company name → server address.
-  static const Map<String, String> urls = {
-    // 'Sarvam': 'https://ktg.nidhimfi.com',
-    'Sarvam': 'https://sarvam.nidhimfi.com',
-    'GCPL': 'https://gcpl.nidhimfi.com',
-  };
+  // Single company: the app uses only the base URL in api.dart.
+  static Map<String, String> get urls => {defaultName: Api.baseUrl};
 
   /// Company name → logo shown on the splash and sign-in screens.
   static const Map<String, String> logos = {
-    'Sarvam': 'assets/icon/Sarvam_01.png',
+    // 'Sarvam': 'assets/icon/Sarvam_01.png',
+    'Sarvam': 'assets/icon/KTG.png',
     'GCPL': 'assets/icon/GCPL.png',
   };
 

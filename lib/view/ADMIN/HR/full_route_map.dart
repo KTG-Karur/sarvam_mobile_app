@@ -557,7 +557,7 @@ class _FullRouteMapState extends State<FullRouteMap>
           ),
           SizedBox(width: 8.w),
           Image.asset(
-            'assets/icon/Sarvam_01.png',
+            'assets/icon/KTG.png',
             width: 100.w,
             height: 38.h,
             fit: BoxFit.contain,

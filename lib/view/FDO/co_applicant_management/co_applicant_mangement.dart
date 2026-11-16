@@ -43,21 +43,25 @@ class _CoApplicantMangementState extends State<CoApplicantMangement> {
   late TextEditingController _searchController;
 
   // New Application form inputs
-  final List<Map<String, String>> _mockClientsList = [
-    {'name': 'Julie M', 'id': 'DRF-3-5'},
-    {'name': 'Rahini R', 'id': '3-6-1-1'},
-    {'name': 'Preetha Marimuthu', 'id': '3-5-2-3'},
-    {'name': 'Alaguranjitha S', 'id': '3-5-2-2'},
-    {'name': 'Ragu Ram', 'id': '3-5-2-1'},
-    {'name': 'Karpagam K', 'id': '3-5-2-6'},
-    {'name': 'Gayathri R', 'id': '3-5-2-13'},
-  ];
+  // Mock clients disabled: show only real server data.
+  // final List<Map<String, String>> _mockClientsList = [
+  //   {'name': 'Julie M', 'id': 'DRF-3-5'},
+  //   {'name': 'Rahini R', 'id': '3-6-1-1'},
+  //   {'name': 'Preetha Marimuthu', 'id': '3-5-2-3'},
+  //   {'name': 'Alaguranjitha S', 'id': '3-5-2-2'},
+  //   {'name': 'Ragu Ram', 'id': '3-5-2-1'},
+  //   {'name': 'Karpagam K', 'id': '3-5-2-6'},
+  //   {'name': 'Gayathri R', 'id': '3-5-2-13'},
+  // ];
+  final List<Map<String, String>> _mockClientsList = [];
 
   @override
   void initState() {
     super.initState();
     _searchController = TextEditingController();
-    _allApplications = _generateMockApplications();
+    // Mock applications disabled: show only real server data.
+    // _allApplications = _generateMockApplications();
+    _allApplications = [];
     _applyFilter();
   }
 
@@ -1129,7 +1133,8 @@ class _CoApplicantMangementState extends State<CoApplicantMangement> {
   }
 
   void _showAddCoApplicantDialog() {
-    Map<String, String>? selectedClient = _mockClientsList.first;
+    Map<String, String>? selectedClient =
+        _mockClientsList.isEmpty ? null : _mockClientsList.first;
     final nameCtrl = TextEditingController();
     final phoneCtrl = TextEditingController();
     String relation = 'Spouse';

@@ -730,25 +730,29 @@ class CollectionDetails extends StatelessWidget {
     final details = switch (type) {
       CollectionType.current => (
         'Live Collection',
-        '₹ 15,750',
+        // '₹ 15,750',
+        '₹ 0',
         const Color(0xFF084E33),
         'Today’s due repayments',
       ),
       CollectionType.arrear => (
         'Arrear Collection',
-        '₹ 8,600',
+        // '₹ 8,600',
+        '₹ 0',
         const Color(0xFFC2412D),
         'Overdue repayments',
       ),
       CollectionType.advance => (
         'Advance Collection',
-        '₹ 5,250',
+        // '₹ 5,250',
+        '₹ 0',
         const Color(0xFFB45309),
         'Upcoming repayments',
       ),
       CollectionType.os => (
         'OD Collection',
-        '₹ 10,400',
+        // '₹ 10,400',
+        '₹ 0',
         const Color(0xFF084E33),
         'Outstanding collections',
       ),

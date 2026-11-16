@@ -66,7 +66,9 @@ class _ClientUpdateState extends State<ClientUpdate> {
     _coPhoneController = TextEditingController();
 
     // Populate mock clients (total 32 to match desktop view count indicator)
-    _allClients = _generateMockClients();
+    // Mock clients disabled: show only real server data.
+    // _allClients = _generateMockClients();
+    _allClients = [];
     _filteredClients = List.from(_allClients);
   }
 
@@ -1181,7 +1183,7 @@ class _ClientUpdateState extends State<ClientUpdate> {
         ),
         SizedBox(width: 6.w),
         Text(
-          'Sarvam Charitable Trust Management System',
+          'Knock The Globe Technologies',
           style: TextStyle(
             fontSize: 9.sp,
             color: const Color(0xFF729A7D),

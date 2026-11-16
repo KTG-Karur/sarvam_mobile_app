@@ -22,16 +22,21 @@ class AdminDashboardController extends GetxController {
   final RxDouble loanDisbmtTarget = 0.0.obs;
 
   // 2. Achievement
-  final RxInt newMembersAchievement = 2.obs;
+  // [sample default disabled] final RxInt newMembersAchievement = 2.obs;
+  final RxInt newMembersAchievement = 0.obs;
   final RxInt renewalsAchievement = 0.obs;
   final RxInt goldLoansAchievement = 0.obs;
   final RxDouble disbmtAmountAchievement = 0.0.obs;
 
   // 3. Operations
-  final RxInt noOfCenters = 8.obs;
-  final RxInt activeTotal = 9.obs;
-  final RxInt activeMembers = 5.obs;
-  final RxInt activeClients = 4.obs;
+  // [sample default disabled] final RxInt noOfCenters = 8.obs;
+  final RxInt noOfCenters = 0.obs;
+  // [sample default disabled] final RxInt activeTotal = 9.obs;
+  final RxInt activeTotal = 0.obs;
+  // [sample default disabled] final RxInt activeMembers = 5.obs;
+  final RxInt activeMembers = 0.obs;
+  // [sample default disabled] final RxInt activeClients = 4.obs;
+  final RxInt activeClients = 0.obs;
   final RxInt disbmtClients = 0.obs;
   final RxDouble disbmtClientsAmount = 0.0.obs;
 
@@ -41,15 +46,24 @@ class AdminDashboardController extends GetxController {
   final RxInt goldReturns = 0.obs;
 
   // 5. Collection & Portfolio OS
-  final RxDouble collectionTargetPct = 100.0.obs;
-  final RxDouble collectionActualPct = 25.84.obs;
-  final RxDouble collectionDiffPct = (-74.16).obs;
-  final RxDouble goldLoanCollPct = 25.84.obs;
-  final RxDouble principalOs = 87100.0.obs;
-  final RxDouble interestOs = 23900.0.obs;
-  final RxDouble totalDemandAmount = 2200.0.obs;
-  final RxDouble totalCollectedAmount = 568.0.obs;
-  final RxDouble totalDisbursedAmount = 90000.0.obs;
+  // [sample default disabled] final RxDouble collectionTargetPct = 100.0.obs;
+  final RxDouble collectionTargetPct = 0.0.obs;
+  // [sample default disabled] final RxDouble collectionActualPct = 25.84.obs;
+  final RxDouble collectionActualPct = 0.0.obs;
+  // [sample default disabled] final RxDouble collectionDiffPct = (-74.16).obs;
+  final RxDouble collectionDiffPct = 0.0.obs;
+  // [sample default disabled] final RxDouble goldLoanCollPct = 25.84.obs;
+  final RxDouble goldLoanCollPct = 0.0.obs;
+  // [sample default disabled] final RxDouble principalOs = 87100.0.obs;
+  final RxDouble principalOs = 0.0.obs;
+  // [sample default disabled] final RxDouble interestOs = 23900.0.obs;
+  final RxDouble interestOs = 0.0.obs;
+  // [sample default disabled] final RxDouble totalDemandAmount = 2200.0.obs;
+  final RxDouble totalDemandAmount = 0.0.obs;
+  // [sample default disabled] final RxDouble totalCollectedAmount = 568.0.obs;
+  final RxDouble totalCollectedAmount = 0.0.obs;
+  // [sample default disabled] final RxDouble totalDisbursedAmount = 90000.0.obs;
+  final RxDouble totalDisbursedAmount = 0.0.obs;
 
   double get collectionPercentage {
     if (totalDemandAmount.value <= 0) return 0.0;
@@ -58,21 +72,32 @@ class AdminDashboardController extends GetxController {
   }
 
   // 6. Arrears & PAR
-  final RxInt arrearClients = 1.obs;
-  final RxDouble arrearPrincipal = 100.0.obs;
+  // [sample default disabled] final RxInt arrearClients = 1.obs;
+  final RxInt arrearClients = 0.obs;
+  // [sample default disabled] final RxDouble arrearPrincipal = 100.0.obs;
+  final RxDouble arrearPrincipal = 0.0.obs;
   final RxDouble arrearInterest = 0.0.obs;
-  final RxDouble parPct = 11.1.obs;
-  final RxInt totalArrearMembers = 1.obs;
-  final RxInt totalMembersCount = 9.obs;
+  // [sample default disabled] final RxDouble parPct = 11.1.obs;
+  final RxDouble parPct = 0.0.obs;
+  // [sample default disabled] final RxInt totalArrearMembers = 1.obs;
+  final RxInt totalArrearMembers = 0.obs;
+  // [sample default disabled] final RxInt totalMembersCount = 9.obs;
+  final RxInt totalMembersCount = 0.obs;
 
   // 7. Stat Cards Grid
-  final RxInt totalGroups = 6.obs;
-  final RxInt totalMembers = 9.obs;
+  // [sample default disabled] final RxInt totalGroups = 6.obs;
+  final RxInt totalGroups = 0.obs;
+  // [sample default disabled] final RxInt totalMembers = 9.obs;
+  final RxInt totalMembers = 0.obs;
   final RxInt rejectedMembers = 0.obs;
-  final RxInt totalStaff = 5.obs;
-  final RxInt totalFunders = 2.obs;
-  final RxDouble loanDisbursementTotal = 90000.0.obs;
-  final RxDouble outstandingBalanceTotal = 87100.0.obs;
+  // [sample default disabled] final RxInt totalStaff = 5.obs;
+  final RxInt totalStaff = 0.obs;
+  // [sample default disabled] final RxInt totalFunders = 2.obs;
+  final RxInt totalFunders = 0.obs;
+  // [sample default disabled] final RxDouble loanDisbursementTotal = 90000.0.obs;
+  final RxDouble loanDisbursementTotal = 0.0.obs;
+  // [sample default disabled] final RxDouble outstandingBalanceTotal = 87100.0.obs;
+  final RxDouble outstandingBalanceTotal = 0.0.obs;
   final RxInt highmarkChecked = 0.obs;
   final RxDouble highmarkBalance = 0.0.obs;
 
@@ -253,7 +278,8 @@ class AdminDashboardController extends GetxController {
     } finally {
       isLoading.value = false;
       isRefreshing.value = false;
-      _populateSampleTablesIfEmpty();
+      // Sample data disabled: show only real server data.
+      // _populateSampleTablesIfEmpty();
     }
   }
 

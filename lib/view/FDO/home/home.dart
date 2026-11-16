@@ -211,7 +211,7 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
           ],
         ),
         content: Text(
-          'Are you sure you want to exit Sarvam application?',
+          'Are you sure you want to exit KTG MFI application?',
           style: TextStyle(fontSize: 14.sp, color: const Color(0xFF475569)),
         ),
         actions: [
@@ -457,17 +457,19 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Expanded(child: _buildCollectionCard()),
-                                SizedBox(width: 12.w),
-                                Expanded(child: _buildArrearsCard()),
+                                // Arrears card disabled: it shows hardcoded sample numbers.
+                                // SizedBox(width: 12.w),
+                                // Expanded(child: _buildArrearsCard()),
                               ],
                             ),
 
                             SizedBox(height: 20.h),
 
-                            // PAR (Portfolio At Risk)
-                            _buildParCard(),
-
-                            SizedBox(height: 20.h),
+                            // PAR card disabled: it shows hardcoded sample numbers.
+                            // // PAR (Portfolio At Risk)
+                            // _buildParCard(),
+                            //
+                            // SizedBox(height: 20.h),
 
                             // Operations summary 6-grid (3 columns, 2 rows)
                             _buildOperationsGrid(),

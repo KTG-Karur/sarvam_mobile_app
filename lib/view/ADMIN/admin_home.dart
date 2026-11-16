@@ -161,7 +161,7 @@ class _AdminHomeState extends State<AdminHome>
           ],
         ),
         content: Text(
-          'Are you sure you want to exit Sarvam application?',
+          'Are you sure you want to exit KTG MFI application?',
           style: TextStyle(fontSize: 14.sp, color: const Color(0xFF475569)),
         ),
         actions: [
@@ -371,8 +371,9 @@ class _AdminHomeState extends State<AdminHome>
         _buildEodStatusTableWidget(),
         SizedBox(height: 16.h),
         _buildOfficerLoanTableWidget(),
-        SizedBox(height: 16.h),
-        _buildBranchLeaderboardWidget(),
+        // Branch leaderboard disabled: it uses hardcoded sample branches.
+        // SizedBox(height: 16.h),
+        // _buildBranchLeaderboardWidget(),
       ],
     );
   }
@@ -3073,7 +3074,7 @@ class _AdminHomeState extends State<AdminHome>
   Widget _buildFooter() {
     return Center(
       child: Text(
-        'Sarvam v2.0.0 • ${DateTime.now().year}',
+        'KTG MFI v2.0.0 • ${DateTime.now().year}',
         style: GoogleFonts.inter(
           fontSize: 10.sp,
           color: _muted.withOpacity(0.6),
@@ -3531,7 +3532,7 @@ class _AdminHomeState extends State<AdminHome>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Sarvam MFI Admin',
+                              'KTG MFI Admin',
                               style: GoogleFonts.inter(
                                 fontSize: 16.sp,
                                 fontWeight: FontWeight.w800,

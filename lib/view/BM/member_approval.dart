@@ -971,7 +971,7 @@ class _MemberApprovalState extends State<MemberApproval> {
           const Icon(Icons.shield_outlined, color: _primaryGreen, size: 15),
           const SizedBox(width: 6),
           Text(
-            'Sarvam Charitable Trust Management System',
+            'Knock The Globe Technologies',
             style: GoogleFonts.poppins(
               color: const Color(0xFF4A7C5D),
               fontSize: 11.5,

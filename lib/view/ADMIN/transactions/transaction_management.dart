@@ -64,7 +64,14 @@ class _TransactionManagementState extends State<TransactionManagement> {
                 }).toList();
 
                 if (filtered.isEmpty) {
-                  return _buildSampleVouchersList();
+                  // Sample vouchers disabled: show only real server data.
+                  // return _buildSampleVouchersList();
+                  return Center(
+                    child: Text(
+                      'No vouchers found',
+                      style: TextStyle(fontSize: 14.sp, color: Colors.grey),
+                    ),
+                  );
                 }
 
                 return ListView.separated(

@@ -1,16 +1,19 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:sarvam/constant/api.dart';
 import '../../domain/models/face_embedding.dart';
 
 class BiometricApiService {
   final String baseUrl;
   final http.Client _httpClient;
 
+  // Uses only the base URL in api.dart.
   BiometricApiService({
-    this.baseUrl = 'https://api.sarvam.ai/v1/biometrics',
+    String? baseUrl,
     http.Client? httpClient,
-  }) : _httpClient = httpClient ?? http.Client();
+  })  : baseUrl = baseUrl ?? '${Api.baseUrl}/api/biometrics',
+        _httpClient = httpClient ?? http.Client();
 
   /// Sync encrypted biometric embedding with secure backend over HTTPS
   Future<bool> syncEmbeddingToBackend({

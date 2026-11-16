@@ -60,13 +60,13 @@ class AppPermissionService {
           title: const Text('Location access'),
           content: const SingleChildScrollView(
             child: Text(
-              'Sarvam collects location data to enable attendance punch-in/out, '
+              'KTG MFI collects location data to enable attendance punch-in/out, '
               'live tracking of field visits, and geotagging of member '
               'verification, collection and disbursement entries, '
               'even when the app is closed or not in use.\n\n'
               'Background location is collected only while you are punched in, '
               'and stops automatically when you punch out. It is shared only '
-              'with your authorised managers at Sarvam and is never used for '
+              'with your authorised managers at KTG MFI and is never used for '
               'advertising.\n\n'
               'On the next screen, choose "Allow all the time" to enable live '
               'tracking.',

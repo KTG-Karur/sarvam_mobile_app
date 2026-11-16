@@ -324,7 +324,7 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin, Wi
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Image.asset(
-                  'assets/icon/Sarvam_01.png',
+                  'assets/icon/KTG.png',
                   width: 155.w,
                   height: 54.h,
                   fit: BoxFit.contain,
@@ -332,7 +332,7 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin, Wi
                 ),
                 SizedBox(height: 2.h),
                 Text(
-                  'SARVAM MICROFINANCE ERP',
+                  'KTG MFI ERP',
                   style: GoogleFonts.inter(
                     fontSize: 8.5.sp,
                     letterSpacing: 2.0,

@@ -68,7 +68,7 @@ class BiometricConsentDialog extends StatelessWidget {
             const SizedBox(height: 14),
             _buildBulletItem(
               Icons.lock_outline,
-              'Secure Storage: Your face template and one enrolment photo are sent over an encrypted connection to Sarvam servers and kept in encrypted storage on this device.',
+              'Secure Storage: Your face template and one enrolment photo are sent over an encrypted connection to KTG MFI servers and kept in encrypted storage on this device.',
             ),
             const SizedBox(height: 8),
             _buildBulletItem(
@@ -78,7 +78,7 @@ class BiometricConsentDialog extends StatelessWidget {
             const SizedBox(height: 8),
             _buildBulletItem(
               Icons.delete_sweep_outlined,
-              'Full Control: You can ask for your face data to be deleted at any time by contacting Sarvam (see Privacy Policy).',
+              'Full Control: You can ask for your face data to be deleted at any time by contacting KTG MFI (see Privacy Policy).',
             ),
             const SizedBox(height: 24),
             Row(

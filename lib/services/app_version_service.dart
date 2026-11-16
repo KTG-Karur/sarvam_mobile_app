@@ -111,7 +111,7 @@ class AppVersionService {
 
   static Future<void> _openUpdateUrl(String? storeUrl) async {
     final String url =
-        (storeUrl != null && storeUrl.isNotEmpty) ? storeUrl : 'https://sarvam.nidhimfi.com/';
+        (storeUrl != null && storeUrl.isNotEmpty) ? storeUrl : '${Api.baseUrl}/';
     final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);

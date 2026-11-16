@@ -5,6 +5,7 @@ import 'package:sarvam/constant/companies.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/view/auth/login_screen.dart';
@@ -280,7 +281,7 @@ class _MpinLoginScreenState extends State<MpinLoginScreen>
           ],
         ),
         content: Text(
-          'Are you sure you want to exit Sarvam application?',
+          'Are you sure you want to exit KTG MFI application?',
           style: TextStyle(fontSize: 14.sp, color: const Color(0xFF475569)),
         ),
         actions: [
@@ -353,12 +354,12 @@ class _MpinLoginScreenState extends State<MpinLoginScreen>
                             // Welcome Back Heading
                             Center(
                               child: Text(
-                                'Welcome Back!',
-                                style: TextStyle(
-                                  fontSize: 28.sp,
-                                  fontWeight: FontWeight.w800,
-                                  color: const Color(0xFF0F172A),
-                                  letterSpacing: 0.5,
+                                'WELCOME BACK!',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 26.sp,
+                                  fontWeight: FontWeight.w700,
+                                  color: const Color(0xFF0D47A1),
+                                  letterSpacing: 1.5,
                                 ),
                               ),
                             ),
@@ -369,8 +370,9 @@ class _MpinLoginScreenState extends State<MpinLoginScreen>
                             Center(
                               child: Text(
                                 'Login using your MPIN',
-                                style: TextStyle(
-                                  fontSize: 15.sp,
+                                style: GoogleFonts.poppins(
+                                  fontSize: 14.sp,
+                                  fontWeight: FontWeight.w500,
                                   color: const Color(0xFF64748B),
                                   height: 1.3,
                                 ),
@@ -442,9 +444,9 @@ class _MpinLoginScreenState extends State<MpinLoginScreen>
                             // Enter 4-digit MPIN Label
                             Text(
                               'Enter 4-digit MPIN',
-                              style: TextStyle(
+                              style: GoogleFonts.poppins(
                                 fontSize: 13.sp,
-                                fontWeight: FontWeight.bold,
+                                fontWeight: FontWeight.w600,
                                 color: const Color(0xFF64748B),
                                 letterSpacing: 0.5,
                               ),

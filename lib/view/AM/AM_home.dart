@@ -216,7 +216,7 @@ class _AmHomeState extends State<AmHome> with SingleTickerProviderStateMixin {
           ],
         ),
         content: Text(
-          'Are you sure you want to exit Sarvam application?',
+          'Are you sure you want to exit KTG MFI application?',
           style: TextStyle(fontSize: 14.sp, color: const Color(0xFF475569)),
         ),
         actions: [

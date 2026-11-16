@@ -228,7 +228,7 @@ class _EmployeeIdCardPageState extends State<EmployeeIdCardPage> {
             ),
           ),
           Image.asset(
-            'assets/icon/Sarvam_01.png',
+            'assets/icon/KTG.png',
             width: 100.w,
             height: 38.h,
             fit: BoxFit.contain,
@@ -450,7 +450,7 @@ class _EmployeeIdCardPageState extends State<EmployeeIdCardPage> {
           const SizedBox(height: 28),
           _logoIcon(56),
           const SizedBox(height: 6),
-          Text('SARVAM', style: _poppins(19, letterSpacing: 1.5)),
+          Text('KTG MFI', style: _poppins(19, letterSpacing: 1.5)),
           const SizedBox(height: 20),
           Container(
             width: 124,
@@ -646,7 +646,7 @@ class _EmployeeIdCardPageState extends State<EmployeeIdCardPage> {
                 children: [
                   _logoIcon(44),
                   const SizedBox(height: 6),
-                  Text('SARVAM', style: _poppins(16, letterSpacing: 1.2)),
+                  Text('KTG MFI', style: _poppins(16, letterSpacing: 1.2)),
                   const SizedBox(height: 10),
                   Row(
                     children: [

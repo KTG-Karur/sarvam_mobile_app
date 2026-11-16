@@ -479,7 +479,7 @@ class _LiveTrackingState extends State<LiveTracking>
             ),
           ),
           Image.asset(
-            'assets/icon/Sarvam_01.png',
+            'assets/icon/KTG.png',
             width: 110.w,
             height: 40.h,
             fit: BoxFit.contain,

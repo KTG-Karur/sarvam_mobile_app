@@ -284,7 +284,7 @@ class TrackingService {
         // its own FOREGROUND_DEFAULT channel synchronously before calling
         // startForeground; a missing custom channel caused release APKs to
         // crash after MPIN with CannotPostForegroundServiceNotificationException.
-        initialNotificationTitle: 'Sarvam',
+        initialNotificationTitle: 'KTG MFI',
         initialNotificationContent: 'Tracking your location while on duty',
         foregroundServiceNotificationId: _notificationId,
         foregroundServiceTypes: [AndroidForegroundType.location],
@@ -417,12 +417,13 @@ class TrackingService {
 
     // Load tenant URL in background isolate
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final savedUrl = prefs.getString('selected_company_url');
-      if (savedUrl != null && savedUrl.isNotEmpty) {
-        Api.setBaseUrl(savedUrl);
-        _log('base URL set to $savedUrl');
-      }
+      // Company selection disabled: base URL comes from api.dart.
+      // final prefs = await SharedPreferences.getInstance();
+      // final savedUrl = prefs.getString('selected_company_url');
+      // if (savedUrl != null && savedUrl.isNotEmpty) {
+      //   Api.setBaseUrl(savedUrl);
+      //   _log('base URL set to $savedUrl');
+      // }
     } catch (e) {
       _log('failed to load tenant URL: $e');
     }

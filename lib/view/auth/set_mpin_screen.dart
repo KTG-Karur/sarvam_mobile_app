@@ -4,6 +4,7 @@ import 'package:sarvam/constant/companies.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
 import 'package:sarvam/view/auth/face_training_screen.dart';
@@ -186,12 +187,12 @@ class _SetMpinScreenState extends State<SetMpinScreen> {
                           // Set MPIN Heading
                           Center(
                             child: Text(
-                              'Set MPIN',
-                              style: TextStyle(
-                                fontSize: 28.sp,
-                                fontWeight: FontWeight.w800,
-                                color: const Color(0xFF0F172A),
-                                letterSpacing: 0.5,
+                              'SET MPIN',
+                              style: GoogleFonts.poppins(
+                                fontSize: 26.sp,
+                                fontWeight: FontWeight.w700,
+                                color: const Color(0xFF0D47A1),
+                                letterSpacing: 1.5,
                               ),
                             ),
                           ),
@@ -203,8 +204,9 @@ class _SetMpinScreenState extends State<SetMpinScreen> {
                             child: Text(
                               'Create a 4-digit MPIN to secure your account',
                               textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 15.sp,
+                              style: GoogleFonts.poppins(
+                                fontSize: 14.sp,
+                                fontWeight: FontWeight.w500,
                                 color: const Color(0xFF64748B),
                                 height: 1.3,
                               ),
@@ -216,9 +218,9 @@ class _SetMpinScreenState extends State<SetMpinScreen> {
                           // Enter 4-digit MPIN Label
                           Text(
                             'Enter 4-digit MPIN',
-                            style: TextStyle(
+                            style: GoogleFonts.poppins(
                               fontSize: 13.sp,
-                              fontWeight: FontWeight.bold,
+                              fontWeight: FontWeight.w600,
                               color: const Color(0xFF64748B),
                               letterSpacing: 0.5,
                             ),

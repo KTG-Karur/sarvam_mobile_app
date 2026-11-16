@@ -18,11 +18,16 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Load tenant URL before app startup
-  final prefs = await SharedPreferences.getInstance();
-  final savedUrl = prefs.getString('selected_company_url');
-  if (savedUrl != null && savedUrl.isNotEmpty) {
-    Api.setBaseUrl(savedUrl);
-  }
+  // Clear company URLs saved by older builds so nothing can point elsewhere.
+  final oldPrefs = await SharedPreferences.getInstance();
+  await oldPrefs.remove('selected_company_url');
+  await oldPrefs.remove('selected_company');
+  // Company selection disabled: base URL comes from api.dart.
+  // final prefs = await SharedPreferences.getInstance();
+  // final savedUrl = prefs.getString('selected_company_url');
+  // if (savedUrl != null && savedUrl.isNotEmpty) {
+  //   Api.setBaseUrl(savedUrl);
+  // }
 
   // Lock mobile app strictly to Portrait Up mode (disable screen rotation)
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
@@ -75,7 +80,7 @@ class MyApp extends StatelessWidget {
       splitScreenMode: true,
       builder: (context, child) {
         return GetMaterialApp(
-          title: 'Sarvam',
+          title: 'KTG MFI',
           debugShowCheckedModeBanner: false,
           theme: ThemeData(
             colorScheme: ColorScheme.fromSeed(

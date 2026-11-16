@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/constant/companies.dart';
@@ -42,7 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ],
         ),
         content: Text(
-          'Are you sure you want to exit Sarvam application?',
+          'Are you sure you want to exit KTG MFI application?',
           style: TextStyle(fontSize: 14.sp, color: const Color(0xFF475569)),
         ),
         actions: [
@@ -81,12 +82,14 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
+    // Company selection disabled: base URL comes from api.dart.
     // Until the saved choice is read, talk to the default company's server.
-    Api.setBaseUrl(Companies.defaultUrl);
+    // Api.setBaseUrl(Companies.defaultUrl);
     _loadSavedCredentials();
-    _loadCompany();
+    // _loadCompany();
   }
 
+  /*
   /// Shows the last company chosen. Logging out keeps it, so the next person
   /// signing in on this phone starts on the same company.
   Future<void> _loadCompany() async {
@@ -107,6 +110,7 @@ class _LoginScreenState extends State<LoginScreen> {
     await prefs.setString('selected_company', name);
     await prefs.setString('selected_company_url', url);
   }
+  */
 
   Future<void> _loadSavedCredentials() async {
     try {
@@ -241,11 +245,11 @@ class _LoginScreenState extends State<LoginScreen> {
                         Center(
                           child: Text(
                             'WELCOME BACK!',
-                            style: TextStyle(
-                              fontSize: 28.sp,
-                              fontWeight: FontWeight.w800,
-                              color: const Color(0xFF0F172A),
-                              letterSpacing: 0.5,
+                            style: GoogleFonts.poppins(
+                              fontSize: 26.sp,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF0D47A1),
+                              letterSpacing: 1.5,
                             ),
                           ),
                         ),
@@ -265,6 +269,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                         SizedBox(height: 36.h),
 
+                        /* Company dropdown disabled: app now uses the single base URL in api.dart.
                         // Company
                         Text(
                           'COMPANY',
@@ -340,6 +345,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
 
                         SizedBox(height: 24.h),
+                        */
 
                         // Employee ID Field Label
                         Text(
