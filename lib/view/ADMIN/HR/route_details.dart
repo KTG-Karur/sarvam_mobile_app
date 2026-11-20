@@ -156,7 +156,21 @@ class RouteDetails extends StatefulWidget {
     required this.stops,
     this.employeeId,
     this.date,
+    this.trackingAccess = 'FULL',
+    this.locationsVisited,
   });
+
+  /// Places actually worked that day (client visits + centres collected from +
+  /// centres created + members enrolled) — the same number the day card shows.
+  /// Null falls back to counting the milestone stops in [stops]. Never the
+  /// number of GPS points.
+  final int? locationsVisited;
+
+  /// Server decision for the map: FULL = show it; LIMITED = the role has no
+  /// mobile Live Tracking permission; LOCATION_OFF = phone location was off.
+  /// Anything other than FULL replaces the Google map with a message — the
+  /// rest of the screen (stats, stop details, summary) is unchanged.
+  final String trackingAccess;
 
   /// With [employeeId] and [date] the map draws the same server-snapped route
   /// as the web; without them it falls back to routing the points itself.
@@ -222,8 +236,11 @@ class _RouteDetailsState extends State<RouteDetails>
     _roadVisitedPoints = orderedVisitedRouteStops(widget.stops)
         .map((s) => s.position)
         .toList();
-    unawaited(_loadRoadRoute());
+    // No map shown = no road-route / road-snap requests either.
+    if (_mapAllowed) unawaited(_loadRoadRoute());
   }
+
+  bool get _mapAllowed => widget.trackingAccess == 'FULL';
 
   Future<void> _loadRoadRoute() async {
     final employeeId = widget.employeeId;
@@ -275,7 +292,7 @@ class _RouteDetailsState extends State<RouteDetails>
   }
 
   int get _visitedCount =>
-      widget.stops.where((s) => s.status != VisitStatus.pending).length;
+      widget.locationsVisited ?? milestoneStops(widget.stops).length;
 
   Future<void> _fitBounds() async {
     final controller = _mapController;
@@ -421,6 +438,7 @@ class _RouteDetailsState extends State<RouteDetails>
           stops: widget.stops,
           employeeId: widget.employeeId,
           date: widget.date,
+          locationsVisited: widget.locationsVisited,
         ),
         transitionsBuilder: (_, animation, __, child) {
           return FadeTransition(
@@ -475,7 +493,7 @@ class _RouteDetailsState extends State<RouteDetails>
                         SizedBox(height: 14.h),
                         _buildSummaryBar(),
                         SizedBox(height: 16.h),
-                        _buildViewFullRouteButton(),
+                        if (_mapAllowed) _buildViewFullRouteButton(),
                         SizedBox(height: 20.h),
                       ],
                     ),
@@ -583,7 +601,7 @@ class _RouteDetailsState extends State<RouteDetails>
       _StatItem(
         Icons.location_on_rounded,
         _greenAccent,
-        '$_visitedCount / ${widget.stops.length}',
+        '$_visitedCount',
         'Locations Visited',
       ),
       _StatItem(
@@ -671,7 +689,52 @@ class _RouteDetailsState extends State<RouteDetails>
   }
 
   // ── Map card ────────────────────────────────────────────────────────────
+  /// Replaces the Google map (the SDK is never created) when the map is not allowed.
+  Widget _buildMapNotAllowedCard() {
+    final notAllowed = widget.trackingAccess != 'LOCATION_OFF';
+    return Container(
+      height: 220.h,
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(horizontal: 20.w),
+      decoration: BoxDecoration(
+        color: _amberLight,
+        borderRadius: BorderRadius.circular(16.r),
+        border: Border.all(color: _amber.withOpacity(0.5)),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            notAllowed ? Icons.lock_outline_rounded : Icons.location_off_rounded,
+            color: _amber,
+            size: 34.sp,
+          ),
+          SizedBox(height: 10.h),
+          Text(
+            notAllowed ? 'Map not allowed' : 'Location is off',
+            style: GoogleFonts.inter(
+              fontSize: 14.sp,
+              fontWeight: FontWeight.w700,
+              color: _darkText,
+            ),
+          ),
+          SizedBox(height: 6.h),
+          Text(
+            notAllowed
+                ? 'The live tracking map is not allowed for your role. '
+                    'Please contact your administrator.'
+                : 'Location was turned off on your phone, so there is no route '
+                    'to show. Turn location on (Allow all the time) and try again.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(fontSize: 10.5.sp, color: _muted),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMapCard() {
+    if (!_mapAllowed) return _buildMapNotAllowedCard();
     return ClipRRect(
       borderRadius: BorderRadius.circular(16.r),
       child: SizedBox(
@@ -1122,7 +1185,7 @@ class _RouteDetailsState extends State<RouteDetails>
           Expanded(
             child: _summaryItem(
               Icons.location_on_rounded,
-              '$_visitedCount / ${widget.stops.length}',
+              '$_visitedCount',
               'Locations Visited',
             ),
           ),

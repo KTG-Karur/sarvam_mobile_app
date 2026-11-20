@@ -26,7 +26,11 @@ class FullRouteMap extends StatefulWidget {
     required this.stops,
     this.employeeId,
     this.date,
+    this.locationsVisited,
   });
+
+  /// Places actually worked that day; see RouteDetails.locationsVisited.
+  final int? locationsVisited;
 
   /// With [employeeId] and [date] the map draws the same server-snapped route
   /// as the web; without them it falls back to routing the points itself.
@@ -144,7 +148,7 @@ class _FullRouteMapState extends State<FullRouteMap>
   }
 
   int get _visitedCount =>
-      widget.stops.where((s) => s.status != VisitStatus.pending).length;
+      widget.locationsVisited ?? milestoneStops(widget.stops).length;
 
   // ── Custom marker bitmap generation ────────────────────────────────────
   /// Round badge (white ring, soft shadow, bold label) — the IN / OUT pin.
@@ -592,7 +596,7 @@ class _FullRouteMapState extends State<FullRouteMap>
               child: _statCell(
                 Icons.location_on_rounded,
                 _greenAccent,
-                '$_visitedCount / ${widget.stops.length}',
+                '$_visitedCount',
                 'Locations Visited',
               ),
             ),

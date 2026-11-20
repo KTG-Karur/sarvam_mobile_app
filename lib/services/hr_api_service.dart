@@ -361,6 +361,139 @@ class HrApiService {
     }
   }
 
+  // ── Attendance regularization (same endpoints the web screens use) ────────
+
+  /// GET /api/hr/regularization — the caller's own requests (plus any they
+  /// applied for someone else), newest first.
+  static Future<List<dynamic>> myRegularizations() => _getList('/api/hr/regularization');
+
+  /// GET /api/hr/regularization/config — how many days back a day may be
+  /// regularized (set by HR; 7 until an admin changes it).
+  static Future<int> regularizationMaxDays() async {
+    try {
+      final payload = await _get('/api/hr/regularization/config');
+      final days = payload is Map ? payload['maxBackdateDays'] : null;
+      if (days is num && days > 0) return days.toInt();
+    } catch (_) {
+      // Fall back to the default; the server still enforces the real limit.
+    }
+    return 7;
+  }
+
+  /// GET /api/hr/shifts — active shifts (optional on a request).
+  static Future<List<dynamic>> activeShifts() async {
+    try {
+      return await _getList('/api/hr/shifts');
+    } catch (_) {
+      return <dynamic>[];
+    }
+  }
+
+  /// POST /api/hr/regularization/apply. Returns the server's message
+  /// ("submitted" or "submitted and approved"); throws [HrApiException] with
+  /// the server's reason when the request is refused.
+  static Future<String> applyRegularization({
+    required String date, // yyyy-MM-dd
+    required String requestedStatus, // PRESENT | HALF_DAY
+    required String fromTime, // HH:mm
+    required String toTime, // HH:mm
+    required String reason,
+    String? shiftId,
+  }) async {
+    final body = await _post('/api/hr/regularization/apply', {
+      'date': date,
+      'requestedStatus': requestedStatus,
+      'fromTime': fromTime,
+      'toTime': toTime,
+      'reason': reason,
+      if (shiftId != null && shiftId.isNotEmpty) 'shiftId': shiftId,
+    });
+    return body['message']?.toString() ?? 'Regularization submitted';
+  }
+
+  /// POST /api/hr/regularization/{id}/cancel — only while still PENDING.
+  static Future<String> cancelRegularization(String id) async {
+    final body = await _post('/api/hr/regularization/${Uri.encodeComponent(id)}/cancel', const {});
+    return body['message']?.toString() ?? 'Regularization cancelled';
+  }
+
+  // ── Company policies — same documents the web Policy Library shows ───────
+
+  /// GET /api/hr/policies/published — published policy documents, newest first.
+  static Future<List<dynamic>> publishedPolicies() => _getList('/api/hr/policies/published');
+
+  /// A short-lived link that opens a stored file. [fileKey] is the storage key
+  /// saved on the document (an old full https link is returned unchanged).
+  static Future<String> fileLink(String fileKey) async {
+    if (RegExp(r'^https?://', caseSensitive: false).hasMatch(fileKey)) return fileKey;
+    final payload = await _get('/api/storage/signed-url?key=${Uri.encodeQueryComponent(fileKey)}');
+    final url = payload is Map ? payload['url']?.toString() : null;
+    if (url == null || url.isEmpty) throw const HrApiException('The file could not be opened.');
+    // Local storage returns a path on this server rather than a full link.
+    return url.startsWith('/') ? '${Api.baseUrl}$url' : url;
+  }
+
+  // ── Permission (short hours within a day) — same endpoints as the web ─────
+
+  /// GET /api/hr/permission — the caller's own permission requests, newest first.
+  static Future<List<dynamic>> myPermissions() => _getList('/api/hr/permission');
+
+  /// GET /api/payroll/permission-types — active permission types to choose from.
+  static Future<List<dynamic>> permissionTypes() => _getList('/api/payroll/permission-types');
+
+  /// POST /api/hr/permission/apply. Returns the server's message; throws
+  /// [HrApiException] with the server's reason when refused (e.g. overlapping
+  /// time on the same day).
+  static Future<String> applyPermission({
+    required String permissionTypeId,
+    required String date, // yyyy-MM-dd
+    required String fromTime, // HH:mm
+    required String toTime, // HH:mm
+    String? reason,
+  }) async {
+    final body = await _post('/api/hr/permission/apply', {
+      'permissionTypeId': permissionTypeId,
+      'date': date,
+      'fromTime': fromTime,
+      'toTime': toTime,
+      if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+    });
+    return body['message']?.toString() ?? 'Permission request submitted';
+  }
+
+  /// POST /api/hr/permission/{id}/cancel — only while still PENDING.
+  static Future<String> cancelPermission(String id) async {
+    final body = await _post('/api/hr/permission/${Uri.encodeComponent(id)}/cancel', const {});
+    return body['message']?.toString() ?? 'Permission request cancelled';
+  }
+
+  static Future<Map<String, dynamic>> _post(String path, Map<String, dynamic> payload) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('accessToken') ?? '';
+    if (token.isEmpty) throw const HrApiException('Your session has expired. Please sign in again.');
+
+    final response = await http
+        .post(
+          Uri.parse('${Api.baseUrl}$path'),
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode(payload),
+        )
+        .timeout(const Duration(seconds: 25));
+    final decoded = _tryDecodeJson(response);
+    if (decoded is! Map) {
+      throw const HrApiException('The server returned an unexpected response. Please try again.');
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300 || decoded['success'] == false) {
+      final message = (decoded['message'] ?? decoded['error'])?.toString();
+      throw HrApiException(message ?? 'The request could not be completed (${response.statusCode}).');
+    }
+    return Map<String, dynamic>.from(decoded);
+  }
+
   static Future<List<dynamic>> _getList(String path) async {
     final payload = await _get(path);
     return payload is List ? List<dynamic>.from(payload) : <dynamic>[];

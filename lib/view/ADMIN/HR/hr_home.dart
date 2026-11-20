@@ -7,7 +7,10 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/services/hr_api_service.dart';
 import 'package:sarvam/view/ADMIN/HR/apply_leave_flow.dart';
+import 'package:sarvam/view/ADMIN/HR/company_policies_page.dart';
 import 'package:sarvam/view/ADMIN/HR/my_leave_pages.dart';
+import 'package:sarvam/view/ADMIN/HR/permission_pages.dart';
+import 'package:sarvam/view/ADMIN/HR/regularization_pages.dart';
 import 'package:sarvam/view/FDO/performance/my_performance.dart';
 import 'package:sarvam/view/FDO/profile/my_profile.dart';
 import 'package:sarvam/services/face_biometric_service.dart';
@@ -465,6 +468,30 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin, Wi
         _yellowText,
       ),
       _QuickAction(
+        Icons.more_time_rounded,
+        'Apply Permission',
+        _lightGreenBg,
+        _greenAccent,
+      ),
+      _QuickAction(
+        Icons.timelapse_rounded,
+        'My Permission',
+        _lightYellowBg,
+        _yellowText,
+      ),
+      _QuickAction(
+        Icons.edit_calendar_rounded,
+        'Apply Regularization',
+        _lightGreenBg,
+        _greenAccent,
+      ),
+      _QuickAction(
+        Icons.fact_check_rounded,
+        'My Regularization',
+        _lightYellowBg,
+        _yellowText,
+      ),
+      _QuickAction(
         Icons.business_center_rounded,
         'Company\nPolicies',
         _lightGreenBg,
@@ -512,6 +539,46 @@ class _HrHomeState extends State<HrHome> with SingleTickerProviderStateMixin, Wi
                   Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => const MyLeaveRequestsPage(),
+                    ),
+                  );
+                  return;
+                }
+                if (label == 'Company Policies') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const CompanyPoliciesPage(),
+                    ),
+                  );
+                  return;
+                }
+                if (label == 'Apply Permission') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const ApplyPermissionPage(),
+                    ),
+                  );
+                  return;
+                }
+                if (label == 'My Permission') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const MyPermissionPage(),
+                    ),
+                  );
+                  return;
+                }
+                if (label == 'Apply Regularization') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const ApplyRegularizationPage(),
+                    ),
+                  );
+                  return;
+                }
+                if (label == 'My Regularization') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const MyRegularizationPage(),
                     ),
                   );
                   return;

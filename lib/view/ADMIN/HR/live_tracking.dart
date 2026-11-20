@@ -35,8 +35,11 @@ class _LiveTrackingState extends State<LiveTracking>
   late final Animation<double> _fade;
   late final Animation<Offset> _slide;
 
-  DateTime _month = DateTime.now();
-  String _rangeLabel = 'This Month';
+  // Date filter: the days shown, inclusive and date-only. Starts on today.
+  late DateTime _from;
+  late DateTime _to;
+  static const _maxRangeDays = 31;
+  int _loadGeneration = 0; // a newer filter choice makes older responses stale
   List<_DayLog> _logs = const [];
   var _isLoading = true;
   String? _loadError;
@@ -54,58 +57,117 @@ class _LiveTrackingState extends State<LiveTracking>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
     _ctrl.forward();
-    _loadTodayTracking();
+    _from = _to = _today;
+    _loadTracking();
   }
 
-  Future<void> _loadTodayTracking() async {
+  Future<void> _loadTracking() async {
+    final generation = ++_loadGeneration;
+    setState(() {
+      _isLoading = true;
+      _loadError = null;
+    });
     try {
       final prefs = await SharedPreferences.getInstance();
       final id = prefs.getString('userId') ?? '';
       if (id.isEmpty) throw const HrApiException('Employee session is unavailable. Please sign in again.');
-      final now = DateTime.now();
-      final selectedDate = _month.year == now.year && _month.month == now.month
-          ? now
-          : DateTime(_month.year, _month.month, 1);
-      final detail = await HrApiService.trackingDetail(
-        employeeId: id,
-        date: selectedDate,
-      );
-      if (!mounted) return;
-      final route = detail['routeHistory'] is List ? detail['routeHistory'] as List : const [];
-      final punchIn = _parseApiDateTime(detail['punchIn']);
-      // The attendance row is the source of truth, but a punch-out that left
-      // its route event (PUNCH_OUT) while the summary field is still empty must
-      // not read as "still active".
-      final punchOut = _parseApiDateTime(detail['punchOut']) ??
-          _latestPunchOutEvent(route);
-      final currentStatus = detail['currentStatus']?.toString() ?? 'OFFLINE';
-      setState(() {
-        _logs = [
-          _DayLog(
-            employeeId: id,
-            date: selectedDate,
-            day: selectedDate.day,
-            month: _monthAbbr(selectedDate.month).toUpperCase(),
-            year: selectedDate.year,
-            isToday: selectedDate.year == now.year &&
-                selectedDate.month == now.month,
-            punchIn: punchIn == null ? '--:--' : _time(punchIn),
-            routeLabel: punchOut != null ? 'Punch-Out' : currentStatus.replaceAll('_', ' '),
-            routeTime: punchOut == null ? '--:--' : _time(punchOut),
-            locationsVisited: route.length,
-            distanceKm: (detail['travelledKm'] as num?)?.toDouble() ?? 0,
-            status: punchOut == null ? _RouteStatus.inProgress : _RouteStatus.completed,
-            routeHistory: route.whereType<Map>().map((point) => Map<String, dynamic>.from(point)).toList(),
-            punchInAt: punchIn,
-            punchOutAt: punchOut,
-          ),
-        ];
-      });
+      final today = _today;
+
+      // Newest day first.
+      final days = <DateTime>[];
+      for (var d = _to; !d.isBefore(_from); d = DateTime(d.year, d.month, d.day - 1)) {
+        days.add(d);
+      }
+
+      final logs = <_DayLog>[];
+      Object? firstError;
+      var failed = 0;
+      // The API answers one day per request: fetch a few days at a time.
+      for (var i = 0; i < days.length; i += 4) {
+        final results = await Future.wait(
+          days.skip(i).take(4).map((day) async {
+            try {
+              final detail = await HrApiService.trackingDetail(employeeId: id, date: day);
+              return _logFromDetail(id, day, detail, today);
+            } catch (e) {
+              failed++;
+              firstError ??= e;
+              return null;
+            }
+          }),
+        );
+        if (!mounted || generation != _loadGeneration) return;
+        logs.addAll(results.whereType<_DayLog>());
+      }
+      if (failed == days.length && firstError != null) throw firstError!;
+      setState(() => _logs = logs);
     } catch (error) {
-      if (mounted) setState(() => _loadError = error.toString());
+      if (mounted && generation == _loadGeneration) setState(() => _loadError = error.toString());
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted && generation == _loadGeneration) setState(() => _isLoading = false);
     }
+  }
+
+  /// One day card from the server's detail. Days with nothing at all (no punch,
+  /// no route, no km, no visits) are left out, except today.
+  _DayLog? _logFromDetail(String id, DateTime day, Map<String, dynamic> detail, DateTime today) {
+    final route = detail['routeHistory'] is List ? detail['routeHistory'] as List : const [];
+    final punchIn = _parseApiDateTime(detail['punchIn']);
+    // The attendance row is the source of truth, but a punch-out that left
+    // its route event (PUNCH_OUT) while the summary field is still empty must
+    // not read as "still active".
+    final punchOut = _parseApiDateTime(detail['punchOut']) ?? _latestPunchOutEvent(route);
+    final currentStatus = detail['currentStatus']?.toString() ?? 'OFFLINE';
+    final km = (detail['travelledKm'] as num?)?.toDouble() ?? 0;
+    final visited = _visitedCount(detail, route);
+    final isToday = _same(day, today);
+    if (!isToday && punchIn == null && route.isEmpty && km == 0 && visited == 0) return null;
+    return _DayLog(
+      employeeId: id,
+      date: day,
+      day: day.day,
+      month: _monthAbbr(day.month).toUpperCase(),
+      year: day.year,
+      isToday: isToday,
+      punchIn: punchIn == null ? '--:--' : _time(punchIn),
+      routeLabel: punchOut != null ? 'Punch-Out' : currentStatus.replaceAll('_', ' '),
+      routeTime: punchOut == null ? '--:--' : _time(punchOut),
+      locationsVisited: visited,
+      distanceKm: km,
+      status: punchOut == null ? _RouteStatus.inProgress : _RouteStatus.completed,
+      routeHistory: route.whereType<Map>().map((point) => Map<String, dynamic>.from(point)).toList(),
+      punchInAt: punchIn,
+      punchOutAt: punchOut,
+      // Server decision: FULL = map allowed; LIMITED = role has no mobile Live
+      // Tracking permission; LOCATION_OFF = phone location was off, so there
+      // is no route. Missing (older server) = FULL.
+      trackingAccess: detail['trackingAccess']?.toString() ?? 'FULL',
+    );
+  }
+
+  /// "Locations" on a day card = places actually worked: client visits +
+  /// centres collected from + centres created + members enrolled. Never the
+  /// number of GPS pings. Uses the server's totals, which are also sent when
+  /// the map itself is not allowed; falls back to counting those events in the
+  /// route points for an older server that does not send the totals.
+  int _visitedCount(Map<String, dynamic> detail, List route) {
+    const totalKeys = [
+      'clientVisitsManual',
+      'centersVisitedViaCollection',
+      'centersCreatedCount',
+      'membersEnrolledCount',
+    ];
+    if (totalKeys.any(detail.containsKey)) {
+      return totalKeys.fold<int>(
+        0,
+        (sum, key) => sum + ((detail[key] as num?)?.toInt() ?? 0),
+      );
+    }
+    const workTypes = {'CLIENT_VISIT', 'COLLECTION', 'CENTER_CREATED', 'MEMBER_ENROLLED'};
+    return route
+        .whereType<Map>()
+        .where((p) => workTypes.contains(p['activityType']?.toString()))
+        .length;
   }
 
   /// Formats in the device's local time. The API sends UTC ISO strings, so
@@ -149,30 +211,32 @@ class _LiveTrackingState extends State<LiveTracking>
     super.dispose();
   }
 
-  static const _monthNames = [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December',
-  ];
+  DateTime get _today {
+    final n = DateTime.now();
+    return DateTime(n.year, n.month, n.day);
+  }
 
-  String get _monthYearLabel => '${_monthNames[_month.month - 1]} ${_month.year}';
+  bool _same(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
 
-  String get _monthRangeSub {
-    final now = DateTime.now();
-    final isCurrentMonth = _month.year == now.year && _month.month == now.month;
-    final lastDay = DateTime(_month.year, _month.month + 1, 0).day;
-    final endDay = isCurrentMonth ? now.day : lastDay;
-    final suffix = isCurrentMonth ? ' (Till Today)' : '';
-    return '01 ${_monthAbbr(_month.month)} ${_month.year} - ${endDay.toString().padLeft(2, '0')} ${_monthAbbr(_month.month)} ${_month.year}$suffix';
+  String _fmt(DateTime d) => '${d.day.toString().padLeft(2, '0')} ${_monthAbbr(d.month)} ${d.year}';
+
+  /// Name of the current selection, derived from the dates.
+  String get _rangeLabel {
+    final today = _today;
+    if (_same(_from, _to)) return _same(_from, today) ? 'Today' : 'Pick a Date';
+    if (_same(_to, today) && today.difference(_from).inDays == 6) return 'Last 7 Days';
+    if (_same(_from, DateTime(today.year, today.month, 1)) && _same(_to, today)) return 'This Month';
+    if (_same(_from, DateTime(today.year, today.month - 1, 1)) && _same(_to, DateTime(today.year, today.month, 0))) {
+      return 'Last Month';
+    }
+    return 'Custom Range';
+  }
+
+  String get _rangeTitle => _same(_from, _to) ? _fmt(_from) : '${_fmt(_from)} – ${_fmt(_to)}';
+
+  String get _rangeSub {
+    final days = _to.difference(_from).inDays + 1;
+    return '$days day${days == 1 ? '' : 's'} · $_rangeLabel';
   }
 
   String _monthAbbr(int m) => const [
@@ -190,14 +254,48 @@ class _LiveTrackingState extends State<LiveTracking>
     'Dec',
   ][m - 1];
 
-  void _changeMonth(int delta) {
+  /// Applies a new date filter and reloads. Future days are cut off at today.
+  void _setRange(DateTime from, DateTime to) {
+    final today = _today;
+    var f = DateTime(from.year, from.month, from.day);
+    var t = DateTime(to.year, to.month, to.day);
+    if (t.isAfter(today)) t = today;
+    if (f.isAfter(t)) f = t;
+    if (t.difference(f).inDays + 1 > _maxRangeDays) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Please select at most $_maxRangeDays days at a time.'),
+          backgroundColor: const Color(0xFFDC2626),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     setState(() {
-      _month = DateTime(_month.year, _month.month + delta);
-      _isLoading = true;
-      _loadError = null;
+      _from = f;
+      _to = t;
     });
     _ctrl.forward(from: 0);
-    _loadTodayTracking();
+    _loadTracking();
+  }
+
+  /// The arrows move the filter by its own length: a day, a week, or a month.
+  void _shiftRange(int dir) {
+    final today = _today;
+    final sameMonth = _from.year == _to.year && _from.month == _to.month;
+    final monthly = sameMonth &&
+        _from.day == 1 &&
+        (_to.day == DateTime(_to.year, _to.month + 1, 0).day || _same(_to, today));
+    if (monthly) {
+      final first = DateTime(_from.year, _from.month + dir, 1);
+      if (first.isAfter(today)) return;
+      _setRange(first, DateTime(first.year, first.month + 1, 0));
+      return;
+    }
+    final len = _to.difference(_from).inDays + 1;
+    final first = DateTime(_from.year, _from.month, _from.day + dir * len);
+    if (first.isAfter(today)) return;
+    _setRange(first, DateTime(first.year, first.month, first.day + len - 1));
   }
 
   List<RouteStop> _stopsForLog(_DayLog log) {
@@ -209,10 +307,20 @@ class _LiveTrackingState extends State<LiveTracking>
         .toList()
       ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
 
+    // Only background GPS breadcrumbs are de-duplicated by coordinates. A
+    // discrete event (collection, visit, centre, enrolment, punch) is never
+    // dropped: several collections at one centre share the centre's
+    // coordinates, and an event with a wrong location is stored at the phone's
+    // last ping location, so coordinate-matching would hide real entries (the
+    // web lists every one of them).
+    const breadcrumbs = {'EN_ROUTE', 'IDLE_PING'};
     final seen = <String>{};
-    final unique = points.where((point) => seen.add(
-      '${point.latitude.toStringAsFixed(6)},${point.longitude.toStringAsFixed(6)}',
-    )).toList();
+    final unique = points.where((point) {
+      if (!breadcrumbs.contains(point.activityType)) return true;
+      return seen.add(
+        '${point.latitude.toStringAsFixed(6)},${point.longitude.toStringAsFixed(6)}',
+      );
+    }).toList();
 
     return unique.asMap().entries.map((entry) {
       final index = entry.key;
@@ -224,7 +332,13 @@ class _LiveTrackingState extends State<LiveTracking>
         time: _time(point.timestamp),
         title: isFirst
             ? 'Punch-In'
-            : (isLast ? 'Punch-Out' : _activityLabel(point.activityType)),
+            : (isLast
+                ? 'Punch-Out'
+                // Same text the web timeline shows ("Collection at <centre>"),
+                // falling back to the generic type name when there is no label.
+                : (point.label != null && point.label!.trim().isNotEmpty
+                    ? point.label!.trim()
+                    : _activityLabel(point.activityType))),
         address: '${point.latitude.toStringAsFixed(6)}, ${point.longitude.toStringAsFixed(6)}',
         status: isFirst ? VisitStatus.completed : VisitStatus.visited,
         position: LatLng(point.latitude, point.longitude),
@@ -248,6 +362,7 @@ class _LiveTrackingState extends State<LiveTracking>
       timestamp,
       raw['activityType']?.toString() ?? '',
       (raw['accuracyMeters'] as num?)?.toDouble(),
+      raw['label']?.toString(),
     );
   }
 
@@ -292,6 +407,8 @@ class _LiveTrackingState extends State<LiveTracking>
           stops: _stopsForLog(log),
           employeeId: log.employeeId,
           date: log.date,
+          trackingAccess: log.trackingAccess,
+          locationsVisited: log.locationsVisited,
         ),
         transitionsBuilder: (_, animation, __, child) {
           return FadeTransition(
@@ -335,22 +452,9 @@ class _LiveTrackingState extends State<LiveTracking>
     return '${duration.inHours}h ${duration.inMinutes.remainder(60)}m';
   }
 
-  void _comingSoon(String label) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$label — coming soon'),
-        backgroundColor: _greenAccent,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10.r),
-        ),
-        duration: const Duration(seconds: 1),
-      ),
-    );
-  }
-
   Future<void> _pickRange() async {
-    final options = ['This Month', 'Last Month', 'Last 7 Days', 'Custom Range'];
+    const options = ['Today', 'Last 7 Days', 'This Month', 'Last Month', 'Pick a Date', 'Custom Range'];
+    final current = _rangeLabel;
     final selected = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.white,
@@ -369,15 +473,11 @@ class _LiveTrackingState extends State<LiveTracking>
                       title: Text(
                         o,
                         style: GoogleFonts.inter(
-                          fontWeight: o == _rangeLabel
-                              ? FontWeight.w700
-                              : FontWeight.w500,
-                          color: o == _rangeLabel ? _greenAccent : _darkText,
+                          fontWeight: o == current ? FontWeight.w700 : FontWeight.w500,
+                          color: o == current ? _greenAccent : _darkText,
                         ),
                       ),
-                      trailing: o == _rangeLabel
-                          ? Icon(Icons.check_rounded, color: _greenAccent)
-                          : null,
+                      trailing: o == current ? Icon(Icons.check_rounded, color: _greenAccent) : null,
                       onTap: () => Navigator.pop(context, o),
                     ),
                   )
@@ -387,8 +487,37 @@ class _LiveTrackingState extends State<LiveTracking>
         );
       },
     );
-    if (selected != null && selected != _rangeLabel) {
-      setState(() => _rangeLabel = selected);
+    if (selected == null || !mounted) return;
+
+    final today = _today;
+    final earliest = DateTime(today.year - 1, today.month, today.day);
+    switch (selected) {
+      case 'Today':
+        _setRange(today, today);
+      case 'Last 7 Days':
+        _setRange(DateTime(today.year, today.month, today.day - 6), today);
+      case 'This Month':
+        _setRange(DateTime(today.year, today.month, 1), today);
+      case 'Last Month':
+        _setRange(DateTime(today.year, today.month - 1, 1), DateTime(today.year, today.month, 0));
+      case 'Pick a Date':
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: _from,
+          firstDate: earliest,
+          lastDate: today,
+          helpText: 'Select a date',
+        );
+        if (picked != null) _setRange(picked, picked);
+      case 'Custom Range':
+        final picked = await showDateRangePicker(
+          context: context,
+          firstDate: earliest,
+          lastDate: today,
+          initialDateRange: DateTimeRange(start: _from, end: _to),
+          helpText: 'Select dates (up to $_maxRangeDays days)',
+        );
+        if (picked != null) _setRange(picked.start, picked.end);
     }
   }
 
@@ -420,9 +549,9 @@ class _LiveTrackingState extends State<LiveTracking>
                         if (_isLoading)
                           const Padding(padding: EdgeInsets.all(28), child: Center(child: CircularProgressIndicator()))
                         else if (_loadError != null)
-                          Padding(padding: const EdgeInsets.all(20), child: Center(child: Column(children: [Text(_loadError!, textAlign: TextAlign.center), TextButton(onPressed: _loadTodayTracking, child: const Text('Retry'))])))
+                          Padding(padding: const EdgeInsets.all(20), child: Center(child: Column(children: [Text(_loadError!, textAlign: TextAlign.center), TextButton(onPressed: _loadTracking, child: const Text('Retry'))])))
                         else if (_logs.isEmpty)
-                          const Padding(padding: EdgeInsets.all(28), child: Center(child: Text('No tracking data for today.')))
+                          const Padding(padding: EdgeInsets.all(28), child: Center(child: Text('No tracking data for the selected dates.')))
                         else ..._logs.asMap().entries.map(
                           (e) => Padding(
                             padding: EdgeInsets.only(bottom: 12.h),
@@ -565,15 +694,15 @@ class _LiveTrackingState extends State<LiveTracking>
       ),
       child: Row(
         children: [
-          _navArrow(Icons.chevron_left_rounded, () => _changeMonth(-1)),
+          _navArrow(Icons.chevron_left_rounded, () => _shiftRange(-1)),
           Expanded(
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 250),
               child: Column(
-                key: ValueKey(_monthYearLabel),
+                key: ValueKey(_rangeTitle),
                 children: [
                   Text(
-                    _monthYearLabel,
+                    _rangeTitle,
                     style: GoogleFonts.inter(
                       fontSize: 15.sp,
                       fontWeight: FontWeight.w700,
@@ -582,14 +711,14 @@ class _LiveTrackingState extends State<LiveTracking>
                   ),
                   SizedBox(height: 3.h),
                   Text(
-                    _monthRangeSub,
+                    _rangeSub,
                     style: GoogleFonts.inter(fontSize: 10.5.sp, color: _muted),
                   ),
                 ],
               ),
             ),
           ),
-          _navArrow(Icons.chevron_right_rounded, () => _changeMonth(1)),
+          _navArrow(Icons.chevron_right_rounded, () => _shiftRange(1)),
         ],
       ),
     );
@@ -748,7 +877,7 @@ class _LiveTrackingState extends State<LiveTracking>
                   borderRadius: BorderRadius.circular(10.r),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(10.r),
-                    onTap: () => _comingSoon('Distance detail'),
+                    onTap: () => _openRouteDetails(log),
                     child: Padding(
                       padding: EdgeInsets.symmetric(
                         horizontal: 8.w,
@@ -931,6 +1060,8 @@ class _DayLog {
   final List<Map<String, dynamic>> routeHistory;
   final DateTime? punchInAt;
   final DateTime? punchOutAt;
+  /// FULL | LIMITED | LOCATION_OFF — see _logFromDetail.
+  final String trackingAccess;
 
   _DayLog({
     required this.employeeId,
@@ -948,6 +1079,7 @@ class _DayLog {
     required this.routeHistory,
     this.punchInAt,
     this.punchOutAt,
+    this.trackingAccess = 'FULL',
   });
 }
 
@@ -958,11 +1090,16 @@ class _TrackingPoint {
     this.timestamp,
     this.activityType, [
     this.accuracyMeters,
+    this.label,
   ]);
   final double latitude;
   final double longitude;
   final DateTime timestamp;
   final String activityType;
+
+  /// Description saved with an event on the server (e.g. "Collection at
+  /// SATHYA NAGAR"); null for GPS pings and for older servers.
+  final String? label;
 
   /// Reported GPS error radius; null for older rows that never stored it.
   final double? accuracyMeters;
