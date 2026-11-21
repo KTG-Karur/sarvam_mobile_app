@@ -426,6 +426,10 @@ class _ViewAllAttendanceState extends State<ViewAllAttendance>
               ),
             ),
           ),
+          if (isRegularizedRecord(record)) ...[
+            regularizedBadge(),
+            SizedBox(width: 6.w),
+          ],
           Container(
             padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
             decoration: BoxDecoration(

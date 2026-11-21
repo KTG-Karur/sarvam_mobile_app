@@ -18,6 +18,49 @@ const kHalfDayColor = Color(0xFF6366F1);
 const kAbsentColor = Color(0xFFEF4444);
 const kOnLeaveColor = Color(0xFFF59E0B);
 const kHolidayColor = Color(0xFF64748B);
+/// Marks a day whose attendance was set by an approved Attendance Regularization.
+const kRegularizedColor = Color(0xFF0284C7);
+
+/// True when the ledger record is a regularized day (the status itself — Present
+/// or Half Day — is unchanged; this only adds the marker).
+bool isRegularizedRecord(dynamic record) => record is Map && record['isRegularized'] == true;
+
+/// Small "Regularized" pill shown next to a day's status in the lists.
+Widget regularizedBadge() {
+  return Container(
+    padding: EdgeInsets.symmetric(horizontal: 7.w, vertical: 3.h),
+    decoration: BoxDecoration(
+      color: kRegularizedColor.withOpacity(0.1),
+      borderRadius: BorderRadius.circular(20.r),
+      border: Border.all(color: kRegularizedColor.withOpacity(0.35)),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.edit_calendar_rounded, size: 10.sp, color: kRegularizedColor),
+        SizedBox(width: 3.w),
+        Text(
+          'Regularized',
+          style: GoogleFonts.inter(fontSize: 9.sp, fontWeight: FontWeight.w700, color: kRegularizedColor),
+        ),
+      ],
+    ),
+  );
+}
+
+/// The status dot used in the week / month calendars; a blue ring marks a regularized day.
+Widget statusDot(Color color, double size, {bool regularized = false}) {
+  final dot = regularized ? size + 3 : size;
+  return Container(
+    width: dot,
+    height: dot,
+    decoration: BoxDecoration(
+      color: color,
+      shape: BoxShape.circle,
+      border: regularized ? Border.all(color: kRegularizedColor, width: 1.6) : null,
+    ),
+  );
+}
 
 String statusLabel(DayStatus s) {
   switch (s) {
@@ -431,6 +474,21 @@ class _AttendanceStatusState extends State<AttendanceStatus>
         _legendItem(kHalfDayColor, 'Half Day'),
         _legendItem(kOnLeaveColor, 'On Leave'),
         _legendItem(kHolidayColor, 'Holiday'),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 8.w,
+              height: 8.w,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: kRegularizedColor, width: 1.6),
+              ),
+            ),
+            SizedBox(width: 5.w),
+            Text('Regularized', style: GoogleFonts.inter(fontSize: 10.5.sp, color: _muted)),
+          ],
+        ),
       ],
     );
   }
@@ -605,6 +663,10 @@ class _AttendanceStatusState extends State<AttendanceStatus>
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (isRegularizedRecord(record)) ...[
+                regularizedBadge(),
+                SizedBox(width: 8.w),
+              ],
               Container(
                 width: 7.w,
                 height: 7.w,
@@ -720,11 +782,7 @@ class _AttendanceStatusState extends State<AttendanceStatus>
             ),
           ),
           SizedBox(height: 5.h),
-          Container(
-            width: 6.w,
-            height: 6.w,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
+          statusDot(color, 6.w, regularized: isRegularizedRecord(record)),
         ],
       ),
     );
@@ -816,14 +874,7 @@ class _AttendanceStatusState extends State<AttendanceStatus>
                       ),
                     ),
                     SizedBox(height: 3.h),
-                    Container(
-                      width: 5.w,
-                      height: 5.w,
-                      decoration: BoxDecoration(
-                        color: color,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
+                    statusDot(color, 5.w, regularized: isRegularizedRecord(record)),
                   ],
                 ),
               );
