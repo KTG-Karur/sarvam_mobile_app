@@ -5,6 +5,9 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:async';
+
+import 'package:http/http.dart' show ClientException;
 import 'package:sarvam/services/hr_api_service.dart';
 
 import 'route_details.dart';
@@ -101,8 +104,14 @@ class _LiveTrackingState extends State<LiveTracking>
           ),
         ];
       });
-    } catch (error) {
-      if (mounted) setState(() => _loadError = error.toString());
+    } on HrApiException catch (e) {
+      if (mounted) setState(() => _loadError = e.message);
+    } on TimeoutException {
+      if (mounted) setState(() => _loadError = 'Request timed out. Please check your connection and try again.');
+    } on ClientException {
+      if (mounted) setState(() => _loadError = 'Unable to connect to the server. Please check your internet connection and try again.');
+    } catch (_) {
+      if (mounted) setState(() => _loadError = 'Something went wrong. Please try again.');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
