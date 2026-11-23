@@ -13,6 +13,7 @@ class Companies {
   /// Company name → server address.
   static const Map<String, String> urls = {
     // 'Sarvam': 'https://ktg.nidhimfi.com',
+    // 'Sarvam': 'https://testmfi.nidhimfi.com',
     'Sarvam': 'https://sarvam.nidhimfi.com',
     'GCPL': 'https://gcpl.nidhimfi.com',
   };

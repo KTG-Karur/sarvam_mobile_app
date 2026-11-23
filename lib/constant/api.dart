@@ -1,6 +1,11 @@
 class Api {
-  static String _baseUrl = "https://sarvam.nidhimfi.com";
-  // static String _baseUrl = "https://ktg.nidhimfi.com";
+  // ── Switch base URL here ────────────────────────────────────────────────────
+  // TESTING  → uncomment the test line, comment out the live line
+  // RELEASE  → uncomment the live line, comment out the test line
+  static String _baseUrl = "https://sarvam.nidhimfi.com"; // LIVE
+  // static String _baseUrl = "https://testmfi.nidhimfi.com"; // TEST
+  // static String _baseUrl = "https://ktg.nidhimfi.com";     // KTG
+  // ───────────────────────────────────────────────────────────────────────────
   static String get baseUrl => _baseUrl;
   static void setBaseUrl(String url) => _baseUrl = url;
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:intl/intl.dart';
 
+import 'package:sarvam/constant/api.dart';
 import 'package:sarvam/services/hr_api_service.dart';
 // The four request states (pending / approved / rejected / cancelled) look the same
 // for every HR request, so the status colours and labels are shared.
@@ -168,7 +169,11 @@ class _ApplyPermissionPageState extends State<ApplyPermissionPage> {
       _loadError = null;
     });
     try {
+      debugPrint('=== permissionTypes URL: ${Api.baseUrl}/api/payroll/permission-types ===');
       final raw = await HrApiService.permissionTypes();
+      debugPrint('=== permissionTypes response (${raw.length} items) ===');
+      debugPrint(raw.toString());
+      debugPrint('================================');
       if (!mounted) return;
       setState(() {
         _types = raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
