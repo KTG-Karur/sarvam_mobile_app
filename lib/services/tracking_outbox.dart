@@ -15,26 +15,23 @@ class TrackingOutboxRow {
   final String payload;
 }
 
-/// Local SQLite queue for live-tracking fixes (replaces the JSON list that used
-/// to live in SharedPreferences).
+/// Local SQLite queue for live-tracking fixes.
 ///
-/// Rules (see docs/live_tracking_mobile_spec.md):
-///  * a fix is written here BEFORE any network call, so killing the app in the
-///    middle of an upload loses nothing;
-///  * a row is deleted only after the server has answered for it, and always by
-///    its own id, so rows added meanwhile can never be erased;
-///  * only the background-service isolate writes. The UI isolate asks the
-///    service to flush instead of touching the database.
+/// Rules:
+///  * a fix is written here BEFORE any network call;
+///  * a row is deleted only after the server has answered for it;
+///  * only the background-service isolate writes;
+///  * rows are keyed by user_id so a multi-user device never mixes employees.
 class TrackingOutbox {
   TrackingOutbox._();
 
   static const _table = 'tracking_outbox';
 
-  /// Rows older than this are dropped (the server rejects fixes older than 7 days anyway).
-  static const Duration maxAge = Duration(hours: 48);
+  /// Rows older than this are dropped (server rejects fixes older than 7 days).
+  static const Duration maxAge = Duration(days: 7);
 
-  /// Hard cap; when exceeded the oldest rows go first.
-  static const int maxRows = 5000;
+  /// Hard cap per user; when exceeded the oldest rows go first.
+  static const int maxRows = 20000;
 
   static Database? _db;
 
@@ -44,7 +41,7 @@ class TrackingOutbox {
     final dir = await getDatabasesPath();
     final db = await openDatabase(
       '$dir/tracking_outbox.db',
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE $_table (
@@ -53,23 +50,39 @@ class TrackingOutbox {
             captured_at     INTEGER NOT NULL,
             payload         TEXT    NOT NULL,
             attempts        INTEGER NOT NULL DEFAULT 0,
-            created_at      INTEGER NOT NULL
+            created_at      INTEGER NOT NULL,
+            user_id         TEXT    NOT NULL DEFAULT ''
           )
         ''');
         await db.execute(
-          'CREATE INDEX tracking_outbox_order ON $_table (captured_at, id)',
+          'CREATE INDEX tracking_outbox_order ON $_table (user_id, captured_at, id)',
         );
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          // Add user_id column; existing rows get an empty string so they
+          // remain visible to whoever is signed in (safe one-time migration).
+          await db.execute(
+            "ALTER TABLE $_table ADD COLUMN user_id TEXT NOT NULL DEFAULT ''",
+          );
+          // Re-create index to include the new column.
+          await db.execute('DROP INDEX IF EXISTS tracking_outbox_order');
+          await db.execute(
+            'CREATE INDEX tracking_outbox_order ON $_table (user_id, captured_at, id)',
+          );
+        }
       },
     );
     _db = db;
     return db;
   }
 
-  /// Stores a fix. A fix with an id that is already queued is ignored.
+  /// Stores a fix for [userId]. A fix with an id already queued is ignored.
   static Future<void> add({
     required String clientPingId,
     required int capturedAtMs,
     required String payload,
+    required String userId,
   }) async {
     final db = await _open();
     await db.insert(_table, {
@@ -78,15 +91,18 @@ class TrackingOutbox {
       'payload': payload,
       'attempts': 0,
       'created_at': DateTime.now().millisecondsSinceEpoch,
+      'user_id': userId,
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
-  /// The oldest waiting fixes, in capture order (the order they must be sent).
-  static Future<List<TrackingOutboxRow>> oldest(int limit) async {
+  /// The oldest waiting fixes for [userId], in capture order.
+  static Future<List<TrackingOutboxRow>> oldest(int limit, {String userId = ''}) async {
     final db = await _open();
     final rows = await db.query(
       _table,
       columns: ['id', 'client_ping_id', 'payload'],
+      where: 'user_id = ?',
+      whereArgs: [userId],
       orderBy: 'captured_at ASC, id ASC',
       limit: limit,
     );
@@ -101,10 +117,13 @@ class TrackingOutbox {
         .toList();
   }
 
-  static Future<int> count() async {
+  static Future<int> count({String userId = ''}) async {
     final db = await _open();
     return Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(*) FROM $_table'),
+          await db.rawQuery(
+            'SELECT COUNT(*) FROM $_table WHERE user_id = ?',
+            [userId],
+          ),
         ) ??
         0;
   }
@@ -117,7 +136,7 @@ class TrackingOutbox {
     await db.delete(_table, where: 'id IN ($marks)', whereArgs: ids);
   }
 
-  /// Notes a failed attempt (for diagnostics) without removing the rows.
+  /// Notes a failed attempt without removing the rows.
   static Future<void> markAttempt(List<int> ids) async {
     if (ids.isEmpty) return;
     final db = await _open();
@@ -128,21 +147,35 @@ class TrackingOutbox {
     );
   }
 
-  /// Applies the retention rules. Returns how many rows were removed.
-  static Future<int> prune() async {
+  /// Deletes rows that have been attempted more than [maxAttempts] times.
+  static Future<void> pruneExcessAttempts(
+    List<int> ids, {
+    required int maxAttempts,
+  }) async {
+    if (ids.isEmpty) return;
+    final db = await _open();
+    final marks = List.filled(ids.length, '?').join(',');
+    await db.rawDelete(
+      'DELETE FROM $_table WHERE id IN ($marks) AND attempts >= ?',
+      [...ids, maxAttempts],
+    );
+  }
+
+  /// Applies retention rules for [userId]. Returns how many rows were removed.
+  static Future<int> prune({String userId = ''}) async {
     final db = await _open();
     final cutoff = DateTime.now().subtract(maxAge).millisecondsSinceEpoch;
     var removed = await db.delete(
       _table,
-      where: 'captured_at < ?',
-      whereArgs: [cutoff],
+      where: 'user_id = ? AND captured_at < ?',
+      whereArgs: [userId, cutoff],
     );
-    final total = await count();
+    final total = await count(userId: userId);
     if (total > maxRows) {
       removed += await db.rawDelete(
-        'DELETE FROM $_table WHERE id IN '
-        '(SELECT id FROM $_table ORDER BY captured_at ASC, id ASC LIMIT ?)',
-        [total - maxRows],
+        'DELETE FROM $_table WHERE user_id = ? AND id IN '
+        '(SELECT id FROM $_table WHERE user_id = ? ORDER BY captured_at ASC, id ASC LIMIT ?)',
+        [userId, userId, total - maxRows],
       );
     }
     return removed;

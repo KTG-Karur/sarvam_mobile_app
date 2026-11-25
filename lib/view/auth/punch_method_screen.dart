@@ -82,17 +82,31 @@ class _PunchMethodScreenState extends State<PunchMethodScreen> {
         return;
       }
 
-      // Let the server's current state decide the punch type, exactly like the
-      // face path does.
       final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
-      String punchType = widget.isPunchOut ? 'PUNCH_OUT' : 'PUNCH_IN';
+      final String punchType = widget.isPunchOut ? 'PUNCH_OUT' : 'PUNCH_IN';
+      // Never silently switch the punch type. If the server status contradicts
+      // what the employee tapped, show the correct message and go home.
       if (serverInfo != null) {
         final bool isServerPunchedIn =
             serverInfo.present || serverInfo.punchedIn;
-        if (!isServerPunchedIn) {
-          punchType = 'PUNCH_IN';
-        } else if (isServerPunchedIn && !serverInfo.punchedOut) {
-          punchType = 'PUNCH_OUT';
+        final bool isServerPunchedOut = serverInfo.punchedOut;
+        String? conflictMessage;
+        if (punchType == 'PUNCH_IN' && isServerPunchedIn && isServerPunchedOut) {
+          conflictMessage =
+              'You have already completed your punch-in and punch-out for today.';
+        } else if (punchType == 'PUNCH_IN' && isServerPunchedIn) {
+          conflictMessage = 'You are already punched in today.';
+        } else if (punchType == 'PUNCH_OUT' && !isServerPunchedIn) {
+          conflictMessage = 'You have not punched in today.';
+        } else if (punchType == 'PUNCH_OUT' && isServerPunchedOut) {
+          conflictMessage = 'You have already punched out today.';
+        }
+        if (conflictMessage != null) {
+          if (mounted) setState(() => _busy = false);
+          final prefs = await SharedPreferences.getInstance();
+          await reconcilePunchPrefs(prefs, serverInfo);
+          _showResultDialog(success: false, message: conflictMessage);
+          return;
         }
       }
 

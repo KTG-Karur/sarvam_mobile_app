@@ -57,22 +57,22 @@ class _SplashScreenState extends State<SplashScreen>
       final prefs = await SharedPreferences.getInstance();
 
       final String? selectedUrl = prefs.getString('selected_company_url');
-      if (selectedUrl != null && selectedUrl.isNotEmpty) {
-        Api.setBaseUrl(selectedUrl);
-        final String? token = await SecureSessionService.readAccessToken();
-        final bool mpinSet = prefs.getBool('isMpinSet') ?? false;
-        final bool directLogin = prefs.getBool('directLogin') ?? false;
-        if (token != null && token.isNotEmpty && directLogin) {
-          Get.off(() => const Home());
-        } else if (token != null && token.isNotEmpty && mpinSet) {
-          Get.off(() => const MpinLoginScreen());
-        } else {
-          Get.off(() => const LoginScreen());
-        }
+      // Use the saved company URL, or fall back to the default. Either way,
+      // run the full session check so a signed-in employee is never sent back
+      // to the login screen just because selected_company_url was not saved yet.
+      Api.setBaseUrl(
+        (selectedUrl != null && selectedUrl.isNotEmpty)
+            ? selectedUrl
+            : Companies.defaultUrl,
+      );
+      final String? token = await SecureSessionService.readAccessToken();
+      final bool mpinSet = prefs.getBool('isMpinSet') ?? false;
+      final bool directLogin = prefs.getBool('directLogin') ?? false;
+      if (token != null && token.isNotEmpty && directLogin) {
+        Get.off(() => const Home());
+      } else if (token != null && token.isNotEmpty && mpinSet) {
+        Get.off(() => const MpinLoginScreen());
       } else {
-        // No company chosen yet: sign in on the default one (the Login screen
-        // has a Company dropdown).
-        Api.setBaseUrl(Companies.defaultUrl);
         Get.off(() => const LoginScreen());
       }
     });

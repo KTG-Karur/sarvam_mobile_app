@@ -80,7 +80,7 @@ class TrackingService {
   static const Duration _flushInterval = Duration(minutes: 5);
 
   /// ...immediately once this many are waiting...
-  static const int _flushThreshold = 50;
+  static const int _flushThreshold = 40;
 
   /// ...and never more than this many in one request (the server allows 500).
   static const int _batchSize = 200;
@@ -154,6 +154,7 @@ class TrackingService {
             capturedAtMs: (captured ?? DateTime.now().toUtc())
                 .millisecondsSinceEpoch,
             payload: jsonEncode(payload),
+            userId: '',
           );
         }
       }
@@ -169,10 +170,13 @@ class TrackingService {
   /// per item (`accepted`, `duplicate` or `invalid`); all three mean "stop
   /// sending this one", so they are all removed. Anything temporary (no network,
   /// 401 expired token, 408, 429, 5xx) keeps the rows for the next attempt.
+  static const int _maxSplits = 20;
+
   static Future<_UploadOutcome> _uploadBatch(
     List<TrackingOutboxRow> rows,
-    String token,
-  ) async {
+    String token, {
+    int splitCount = 0,
+  }) async {
     final ids = rows.map((r) => r.id).toList();
     try {
       final response = await http
@@ -188,13 +192,13 @@ class TrackingService {
       final code = response.statusCode;
       if (code >= 200 && code < 300) {
         _logBatchResult(response.body, rows.length);
-        await TrackingOutbox.delete(ids);
+        // Per-item results: delete accepted/duplicate/invalid rows.
+        // Exception: invalid with "Could not be stored" is kept for retry
+        // (up to 50 attempts).
+        await _deleteByResults(response.body, rows);
         return _UploadOutcome.done;
       }
       if (code == 400 || code == 422) {
-        // The server refused the request. If it lists per-item results, every
-        // item was invalid and will never succeed; otherwise find the culprit
-        // by sending the fixes one at a time.
         if (_bodyHasResults(response.body)) {
           _log('batch of ${rows.length} rejected as invalid ($code): dropped');
           await TrackingOutbox.delete(ids);
@@ -202,6 +206,20 @@ class TrackingService {
         }
         return await _uploadOneByOne(rows, token);
       }
+      // 500 on a batch of more than one: split in halves so one bad row
+      // cannot block the rest. Limit total splits per run.
+      if (code == 500 && rows.length > 1 && splitCount < _maxSplits) {
+        _log('500 on batch of ${rows.length}: splitting in halves');
+        final mid = rows.length ~/ 2;
+        final left = rows.sublist(0, mid);
+        final right = rows.sublist(mid);
+        final r1 = await _uploadBatch(left, token, splitCount: splitCount + 1);
+        final r2 = await _uploadBatch(right, token, splitCount: splitCount + 1);
+        return (r1 == _UploadOutcome.done && r2 == _UploadOutcome.done)
+            ? _UploadOutcome.done
+            : _UploadOutcome.retryLater;
+      }
+      // 401, 408, 429, 502, 503, 504, timeout, no network → retry with backoff.
       _log('upload will retry (status $code)');
       await TrackingOutbox.markAttempt(ids);
       return _UploadOutcome.retryLater;
@@ -210,6 +228,53 @@ class TrackingService {
       await TrackingOutbox.markAttempt(ids);
       return _UploadOutcome.retryLater;
     }
+  }
+
+  /// Deletes rows based on per-item server results (accepted/duplicate/invalid).
+  /// Keeps `invalid` rows whose reason is "Could not be stored" until 50 attempts.
+  static Future<void> _deleteByResults(
+    String body,
+    List<TrackingOutboxRow> rows,
+  ) async {
+    try {
+      final decoded = jsonDecode(body);
+      final data = decoded is Map ? decoded['data'] : null;
+      final results = data is Map ? data['results'] : null;
+      if (results is List) {
+        final toDelete = <int>[];
+        final toKeep = <int>[];
+        for (final item in results.whereType<Map>()) {
+          final status = item['status']?.toString() ?? '';
+          final reason = item['reason']?.toString() ?? '';
+          final pingId = item['clientPingId']?.toString();
+          final row = pingId != null
+              ? rows.firstWhere(
+                  (r) => r.clientPingId == pingId,
+                  orElse: () => rows[item['index'] as int? ?? 0],
+                )
+              : null;
+          if (row == null) continue;
+          if (status == 'invalid' &&
+              reason.toLowerCase().contains('could not be stored')) {
+            toKeep.add(row.id);
+          } else {
+            toDelete.add(row.id);
+          }
+        }
+        // Any row not mentioned in results is treated as accepted.
+        final mentionedIds = {...toDelete, ...toKeep};
+        for (final row in rows) {
+          if (!mentionedIds.contains(row.id)) toDelete.add(row.id);
+        }
+        // Drop rows that have been retried too many times.
+        await TrackingOutbox.markAttempt(toKeep);
+        await TrackingOutbox.pruneExcessAttempts(toKeep, maxAttempts: 50);
+        if (toDelete.isNotEmpty) await TrackingOutbox.delete(toDelete);
+        return;
+      }
+    } catch (_) {}
+    // No per-item results: delete everything (old server behaviour).
+    await TrackingOutbox.delete(rows.map((r) => r.id).toList());
   }
 
   static Future<_UploadOutcome> _uploadOneByOne(
@@ -326,9 +391,11 @@ class TrackingService {
         }
       }
       if (running) {
-        _log('service is already running');
+        _log('service is already running — flushing on resume');
         await _markShouldRun(true);
         await TrackingWatchdog.schedule();
+        // App opened/resumed while service was running: upload immediately.
+        service.invoke('flushNow');
         return;
       }
 
@@ -388,6 +455,27 @@ class TrackingService {
       }
     } catch (e) {
       _log('stop error: $e');
+    }
+  }
+
+  /// Flushes pending points (up to the caller's timeout) then stops the service.
+  /// Used by logout so points are uploaded before the token is cleared.
+  static Future<void> flushAndStop() async {
+    try {
+      await _markShouldRun(false);
+      await TrackingWatchdog.cancel();
+      final service = FlutterBackgroundService();
+      if (await service.isRunning()) {
+        // Ask the service to flush and stop; stopService handler flushes first.
+        service.invoke('stopService');
+        // Wait for the service to actually stop (up to the caller's timeout).
+        for (var i = 0; i < 60; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+          if (!await service.isRunning()) break;
+        }
+      }
+    } catch (e) {
+      _log('flushAndStop error: $e');
     }
   }
 
@@ -466,13 +554,14 @@ class TrackingService {
         await prefs.reload();
         final token = prefs.getString('accessToken') ?? '';
         if (token.isEmpty) return;
+        final userId = prefs.getString('userId') ?? '';
         if (DateTime.now().difference(lastPruneAt) > const Duration(hours: 1)) {
           lastPruneAt = DateTime.now();
-          final removed = await TrackingOutbox.prune();
+          final removed = await TrackingOutbox.prune(userId: userId);
           if (removed > 0) _log('outbox: dropped $removed old fixes');
         }
         while (true) {
-          final rows = await TrackingOutbox.oldest(_batchSize);
+          final rows = await TrackingOutbox.oldest(_batchSize, userId: userId);
           if (rows.isEmpty) {
             backoff = Duration.zero;
             break;
@@ -504,13 +593,19 @@ class TrackingService {
       required bool isInitialPoint,
       bool isHeartbeat = false,
     }) async {
+      String currentUserId = '';
       try {
         final prefs = await SharedPreferences.getInstance();
         await prefs.reload();
-        if ((prefs.getString('accessToken') ?? '').isEmpty) {
-          _log('fix skipped (no access token)');
+        // Skip only when nobody is signed in at all (no userId anywhere).
+        final userId = prefs.getString('userId') ?? '';
+        if (userId.isEmpty) {
+          _log('fix skipped (no signed-in user)');
           return;
         }
+        // userId is captured here and passed through to the outbox so points
+        // are always attributed to the right employee, even during a refresh.
+        currentUserId = userId;
 
         if (position.isMocked) {
           _log('point skipped (mock location detected)');
@@ -577,6 +672,7 @@ class TrackingService {
           clientPingId: id,
           capturedAtMs: capturedAt.millisecondsSinceEpoch,
           payload: jsonEncode(payload),
+          userId: currentUserId,
         );
         unawaited(touchAlive());
         if (kDebugMode) {
@@ -588,7 +684,7 @@ class TrackingService {
           );
         }
 
-        final pending = await TrackingOutbox.count();
+        final pending = await TrackingOutbox.count(userId: currentUserId);
         final sinceFlush = DateTime.now().difference(lastFlushAt);
         if (isInitialPoint ||
             pending >= _flushThreshold ||
@@ -606,11 +702,13 @@ class TrackingService {
       connectivitySubscription?.cancel();
       positionSubscription?.cancel();
       // Last chance to upload the final stretch before the service goes away.
+      // If an upload is already running, wait for it then flush once more.
       try {
         await flush(force: true).timeout(const Duration(seconds: 10));
       } catch (_) {}
       service.stopSelf();
     });
+    // flushNow is sent when the app opens/resumes so points upload immediately.
     service.on('flushNow').listen((event) => unawaited(flush(force: true)));
 
     await _migrateLegacyQueue();
