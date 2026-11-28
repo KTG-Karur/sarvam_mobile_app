@@ -172,6 +172,7 @@ class OfflineCollectionService extends GetxService {
     Uint8List photo,
     double? latitude,
     double? longitude,
+    DateTime? collectedAt,
   ) {
     final collectionDate = '${payload['collectionDate'] ?? ''}';
     String json(dynamic v) => jsonEncode(v ?? <String, dynamic>{});
@@ -227,6 +228,10 @@ class OfflineCollectionService extends GetxService {
       ),
       if (latitude != null) 'latitude': latitude.toString(),
       if (longitude != null) 'longitude': longitude.toString(),
+      // When the money was collected, so the tracking map does not show it at
+      // the time it happened to be uploaded.
+      if (collectedAt != null)
+        'collectedAt': collectedAt.toUtc().toIso8601String(),
     });
   }
 
@@ -263,6 +268,7 @@ class OfflineCollectionService extends GetxService {
       await photoFile.readAsBytes(),
       (item['latitude'] as num?)?.toDouble(),
       (item['longitude'] as num?)?.toDouble(),
+      DateTime.tryParse('${item['createdAt'] ?? ''}'),
     );
     if (form == null) return 'Unknown collection type "$type".';
 
