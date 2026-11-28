@@ -26,7 +26,8 @@ class Home extends StatefulWidget {
   State<Home> createState() => _HomeState();
 }
 
-class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
+class _HomeState extends State<Home>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final DashboardController _controller =
       Get.isRegistered<DashboardController>()
       ? Get.find<DashboardController>()
@@ -60,6 +61,7 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadUserDetails();
     _refreshMemberIndividualAccess();
     PermissionService.changes.addListener(_refreshMemberIndividualAccess);
@@ -84,12 +86,22 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     PermissionService.changes.removeListener(_refreshMemberIndividualAccess);
     _pageAnimController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadUserDetails() async {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // HR can remove a punch-out while the app is in the background. Checking
+    // the server again on return restarts live tracking for the reopened day.
+    if (state == AppLifecycleState.resumed) {
+      _loadUserDetails(fromResume: true);
+    }
+  }
+
+  Future<void> _loadUserDetails({bool fromResume = false}) async {
     final prefs = await SharedPreferences.getInstance();
     final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
 
@@ -120,6 +132,8 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
     // Direct-login FDO accounts skip every biometric step, including the
     // mandatory face/fingerprint punch-in redirect.
     if (prefs.getBool('directLogin') ?? false) return;
+    // On resume, never pull the user off a screen opened above this one.
+    if (fromResume && !(ModalRoute.of(context)?.isCurrent ?? false)) return;
     _enforcePunchInGate();
   }
 

@@ -2,8 +2,8 @@ class Api {
   // ── Switch base URL here ────────────────────────────────────────────────────
   // TESTING  → uncomment the test line, comment out the live line
   // RELEASE  → uncomment the live line, comment out the test line
-  static String _baseUrl = "https://sarvam.nidhimfi.com"; // LIVE
-  // static String _baseUrl = "https://testmfi.nidhimfi.com"; // TEST
+  //static String _baseUrl = "https://sarvam.nidhimfi.com"; // LIVE
+  static String _baseUrl = "https://testmfi.nidhimfi.com"; // TEST
   // static String _baseUrl = "https://ktg.nidhimfi.com";     // KTG
   // ───────────────────────────────────────────────────────────────────────────
   static String get baseUrl => _baseUrl;
@@ -42,6 +42,8 @@ class Api {
   // Live Tracking — one fire-and-forget GPS/battery ping per interval while
   // punched in. See TrackingService.
   static String get trackingPingUrl => "$baseUrl/api/hr/tracking/ping";
+  static String get trackingDeviceStatusUrl =>
+      "$baseUrl/api/hr/tracking/device-status";
   static String get myEmployeeProfileUrl => "$baseUrl/api/hr/employees/me";
   static String get demandCollectionUrl => "$baseUrl/api/collections/demand";
   static String get centersUrl => "$baseUrl/api/centers";

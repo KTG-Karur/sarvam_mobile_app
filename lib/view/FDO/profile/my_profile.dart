@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/controller/auth_controller.dart';
 import 'package:sarvam/controller/dashboard_controller.dart';
 import 'package:sarvam/services/hr_api_service.dart';
+// import 'package:sarvam/view/shared/tracking_log_screen.dart';
 
 /// "My Profile" — account summary + settings entry points for the FDO.
 /// Total Visits and Target Achieved have no backend data source yet (same
@@ -137,6 +138,8 @@ class _MyProfileState extends State<MyProfile> {
                   SizedBox(height: 14.h),
                   _menuCard(context),
                   SizedBox(height: 16.h),
+                  // _trackingLogButton(),
+                  // SizedBox(height: 8.h),
                   _logoutButton(context),
                   SizedBox(height: 24.h),
                   Center(
@@ -546,6 +549,18 @@ class _MyProfileState extends State<MyProfile> {
       ),
     );
   }
+
+  // Widget _trackingLogButton() => SizedBox(
+    // width: double.infinity,
+    // child: TextButton.icon(
+      // onPressed: () => Get.to(() => const TrackingLogScreen()),
+      // icon: Icon(Icons.receipt_long_rounded, size: 17.sp),
+      // label: Text(
+        // 'Tracking Log',
+        // style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w700),
+      // ),
+    // ),
+  // );
 
   Widget _logoutButton(BuildContext context) => SizedBox(
     width: double.infinity,
