@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
@@ -230,6 +232,38 @@ mixin EnrollmentUploadsMixin on GetxController {
           isUploading: false,
         ),
       );
+      // Camera or gallery permission denied — show a dialog to open settings.
+      if (e is PlatformException &&
+          (e.code == 'camera_access_denied' ||
+              e.code == 'photo_access_denied' ||
+              e.code == 'camera_access_restricted')) {
+        final ctx = Get.context;
+        if (ctx != null) {
+          await showDialog<void>(
+            context: ctx,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Camera permission needed'),
+              content: const Text(
+                'Allow camera access in Settings so you can upload documents.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    Geolocator.openAppSettings();
+                  },
+                  child: const Text('Open Settings'),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
       Get.snackbar(
         'Upload Failed',
         'Failed to upload document: $e',
