@@ -42,6 +42,8 @@ class Api {
   // Live Tracking — one fire-and-forget GPS/battery ping per interval while
   // punched in. See TrackingService.
   static String get trackingPingUrl => "$baseUrl/api/hr/tracking/ping";
+  static String get trackingDeviceStatusUrl =>
+      "$baseUrl/api/hr/tracking/device-status";
   static String get myEmployeeProfileUrl => "$baseUrl/api/hr/employees/me";
   static String get demandCollectionUrl => "$baseUrl/api/collections/demand";
   static String get centersUrl => "$baseUrl/api/centers";

@@ -12,6 +12,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sarvam/constant/api.dart';
+import 'package:sarvam/services/app_permission_service.dart';
+// import 'package:sarvam/services/tracking_log.dart';
 import 'package:sarvam/services/tracking_outbox.dart';
 import 'package:sarvam/services/tracking_watchdog.dart';
 
@@ -66,15 +68,35 @@ class TrackingService {
   /// always recorded.
   static const int _minimumMovementMeters = 30;
 
-  /// Route points from a fix with a worse reported accuracy than this are
-  /// dropped (the punch-in point is exempt so a route always has a start).
+  /// Fixes at least this accurate are always used (the punch-in point is exempt
+  /// from accuracy rules so a route always has a start).
   static const int _maxAccuracyMeters = 25;
+
+  /// A weaker fix, up to the server's own limit, is used only when nothing has
+  /// been stored for [_weakFixAfter]: a rough point is better than a hole.
+  static const int _weakAccuracyMeters = 100;
+  static const Duration _weakFixAfter = Duration(seconds: 90);
+
+  /// When the GPS stream has delivered nothing for this long, a position is
+  /// asked for directly. Android can stop delivering without any error.
+  static const Duration _streamSilence = Duration(seconds: 90);
+
+  /// Whether a fix of this accuracy is worth keeping, given how long ago the
+  /// last one was stored (null when none has been).
+  @visibleForTesting
+  static bool isAccuracyUsable(double accuracy, Duration? sinceStored) {
+    if (accuracy <= _maxAccuracyMeters) return true;
+    if (accuracy > _weakAccuracyMeters) return false;
+    return sinceStored == null || sinceStored >= _weakFixAfter;
+  }
 
   /// When nothing has been captured for this long (a phone sitting still sends
   /// nothing under the 30 m rule), one fresh fix is recorded as an `IDLE_PING`.
   /// It tells the server the app is alive and where the employee is, so a quiet
   /// stretch can be told apart from tracking that died.
-  static const Duration _heartbeatInterval = Duration(minutes: 30);
+  /// The server shows an employee as offline after 15 minutes of silence, so
+  /// this plus [_flushInterval] must stay well under that.
+  static const Duration _heartbeatInterval = Duration(minutes: 5);
 
   /// Fixes are uploaded together: at least this often while any are waiting...
   static const Duration _flushInterval = Duration(minutes: 5);
@@ -99,8 +121,11 @@ class TrackingService {
   /// Lifecycle logging that also shows in profile/release builds (view with
   /// `adb logcat -s flutter`). The background service runs in its own isolate,
   /// so its output is easy to miss unless every step reports in.
-  // ignore: avoid_print
-  static void _log(String message) => print('Tracking: $message');
+  static void _log(String message) {
+    // ignore: avoid_print
+    print('Tracking: $message');
+    // TrackingLog.add(message);
+  }
 
   static String _todayKey() {
     final now = DateTime.now();
@@ -334,6 +359,35 @@ class TrackingService {
     _log('uploaded $sent');
   }
 
+  /// Tells the server location is switched off (since [offSince]) or back on
+  /// (null). Returns false when it should be tried again, e.g. no internet.
+  static Future<bool> _reportLocationState(DateTime? offSince) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      final token = prefs.getString('accessToken') ?? '';
+      if (token.isEmpty) return false;
+      final response = await http
+          .post(
+            Uri.parse(Api.trackingDeviceStatusUrl),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode({
+              'locationOff': offSince != null,
+              if (offSince != null) 'since': offSince.toIso8601String(),
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
+      final code = response.statusCode;
+      // 400 / 404 (an older server) will not succeed on a retry either.
+      return (code >= 200 && code < 300) || code == 400 || code == 404;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Registers the background service definition. Cheap and idempotent —
   /// call once from `main()` before any [start]/[stop] call. Does not start
   /// the service or request any permission by itself.
@@ -391,6 +445,7 @@ class TrackingService {
         }
       }
       if (running) {
+        unawaited(AppPermissionService.remindIfLocationIncomplete());
         _log('service is already running — flushing on resume');
         await _markShouldRun(true);
         await TrackingWatchdog.schedule();
@@ -402,7 +457,7 @@ class TrackingService {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         _log('location service is disabled');
-        await Geolocator.openLocationSettings();
+        unawaited(AppPermissionService.remindIfLocationIncomplete());
         return;
       }
       var permission = await Geolocator.checkPermission();
@@ -412,6 +467,7 @@ class TrackingService {
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
         _log('location permission denied ($permission)');
+        unawaited(AppPermissionService.remindIfLocationIncomplete());
         return;
       }
       if (defaultTargetPlatform == TargetPlatform.android) {
@@ -436,6 +492,7 @@ class TrackingService {
       await _markShouldRun(true);
       await TrackingWatchdog.schedule();
       _log('background service started');
+      unawaited(AppPermissionService.remindIfLocationIncomplete());
     } catch (e) {
       _log('start error: $e');
     }
@@ -530,6 +587,9 @@ class TrackingService {
     StreamSubscription<Position>? positionSubscription;
     Timer? flushTimer;
     Timer? heartbeatTimer;
+    Timer? silenceTimer;
+    var lastStreamFixAt = DateTime.now();
+    var stopping = false;
     // Fixes are handled one at a time, in the order received: the position
     // stream can hand over a burst, and overlapping calls raced on the
     // last-uploaded position.
@@ -616,11 +676,14 @@ class TrackingService {
           // Between buildings or indoors the receiver reports fixes tens of
           // metres off. Uploading them draws the route down streets the
           // employee never walked, so drop them and wait for a better fix.
-          if (position.accuracy > _maxAccuracyMeters) {
+          final last = lastCaptureAt;
+          if (!isAccuracyUsable(
+            position.accuracy,
+            last == null ? null : DateTime.now().difference(last),
+          )) {
             _log(
               'point skipped (poor GPS accuracy '
-              '${position.accuracy.toStringAsFixed(0)}m > '
-              '${_maxAccuracyMeters}m)',
+              '${position.accuracy.toStringAsFixed(0)}m)',
             );
             return;
           }
@@ -675,14 +738,10 @@ class TrackingService {
           userId: currentUserId,
         );
         unawaited(touchAlive());
-        if (kDebugMode) {
-          debugPrint(
-            'Tracking: stored ${position.latitude.toStringAsFixed(6)}, '
-            '${position.longitude.toStringAsFixed(6)} '
-            '(accuracy ${position.accuracy.toStringAsFixed(0)}m, '
-            '${isHeartbeat ? 'IDLE_PING' : 'EN_ROUTE'})',
-          );
-        }
+        _log(
+          'point stored (accuracy ${position.accuracy.toStringAsFixed(0)}m, '
+          '${isHeartbeat ? 'IDLE_PING' : 'EN_ROUTE'})',
+        );
 
         final pending = await TrackingOutbox.count(userId: currentUserId);
         final sinceFlush = DateTime.now().difference(lastFlushAt);
@@ -697,6 +756,9 @@ class TrackingService {
     }
 
     service.on('stopService').listen((event) async {
+      stopping = true;
+      _log('service stopping');
+      silenceTimer?.cancel();
       flushTimer?.cancel();
       heartbeatTimer?.cancel();
       connectivitySubscription?.cancel();
@@ -735,17 +797,90 @@ class TrackingService {
       _log('initial point error: $error');
     }
 
-    positionSubscription = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: _minimumMovementMeters,
-      ),
-    ).listen(
-      (position) {
+    Future<void> listenToPositions() async {
+      await positionSubscription?.cancel();
+      if (stopping) return;
+      positionSubscription =
+          Geolocator.getPositionStream(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              distanceFilter: _minimumMovementMeters,
+            ),
+          ).listen(
+            (position) {
+              lastStreamFixAt = DateTime.now();
+              chain = chain.then(
+                (_) => capture(position, isInitialPoint: false),
+              );
+            },
+            onError: (Object error) => _log('GPS stream error: $error'),
+          );
+    }
+
+    await listenToPositions();
+
+    // A quiet stream means either the employee is standing still or Android has
+    // stopped delivering. Ask for a position: the usual movement rule discards
+    // it if nothing moved, and if the employee did move the stream is restarted.
+    var checking = false;
+    DateTime? locationOffSince;
+    var locationStateUnsent = false;
+    silenceTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
+      unawaited(touchAlive());
+      if (checking) return;
+      checking = true;
+      try {
+        // Location switched off / back on is shown on the web, so it is checked
+        // on every tick and re-sent until the server has it.
+        final enabled = await Geolocator.isLocationServiceEnabled();
+        if (!enabled && locationOffSince == null) {
+          locationOffSince = DateTime.now().toUtc();
+          locationStateUnsent = true;
+          _log('location is switched off');
+        } else if (enabled && locationOffSince != null) {
+          locationOffSince = null;
+          locationStateUnsent = true;
+          _log('location is back on');
+          await listenToPositions();
+        }
+        if (locationStateUnsent) {
+          locationStateUnsent = !await _reportLocationState(locationOffSince);
+        }
+        if (!enabled ||
+            DateTime.now().difference(lastStreamFixAt) < _streamSilence) {
+          return;
+        }
+        final position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 20),
+          ),
+        );
+        final previous = lastUploadedPosition;
+        final movedMeters = previous == null
+            ? 0.0
+            : Geolocator.distanceBetween(
+                previous.latitude,
+                previous.longitude,
+                position.latitude,
+                position.longitude,
+              );
         chain = chain.then((_) => capture(position, isInitialPoint: false));
-      },
-      onError: (Object error) => _log('GPS stream error: $error'),
-    );
+        // Moved well past the stream's own 30 m step without hearing from it.
+        if (movedMeters > max(position.accuracy, 100)) {
+          _log(
+            'GPS stream stalled (${movedMeters.toStringAsFixed(0)}m '
+            'unreported): restarting it',
+          );
+          await listenToPositions();
+        }
+        lastStreamFixAt = DateTime.now();
+      } catch (e) {
+        _log('no GPS position: $e');
+      } finally {
+        checking = false;
+      }
+    });
 
     // Upload on a timer, and straight away when the network comes back (the
     // retry back-off is reset, because the connection has just changed).
@@ -760,7 +895,9 @@ class TrackingService {
       }
     });
 
-    heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) {
+    // Checked every minute: a timer as long as the interval could skip once and
+    // leave nearly twice the interval without a point.
+    heartbeatTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       unawaited(touchAlive()); // the loop is running, even if there is no fix to record
       final last = lastCaptureAt;
       if (last != null && DateTime.now().difference(last) < _heartbeatInterval) {

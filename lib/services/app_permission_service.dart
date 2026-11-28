@@ -89,6 +89,93 @@ class AppPermissionService {
     return accepted ?? false;
   }
 
+  /// How long "Later" silences the location reminder.
+  static const Duration _remindAfter = Duration(minutes: 30);
+  static DateTime? _snoozedAt;
+
+  /// What still stops Live Tracking from working properly, or null when the
+  /// location setup is complete.
+  @visibleForTesting
+  static String? locationProblem({
+    required bool serviceEnabled,
+    required LocationPermission permission,
+    required bool precise,
+  }) {
+    if (!serviceEnabled) {
+      return 'Location is turned off on this phone. Turn it on.';
+    }
+    if (permission != LocationPermission.always) {
+      return 'Open Permissions, then Location, and choose "Allow all the time".';
+    }
+    if (!precise) {
+      return 'Open Permissions, then Location, and turn on "Use precise location".';
+    }
+    return null;
+  }
+
+  /// Called whenever Live Tracking starts (so only while punched in). Android
+  /// does not let an app switch these on itself: this explains what is missing
+  /// and opens the settings screen where the employee can set it.
+  static Future<void> remindIfLocationIncomplete() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      final permission = await Geolocator.checkPermission();
+      final granted =
+          permission == LocationPermission.always ||
+          permission == LocationPermission.whileInUse;
+      final precise =
+          !granted ||
+          await Geolocator.getLocationAccuracy() ==
+              LocationAccuracyStatus.precise;
+      final problem = locationProblem(
+        serviceEnabled: serviceEnabled,
+        permission: permission,
+        precise: precise,
+      );
+      if (problem == null) {
+        _snoozedAt = null;
+        return;
+      }
+      final snoozed = _snoozedAt;
+      if (snoozed != null && DateTime.now().difference(snoozed) < _remindAfter) {
+        return;
+      }
+      // No await between this check and showing, so only one can be open.
+      if (Get.context == null || Get.isDialogOpen == true) return;
+      final open = await Get.dialog<bool>(
+        AlertDialog(
+          title: const Text('Location setup needed'),
+          content: Text(
+            'While you are punched in, Sarvam records your location for live '
+            'tracking of field visits, even when the app is closed or not in '
+            'use.\n\n$problem',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Get.back(result: false),
+              child: const Text('Later'),
+            ),
+            FilledButton(
+              onPressed: () => Get.back(result: true),
+              child: const Text('Open settings'),
+            ),
+          ],
+        ),
+        barrierDismissible: false,
+      );
+      if (open != true) {
+        _snoozedAt = DateTime.now();
+      } else if (!serviceEnabled) {
+        await Geolocator.openLocationSettings();
+      } else {
+        await Geolocator.openAppSettings();
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('Location reminder error: $e');
+    }
+  }
+
   /// The battery-optimisation screen is a full settings dialog, so show it only
   /// once per install rather than on every launch.
   static Future<void> _requestBatteryExemptionOnce() async {

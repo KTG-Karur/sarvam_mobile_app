@@ -36,7 +36,8 @@ class BmHome extends StatefulWidget {
   State<BmHome> createState() => _BmHomeState();
 }
 
-class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
+class _BmHomeState extends State<BmHome>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   static const _green = Color(0xFF0D6842);
   static const _darkText = Color(0xFF0F172A);
   static const _muted = Color(0xFF64748B);
@@ -86,6 +87,7 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadUserDetails();
     _refreshMemberIndividualAccess();
     PermissionService.changes.addListener(_refreshMemberIndividualAccess);
@@ -114,12 +116,22 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     PermissionService.changes.removeListener(_refreshMemberIndividualAccess);
     _pageAnimController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadUserDetails() async {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // HR can remove a punch-out while the app is in the background. Checking
+    // the server again on return restarts live tracking for the reopened day.
+    if (state == AppLifecycleState.resumed) {
+      _loadUserDetails(fromResume: true);
+    }
+  }
+
+  Future<void> _loadUserDetails({bool fromResume = false}) async {
     final prefs = await SharedPreferences.getInstance();
     final serverInfo = await FaceBiometricService.fetchServerAttendanceInfo();
 
@@ -147,6 +159,8 @@ class _BmHomeState extends State<BmHome> with SingleTickerProviderStateMixin {
           serverInfo?.status ?? prefs.getString(kPunchStatusKey);
       _isWorkingDay = serverInfo?.isWorkingDay ?? true;
     });
+    // On resume, never pull the user off a screen opened above this one.
+    if (fromResume && !(ModalRoute.of(context)?.isCurrent ?? false)) return;
     _enforcePunchInGate();
   }
 
